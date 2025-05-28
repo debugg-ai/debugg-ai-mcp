@@ -1,0 +1,36 @@
+{
+    "mcpServers": {
+      "debugg-ai-mcp": {
+        "command": "node",
+        "args": ["dist/index.js"],
+        "env": {
+            "DEBUGGAI_API_KEY": "6f960ed60c88b5af7d1d7ecfabeee53f5068dc4d",
+            "TEST_USERNAME_EMAIL": "kirk@debugg.ai",
+            "TEST_USER_PASSWORD": "test-password-Starfleet",
+            "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true",
+            "DEBUGGAI_LOCAL_PORT": 3011,
+            "DEBUGGAI_LOCAL_REPO_NAME": "debugg-ai/react-web-app",
+            "DEBUGGAI_LOCAL_BRANCH_NAME": "main",
+            "DEBUGGAI_LOCAL_REPO_PATH": "/Users/quinnosha/Documents/GitHub/react-web-app",
+            "DEBUGGAI_LOCAL_FILE_PATH": "/Users/quinnosha/Documents/GitHub/react-web-app/index.ts"
+        },
+        "options": {}
+      },
+      "debugg-ai-mcp-live": {
+        "command": "npx",
+        "args": ["-y", "debugg-ai-mcp"],
+        "env": {
+            "DEBUGGAI_API_KEY": "6f960ed60c88b5af7d1d7ecfabeee53f5068dc4d",
+            "TEST_USERNAME_EMAIL": "kirk@debugg.ai",
+            "TEST_USER_PASSWORD": "test-password-Starfleet",
+            "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true",
+            "DEBUGGAI_LOCAL_PORT": 3011,
+            "DEBUGGAI_LOCAL_REPO_NAME": "debugg-ai/react-web-app",
+            "DEBUGGAI_LOCAL_BRANCH_NAME": "main",
+            "DEBUGGAI_LOCAL_REPO_PATH": "/Users/quinnosha/Documents/GitHub/react-web-app",
+            "DEBUGGAI_LOCAL_FILE_PATH": "/Users/quinnosha/Documents/GitHub/react-web-app/index.ts"
+        },
+        "options": {}
+      }
+    }
+  }

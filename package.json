@@ -1,0 +1,45 @@
+{
+  "name": "@debugg-ai/debugg-ai-mcp",
+  "version": "1.0.1",
+  "description": "MCP Server for debugg ai web browsing",
+  "type": "module",
+  "bin": {
+    "debugg-ai-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && shx chmod +x dist/*.js",
+    "prepare": "npm run build",
+    "watch": "tsc --watch"
+  },
+  "keywords": [
+    "debugg",
+    "ai",
+    "mcp",
+    "server",
+    "web",
+    "browsing",
+    "testing",
+    "ai testing",
+    "vibe code testing"
+  ],
+  "author": "Quinn Osha",
+  "license": "Apache-2.0",
+  "homepage": "https://debugg.ai",
+  "bugs": "https://github.com/debugg-ai/debugg-ai-mcp/issues",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "axios": "^1.9.0",
+    "mkdirp": "^3.0.1",
+    "ngrok": "^5.0.0-beta.2",
+    "uuid": "^11.1.0",
+    "zod": "^3.25.32"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.24",
+    "shx": "^0.4.0",
+    "typescript": "^5.8.3"
+  }
+}
