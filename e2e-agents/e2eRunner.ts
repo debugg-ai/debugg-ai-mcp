@@ -50,10 +50,10 @@ async function startTunnel(authToken: string, localPort: number, domain: string)
         //     hostname: domain,
         // });
         if (process.env.DOCKER_CONTAINER === "true") {
-            const url = await ngrok.connect({ addr: `host.docker.internal:${localPort}`, hostname: domain, authtoken: authToken });
+            const url = await ngrok.connect({ proto: 'http', addr: `host.docker.internal:${localPort}`, hostname: domain, authtoken: authToken });
             return url;
         } else {
-            const url = await ngrok.connect({ addr: localPort, hostname: domain, authtoken: authToken });
+            const url = await ngrok.connect({ proto: 'http', addr: localPort, hostname: domain, authtoken: authToken });
             return url;
         }
     } catch (err) {

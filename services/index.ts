@@ -37,7 +37,11 @@ export class DebuggAIServerClient  {
    * @returns The server URL
    */
   public async getServerUrl(): Promise<string> {
-    return "https://debuggai-backend.ngrok.app";
+    if (process.env.ENVIRONMENT === "local") {
+      return "https://debuggai-backend.ngrok.app";
+    } else {
+      return "https://api.debugg.ai";
+    }
   }
 
 }

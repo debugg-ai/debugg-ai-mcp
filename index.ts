@@ -50,8 +50,8 @@ const createE2eTestTool: Tool = {
 };
 
 async function configureTestRunner(client: DebuggAIServerClient): Promise<E2eTestRunner> {
-    const e2eTestRunner = new E2eTestRunner(client);
-    return e2eTestRunner;
+  const e2eTestRunner = new E2eTestRunner(client);
+  return e2eTestRunner;
 }
 
 const server = new Server(
@@ -107,7 +107,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
       if (args?.repoPath) {
         repoPath = args.repoPath as string;
       }
-      if (args?.filePath) {  
+      if (args?.filePath) {
         filePath = args.filePath as string;
       }
       if (args?.progressToken) {
@@ -116,14 +116,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
 
       if (progressToken == undefined) {
         console.error("No progress token found");
-        progressToken = uuidv4();
+        // progressToken = uuidv4();
       }
 
       const client = new DebuggAIServerClient(process.env.DEBUGGAI_API_KEY ?? "");
       const e2eTestRunner = await configureTestRunner(client);
 
       const e2eRun = await e2eTestRunner.createNewE2eTest(
-          localPort, description, repoName, branchName, repoPath, filePath
+        localPort, description, repoName, branchName, repoPath, filePath
       );
 
       if (!e2eRun) {
@@ -135,27 +135,33 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
         };
       }
 
-      await server.notification({
-        method: "notifications/progress",
-        params: {
-          progress: 0,
-          total: 20,
-          progressToken,
-        },
-      });
-
-      const finalRun = await e2eTestRunner.handleE2eRun(e2eRun, async(update) => {
-        console.error(`📢 Status: ${update.status}`);
-        const curStep = update.conversations?.[0]?.messages?.length;
-        const totalSteps = update.conversations?.[0]?.messages?.length;
+      if (progressToken) {
         await server.notification({
           method: "notifications/progress",
           params: {
-            progress: curStep,
+            progress: 0,
             total: 20,
             progressToken,
           },
         });
+      }
+
+      const finalRun = await e2eTestRunner.handleE2eRun(e2eRun, async (update) => {
+        console.error(`📢 Status: ${update.status}`);
+        const curStep = update.conversations?.[0]?.messages?.length;
+        const totalSteps = update.conversations?.[0]?.messages?.length;
+        const updateMessage = curStep ? update.conversations?.[0]?.messages?.[curStep]?.jsonContent?.currentState?.nextGoal : undefined;
+        if (progressToken) {
+          await server.notification({
+            method: "notifications/progress",
+            params: {
+              progress: curStep,
+              total: 20,
+              progressToken,
+              message: updateMessage
+            },
+          });
+        }
       });
 
       const testOutcome = finalRun?.outcome;
@@ -178,7 +184,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
           {
             type: "image",
             data: base64,
-            mimeType: "image/jpeg",
+            mimeType: "image/gif",
           }
         ],
       };

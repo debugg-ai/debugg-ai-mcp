@@ -1,6 +1,6 @@
 {
   "name": "@debugg-ai/debugg-ai-mcp",
-  "version": "1.0.5",
+  "version": "1.0.8",
   "description": "MCP Server for debugg ai web browsing",
   "type": "module",
   "bin": {
@@ -29,6 +29,7 @@
   "license": "Apache-2.0",
   "homepage": "https://debugg.ai",
   "bugs": "https://github.com/debugg-ai/debugg-ai-mcp/issues",
+  "changelog": "https://github.com/debugg-ai/debugg-ai-mcp/CHANGELOG.md",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "axios": "^1.9.0",
