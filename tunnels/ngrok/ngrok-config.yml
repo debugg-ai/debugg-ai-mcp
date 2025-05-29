@@ -2,6 +2,7 @@ web_addr: 0.0.0.0:4040
 # Fill this in with your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken
 
 log_level: debug
-authtoken: 2xWBRboVuXUJkwVF2H4motEE6fI_2prPjBgL3ky8UW9WVNLxC
+# This is the bot token which has restricted access to the ngrok
+# authtoken: 2xmCCTaRa87Rj1Py0r5HJv7wfUj_3qfRoVCP1ynnxD9Wc6x7L
 version: 2
 

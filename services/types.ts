@@ -183,6 +183,7 @@ export interface E2eTest {
     agentTaskDescription?: string | null;
     testScript: string; // path or URL
     createdBy?: number | null;
+    tunnelKey?: string | null;
 }
 
 export type E2eRunStatus = 'pending' | 'running' | 'completed';

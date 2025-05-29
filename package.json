@@ -1,16 +1,16 @@
 {
   "name": "@debugg-ai/debugg-ai-mcp",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "description": "MCP Server for debugg ai web browsing",
   "type": "module",
   "bin": {
-    "debugg-ai-mcp": "dist/index.js"
+    "@debugg-ai/debugg-ai-mcp": "dist/index.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc && shx chmod +x dist/*.js",
+    "build": "tsc && shx chmod +x dist/index.js",
     "prepare": "npm run build",
     "watch": "tsc --watch"
   },

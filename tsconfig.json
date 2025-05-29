@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",
@@ -8,11 +9,16 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "outDir": "./dist" /* Specify an output folder for all emitted files. */,
+    // "preserveSymlinks": true,                         /* Disable resolving symlinks to their realpath. This correlates to the same flag in node. */
+    /* Type Checking */
+    "rootDir": "."
   },
   "include": [
-    "./**/*.ts"
+    "*.ts",
+    "*.js",
+    "./**/*.ts",
+    "./**/*.js"
   ],
   "exclude": [
     "node_modules"

@@ -37,8 +37,7 @@ export class DebuggAIServerClient  {
    * @returns The server URL
    */
   public async getServerUrl(): Promise<string> {
-    return "http://localhost:8002";
-
+    return "https://debuggai-backend.ngrok.app";
   }
 
 }

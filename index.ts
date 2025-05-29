@@ -1,4 +1,5 @@
-// index.ts
+#!/usr/bin/env node
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -11,6 +12,7 @@ import {
 import { DebuggAIServerClient } from "./services/index.js";
 import { E2eTestRunner } from "./e2e-agents/e2eRunner.js";
 import { Message } from "./services/types.js";
+import { v4 as uuidv4 } from 'uuid';
 
 const createE2eTestTool: Tool = {
   name: "debugg_ai_test_page_changes",
@@ -64,6 +66,7 @@ const server = new Server(
   }
 );
 
+
 server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => {
   console.error("Received CallToolRequest:", req);
 
@@ -89,7 +92,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
       let repoPath = process.env.DEBUGGAI_LOCAL_REPO_PATH ?? "/Users/test-user-repo/test-repo";
       let filePath = process.env.DEBUGGAI_LOCAL_FILE_PATH ?? "/Users/test-user-repo/test-repo/index.ts";
 
-      const progressToken = req.params._meta?.progressToken;
+      let progressToken = req.params._meta?.progressToken;
+
 
       if (args?.localPort) {
         localPort = args.localPort as number;
@@ -106,14 +110,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
       if (args?.filePath) {  
         filePath = args.filePath as string;
       }
+      if (args?.progressToken) {
+        progressToken = args.progressToken as string;
+      }
 
       if (progressToken == undefined) {
         console.error("No progress token found");
-        return {
-          content: [
-            { type: "text", text: "No progress token found" },
-          ],
-        };
+        progressToken = uuidv4();
       }
 
       const client = new DebuggAIServerClient(process.env.DEBUGGAI_API_KEY ?? "");

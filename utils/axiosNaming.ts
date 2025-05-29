@@ -1,4 +1,4 @@
-import { objToCamelCase, objToSnakeCase } from "../utils/objectNaming.js";
+import { objToCamelCase, objToSnakeCase } from "./objectNaming.js";
 
 import { destroy as destroyAxios, get as getAxios, post as postAxios, put as putAxios } from "./axios.js";
 
