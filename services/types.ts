@@ -212,5 +212,6 @@ export interface E2eRun {
   targetUrl?: string | null;
   runGif?: string | null;  // Url to the gif file containing the run
   runJson?: string | null;  // Url to the json file containing the run data
+  finalScreenshot?: string | null;  // Url to the final screenshot of the run
   metrics?: E2eRunMetrics | null;
 }

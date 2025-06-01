@@ -167,26 +167,38 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
       const testOutcome = finalRun?.outcome;
       const testDetails = finalRun?.conversations?.[0]?.messages?.map((message: Message) => message.jsonContent?.currentState?.nextGoal);
 
-      const runGif = finalRun?.runGif;
+      // const runGif = finalRun?.runGif;
+      // let base64 = "";
+      // if (runGif) {
+      //   const response = await fetch(runGif);
+      //   const arrayBuffer = await response.arrayBuffer();
+      //   base64 = Buffer.from(arrayBuffer).toString('base64');
+      // }
+
+      // many clients don't support gif yet, so default to jpg
+      const finalScreenshot = finalRun?.finalScreenshot;
       let base64 = "";
-      if (runGif) {
-        const response = await fetch(runGif);
+      if (finalScreenshot) {
+        const response = await fetch(finalScreenshot);
         const arrayBuffer = await response.arrayBuffer();
         base64 = Buffer.from(arrayBuffer).toString('base64');
       }
+      const responseContent = [
+        {
+          type: "text",
+          text: JSON.stringify({ testOutcome, testDetails }, null, 2),
+        }
+      ] as any;
 
+      // if (base64) {
+      //   responseContent.push({
+      //     type: "image",
+      //     data: base64,
+      //     mimeType: "image/jpg",
+      //   })
+      // }
       return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ testOutcome, testDetails }, null, 2),
-          },
-          {
-            type: "image",
-            data: base64,
-            mimeType: "image/gif",
-          }
-        ],
+        content: responseContent,
       };
     }
 

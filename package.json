@@ -1,6 +1,6 @@
 {
   "name": "@debugg-ai/debugg-ai-mcp",
-  "version": "1.0.8",
+  "version": "1.0.10",
   "description": "MCP Server for debugg ai web browsing",
   "type": "module",
   "bin": {
