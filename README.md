@@ -44,7 +44,6 @@ Use this when testing or integrating into tools like Claude Desktop or your own 
 
 ```bash
 docker run -i --rm --init \
-  -e ENVIRONMENT=local \
   -e DEBUGGAI_API_KEY=your_api_key \
   -e TEST_USERNAME_EMAIL=your_test_email \
   -e TEST_USER_PASSWORD=your_password \
@@ -87,11 +86,9 @@ ensure new functionality works as expected.
       "command": "npx",
       "args": ["-y", "@debugg-ai/debugg-ai-mcp"],
       "env": {
-        "ENVIRONMENT": "local",
         "DEBUGGAI_API_KEY": "YOUR_API_KEY",
         "TEST_USERNAME_EMAIL": "test@example.com",
         "TEST_USER_PASSWORD": "supersecure",
-        "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true",
         "DEBUGGAI_LOCAL_PORT": 3000,
         "DEBUGGAI_LOCAL_REPO_NAME": "org/project",
         "DEBUGGAI_LOCAL_BRANCH_NAME": "main",
@@ -117,7 +114,6 @@ ensure new functionality works as expected.
 | `DEBUGGAI_LOCAL_BRANCH_NAME`            | Branch name                                | ❌       |
 | `DEBUGGAI_LOCAL_REPO_PATH`              | Local path to repo root                    | ❌       |
 | `DEBUGGAI_LOCAL_FILE_PATH`              | File to test                               | ❌       |
-| `MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS` | Prevents client timeouts during long tests | ❌       |
 
 
 ---
