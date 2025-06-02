@@ -27,6 +27,28 @@
 
 ---
 
+## Examples
+
+### Input prompt: "Test the ability to create an account and login"
+
+![Test Create Account and Login](/assets/recordings/test-create-account-login.gif)
+
+### Results:
+
+    **Task Completed**
+
+    - Duration: 86.80 seconds
+    - Final Result: Successfully completed the task of signing up and logging into the account with the email 'alice.wonderland1234@example.com'.
+    - Status: Success
+
+### Full Demo:
+
+> Watch a more in-depth, [Full Use Case Demo](https://debugg.ai/demo)
+
+
+--- 
+
+
 
 ## 🛠️ Quickstart
 

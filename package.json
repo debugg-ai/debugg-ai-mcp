@@ -1,7 +1,7 @@
 {
   "name": "@debugg-ai/debugg-ai-mcp",
-  "version": "1.0.12",
-  "description": "MCP Server for debugg ai web browsing",
+  "version": "1.0.13",
+  "description": "Zero-Config, Fully AI-Managed End-to-End Testing for all code gen platforms.",
   "type": "module",
   "bin": {
     "@debugg-ai/debugg-ai-mcp": "dist/index.js"
