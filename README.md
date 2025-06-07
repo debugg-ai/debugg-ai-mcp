@@ -10,14 +10,6 @@ That means no distracting chrome pop ups as it's running tests, no managing chro
 
 Should you want to later rerun those tests or create a suite of them to run in your CI / CD pipeline, you can see all historical test results in your dashboard - [Debugg.AI App](https://app.debugg.ai) 
 
-End to end testing used to be a nightmare. Not just to setup, but to manage over time as you made changes to your app.
-
-Debugg AI's MCP server offers a NEW way to test, where you never have to worry about setting up playwright, local browsers or proxies with it fully remote, managed browsers that simply connect to a server running locally or remotely via a secure tunnel.
-
-That means no distracting chrome pop ups as it's running tests, no managing chrome or playwright versions, and best of all - ZERO CONFIGURATION. Just grab an API key and add us to your MCP server list.
-
-Should you want to later rerun those tests or create a suite of them to run in your CI / CD pipeline, you can see all historical test results in your dashboard - [Debugg.AI App](https://debugg.ai)
-
 
 ---
 
