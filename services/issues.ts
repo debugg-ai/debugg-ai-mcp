@@ -87,7 +87,7 @@ export const createIssuesService = (tx: AxiosTransport): IssuesService => ({
       };
       const response = await tx.get<PaginatedIssueResponse>(serverUrl, {...fileParams});
 
-      console.error("Raw API response:", response);
+      // console.error("Raw API response:", response);
 
       // Optionally filter suggestions that match the current file
       // (If your backend already filters by file_path, this might be unnecessary,

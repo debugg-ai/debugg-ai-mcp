@@ -185,7 +185,6 @@ export class E2eTestRunner {
     
             updatedRun = latestRun;
             console.error(`📡 Polled E2E run status: ${updatedRun.status}`);
-    
             await onUpdate(updatedRun); // 🔁 Invoke the callback with the updated run
     
             if (updatedRun.status === 'completed') {
@@ -194,7 +193,7 @@ export class E2eTestRunner {
                 await stopTunnel(`https://${e2eRun.key}.ngrok.debugg.ai`);
                 stopped = true;
             }
-        }, 5000);
+        }, 1500);
     
         while (!stopped) {
             await new Promise(resolve => setTimeout(resolve, 1000));

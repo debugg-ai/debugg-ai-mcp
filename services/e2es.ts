@@ -54,7 +54,7 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
             };
             const response = await tx.post<E2eTest>(serverUrl, { ...fileParams });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {
@@ -100,7 +100,7 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
             };
             const response = await tx.post<E2eRun>(serverUrl, { ...fileParams });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {
@@ -146,7 +146,7 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
             };
             const response = await tx.post<E2eRun>(serverUrl, { ...fileParams });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {
@@ -166,7 +166,7 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
             const serverUrl = `api/v1/e2e-runs/${uuid}/`;
             const response = await tx.get<E2eRun>(serverUrl, { ...params });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {
@@ -188,7 +188,7 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
             const serverUrl = `api/v1/e2e-tests/${uuid}/`;
             const response = await tx.get<E2eTest>(serverUrl, { ...params });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {

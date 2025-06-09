@@ -1,6 +1,6 @@
 {
   "name": "@debugg-ai/debugg-ai-mcp",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Zero-Config, Fully AI-Managed End-to-End Testing for all code gen platforms.",
   "type": "module",
   "bin": {

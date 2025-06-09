@@ -177,11 +177,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
 
       // many clients don't support gif yet, so default to jpg
       const finalScreenshot = finalRun?.finalScreenshot;
-      let base64 = "";
+      let baseEncodedImage = "";
       if (finalScreenshot) {
         const response = await fetch(finalScreenshot);
         const arrayBuffer = await response.arrayBuffer();
-        base64 = Buffer.from(arrayBuffer).toString('base64');
+        baseEncodedImage = Buffer.from(arrayBuffer).toString('base64');
       }
       const responseContent = [
         {
@@ -190,13 +190,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
         }
       ] as any;
 
-      // if (base64) {
-      //   responseContent.push({
-      //     type: "image",
-      //     data: base64,
-      //     mimeType: "image/jpg",
-      //   })
-      // }
+      if (baseEncodedImage) {
+        responseContent.push({
+          type: "image",
+          data: baseEncodedImage,
+          mimeType: "image/png"
+        })
+      }
+      console.error("Response content:", responseContent);
       return {
         content: responseContent,
       };

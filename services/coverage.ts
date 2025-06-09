@@ -51,7 +51,7 @@ export const createCoverageService = (tx: AxiosTransport): CoverageService => ({
             };
             const response = await tx.post<CoverageResponse>(serverUrl, { ...fileParams });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {
@@ -100,7 +100,7 @@ export const createCoverageService = (tx: AxiosTransport): CoverageService => ({
             };
             const response = await tx.post<CoverageResponse>(serverUrl, { ...fileParams });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {
@@ -148,7 +148,7 @@ export const createCoverageService = (tx: AxiosTransport): CoverageService => ({
             };
             const response = await tx.get<CoverageResponse>(serverUrl, { ...fileParams });
 
-            console.error("Raw API response:", response);
+            // console.error("Raw API response:", response);
             return response;
 
         } catch (err) {
