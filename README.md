@@ -10,6 +10,9 @@ That means no distracting chrome pop ups as it's running tests, no managing chro
 
 Should you want to later rerun those tests or create a suite of them to run in your CI / CD pipeline, you can see all historical test results in your dashboard - [Debugg.AI App](https://app.debugg.ai) 
 
+<a href="https://glama.ai/mcp/servers/@debugg-ai/debugg-ai-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@debugg-ai/debugg-ai-mcp/badge" alt="Debugg AI MCP server" />
+</a>
 
 ---
 
