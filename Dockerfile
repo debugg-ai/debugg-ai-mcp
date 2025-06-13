@@ -5,10 +5,15 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY src /app/src
+COPY e2e-agents /app/e2e-agents
+COPY services /app/services
+COPY tunnels /app/tunnels
+COPY utils /app/utils
+
 COPY tsconfig.json /app/tsconfig.json
 COPY package.json /app/package.json
 COPY package-lock.json /app/package-lock.json
+COPY index.ts /app/index.ts
 
 RUN npm install
 
