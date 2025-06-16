@@ -160,7 +160,10 @@ npm install
 # Copy the test config and insert your creds
 cp test-config-example.json test-config.json
 
-# Run the MCP server locally
+# Run the local node-built dist
+npx @modelcontextprotocol/inspector --config test-config.json --server debugg-ai-mcp-node
+
+# OR Run the MCP server locally from above toplevel dir. 
 npx @modelcontextprotocol/inspector --config debugg-ai-mcp/test-config.json --server debugg-ai-mcp
 ```
 

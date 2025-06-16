@@ -169,21 +169,27 @@ export interface CoverageResponse {
     lastMod: string;
 }
 
+export interface Host {
+    id: number;
+    name: string;
+}
+
 export interface E2eTest {
     id: string;
     uuid: string;
     timeStamp: string;
     lastModified: string;
     project: number;
+    projectName?: string | null;
+    tunnelKey?: string | null;
     curRun?: E2eRun | null;
-    host?: number | null;
+    host?: Host | null;
     name: string;
     description?: string | null;
     agent?: number | null;
     agentTaskDescription?: string | null;
     testScript: string; // path or URL
     createdBy?: number | null;
-    tunnelKey?: string | null;
 }
 
 export type E2eRunStatus = 'pending' | 'running' | 'completed';
@@ -204,14 +210,75 @@ export interface E2eRun {
   key: string;
   runType: E2eRunType;
   test?: E2eTest | null;
+  tunnelKey?: string | null;
   status: E2eRunStatus;
   outcome: E2eRunOutcome;
   conversations?: Conversation[]; // array of Conversations
   startedBy?: number | null;
   runOnHost?: number | null;
   targetUrl?: string | null;
+  finalScreenshot?: string | null;
   runGif?: string | null;  // Url to the gif file containing the run
   runJson?: string | null;  // Url to the json file containing the run data
-  finalScreenshot?: string | null;  // Url to the final screenshot of the run
   metrics?: E2eRunMetrics | null;
 }
+
+export interface E2eTestSuite {
+    uuid: string;
+    id: number;
+    name: string;
+    description?: string | null;
+    project: number; // typically an ID
+    host?: number | null;
+    createdBy?: number | null;
+    completed?: boolean;
+    completedAt?: string | null;
+    tests?: E2eTest[];
+    key: string;
+
+    // Read-only expanded fields
+    feature?: TestFeature | null;
+    testType?: TestType | null;
+    userRole?: UserRole | null;
+    deviceType?: DeviceType | null;
+    region?: Region | null;
+  
+    // Writable foreign key fields
+    featureId?: number | null;
+    testTypeId?: number | null;
+    userRoleId?: number | null;
+    deviceTypeId?: number | null;
+    regionId?: number | null;
+  
+    timestamp: string;
+    lastMod: string;
+    tunnelKey?: string | null;
+  }
+  
+  // Supporting interfaces (adjust fields as necessary)
+  export interface TestFeature {
+    id: number;
+    name: string;
+    description?: string;
+  }
+  
+  export interface TestType {
+    id: number;
+    name: string;
+  }
+  
+  export interface UserRole {
+    id: number;
+    name: string;
+  }
+  
+  export interface DeviceType {
+    id: number;
+    name: string;
+  }
+  
+  export interface Region {
+    id: number;
+    name: string;
+  }
+  

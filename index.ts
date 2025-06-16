@@ -57,7 +57,7 @@ async function configureTestRunner(client: DebuggAIServerClient): Promise<E2eTes
 const server = new Server(
   {
     name: "DebuggAI MCP Server",
-    version: "0.1.0",
+    version: "0.1.1",
   },
   {
     capabilities: {

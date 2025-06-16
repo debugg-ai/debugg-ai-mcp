@@ -134,13 +134,7 @@ export class E2eTestRunner {
         const key = uuidv4();
         const e2eTest = await this.client.e2es?.createE2eTest(
             testDescription,
-            filePath ?? "",
-            repoName,
-            branchName,
-            {
-              repoPath: repoPath,
-              key: key
-            }
+            { filePath: filePath ?? "", repoName: repoName, branchName: branchName, repoPath: repoPath, key: key }
         );
         const authToken = e2eTest?.tunnelKey;
         if (!authToken) {

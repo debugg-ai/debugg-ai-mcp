@@ -1,6 +1,6 @@
 {
   "name": "@debugg-ai/debugg-ai-mcp",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Zero-Config, Fully AI-Managed End-to-End Testing for all code gen platforms.",
   "type": "module",
   "bin": {
@@ -31,7 +31,7 @@
   "bugs": "https://github.com/debugg-ai/debugg-ai-mcp/issues",
   "changelog": "https://github.com/debugg-ai/debugg-ai-mcp/CHANGELOG.md",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.12.3",
     "axios": "^1.9.0",
     "mkdirp": "^3.0.1",
     "ngrok": "^5.0.0-beta.2",

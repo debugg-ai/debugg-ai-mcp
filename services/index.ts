@@ -4,6 +4,9 @@ import { createIssuesService, IssuesService } from "./issues.js";
 import { createReposService, ReposService } from "./repos.js";
 import { AxiosTransport } from "../utils/axiosTransport.js";
 
+import { AxiosRequestConfig } from "axios";
+
+
 export class DebuggAIServerClient  {
   tx: AxiosTransport | undefined;
   url: URL | undefined;
