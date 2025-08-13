@@ -4,3 +4,5 @@ node_modules/**
 _test-config.json
 src/tunnels/ngrok/ngrok-config.yml
 test-config.json
+/reference-usages
+CLAUDE.md
