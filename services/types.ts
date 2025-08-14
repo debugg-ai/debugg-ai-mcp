@@ -254,6 +254,34 @@ export interface E2eTestSuite {
     lastMod: string;
     tunnelKey?: string | null;
   }
+
+// Main E2eTestCommitSuite interface (from E2eTestCommitSuiteSerializer)
+export interface E2eTestCommitSuite {
+    id: number;
+    uuid: string;
+    commitHash: string | null;
+    commitHashShort: string | null; // first 8 characters of commit hash
+    project: number; // project ID
+    projectName: string | null;
+    description: string;
+    summarizedChanges: string | null;
+    tests?: E2eTest[];
+    tunnelKey: string | null;  // Actual api key for ngrok
+    key: string | null;  // UUID key for url endpoint
+    runStatus: E2eRunStatus;
+    createdBy?: PublicUserInfo | null;
+    timestamp: string;
+    lastMod: string;
+}
+
+// Public user info interface
+export interface PublicUserInfo {
+    uuid: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    company: string; // company name
+}
   
   // Supporting interfaces (adjust fields as necessary)
   export interface TestFeature {

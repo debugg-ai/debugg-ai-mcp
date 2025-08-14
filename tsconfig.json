@@ -9,6 +9,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "isolatedModules": true,
     "outDir": "./dist" /* Specify an output folder for all emitted files. */,
     // "preserveSymlinks": true,                         /* Disable resolving symlinks to their realpath. This correlates to the same flag in node. */
     /* Type Checking */
@@ -21,6 +22,9 @@
     "./**/*.js"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "reference-usages",
+    "dist",
+    "__tests__"
   ]
 }

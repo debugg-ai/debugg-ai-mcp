@@ -136,9 +136,11 @@ export class E2eTestRunner {
             testDescription,
             { filePath: filePath ?? "", repoName: repoName, branchName: branchName, repoPath: repoPath, key: key }
         );
+        console.error("E2E test creation response:", JSON.stringify(e2eTest, null, 2));
         const authToken = e2eTest?.tunnelKey;
         if (!authToken) {
-            console.error("Failed to get auth token.");
+            console.error("Failed to get auth token. E2E test response:", e2eTest);
+            console.error("Available keys in response:", e2eTest ? Object.keys(e2eTest) : 'null response');
             return null;
         }
         await startTunnel(authToken, testPort, `${key}.ngrok.debugg.ai`);
@@ -224,7 +226,7 @@ export class E2eTestRunner {
                 // }
                 stopped = true;
             } 
-        }, 5000);
+        }, 2000);
 
         // Timeout safeguard
         const timeout = setTimeout(async () => {

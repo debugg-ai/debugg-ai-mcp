@@ -1,0 +1,85 @@
+name: Version Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      custom_version:
+        description: 'Custom version (optional, overrides version_type)'
+        required: false
+        type: string
+
+jobs:
+  version-bump:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Configure Git
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run tests before version bump
+      run: npm test
+      env:
+        DEBUGGAI_API_KEY: 'test-api-key-for-testing'
+        
+    - name: Bump version
+      run: |
+        if [[ -n "${{ github.event.inputs.custom_version }}" ]]; then
+          echo "Setting custom version: ${{ github.event.inputs.custom_version }}"
+          npm version ${{ github.event.inputs.custom_version }} --no-git-tag-version
+        else
+          echo "Bumping ${{ github.event.inputs.version_type }} version"
+          npm version ${{ github.event.inputs.version_type }} --no-git-tag-version
+        fi
+        
+        NEW_VERSION=$(node -p "require('./package.json').version")
+        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+        
+    - name: Update CHANGELOG.md
+      run: |
+        if [ ! -f CHANGELOG.md ]; then
+          echo "# Changelog" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+        fi
+        
+        # Add new version entry to changelog
+        sed -i "2i\\## [${NEW_VERSION}] - $(date +%Y-%m-%d)\n\n### Added\n- Version bump to ${NEW_VERSION}\n" CHANGELOG.md
+        
+    - name: Commit version bump
+      run: |
+        git add package.json package-lock.json CHANGELOG.md
+        git commit -m "chore: bump version to ${NEW_VERSION}"
+        git push origin main
+        
+    - name: Create summary
+      run: |
+        echo "## Version Bump Complete! 🎉" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**New Version:** ${NEW_VERSION}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The version has been updated and pushed to main." >> $GITHUB_STEP_SUMMARY
+        echo "The publish workflow will automatically run and publish to NPM." >> $GITHUB_STEP_SUMMARY
