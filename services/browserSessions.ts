@@ -109,6 +109,7 @@ export interface BrowserSessionsService {
     screenshot: SessionScreenshot;
   }>;
   listSessions(params?: { status?: string; limit?: number; offset?: number }): Promise<PaginatedResponse<BrowserSession>>;
+  navigateSession(sessionId: string, params: { url: string }): Promise<BrowserSession>;
 }
 
 /**
@@ -149,7 +150,10 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
       const requestBody = {
         initialUrl: params.url,
         sessionName: params.sessionName || `Session ${new Date().toISOString()}`,
-        // Let the AxiosTransport interceptor convert these to snake_case
+        monitorConsole: params.monitorConsole ?? true,
+        monitorNetwork: params.monitorNetwork ?? true,
+        takeScreenshots: params.takeScreenshots ?? false,
+        screenshotInterval: params.screenshotInterval ?? 10
       };
 
       const backendResponse = await tx.post<any>(serverUrl, requestBody);
@@ -178,7 +182,16 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
       return session;
     } catch (err) {
       console.error("Error starting browser session:", err);
-      throw new Error(`Failed to start browser session: ${(err as any).message}`);
+      
+      // Handle HTML error responses (404 pages)
+      let errorMessage = (err as any).message;
+      if (typeof err === 'string' && err.includes('<!DOCTYPE html>')) {
+        errorMessage = 'Browser sessions API endpoint not found - service may not be available';
+      } else if ((err as any).response?.status === 404) {
+        errorMessage = 'Browser sessions API endpoint not found (404) - service may not be implemented';
+      }
+      
+      throw new Error(`Failed to start browser session: ${errorMessage}`);
     }
   },
 
@@ -514,6 +527,60 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
     } catch (err) {
       console.error("Error listing sessions:", err);
       throw new Error(`Failed to list sessions: ${(err as any).message}`);
+    }
+  },
+
+  /**
+   * Navigate an active browser session to a new URL
+   */
+  async navigateSession(sessionId: string, params: { url: string }): Promise<BrowserSession> {
+    try {
+      const serverUrl = `api/v1/browser-sessions/sessions/${sessionId}/navigate/`;
+      
+      const requestBody = {
+        url: params.url
+      };
+
+      // Try POST first, fall back to PATCH if not supported
+      let backendResponse;
+      try {
+        backendResponse = await tx.post<any>(serverUrl, requestBody);
+      } catch (postErr) {
+        // If POST fails with 404/405, try PATCH to update session URL
+        if ((postErr as any).response?.status === 404 || (postErr as any).response?.status === 405) {
+          const patchUrl = `api/v1/browser-sessions/sessions/${sessionId}/`;
+          backendResponse = await tx.patch<any>(patchUrl, { current_url: params.url });
+        } else {
+          throw postErr;
+        }
+      }
+
+      if (!backendResponse) {
+        throw new Error('Failed to navigate browser session - no response from service');
+      }
+
+      // Convert backend response to MCP format
+      const session: BrowserSession = {
+        sessionId: backendResponse.uuid || sessionId,
+        sessionName: backendResponse.session_name || 'Session',
+        url: params.url, // Use the new URL as current
+        status: mapBackendStatus(backendResponse.status || 'ACTIVE'),
+        startTime: backendResponse.timestamp || new Date().toISOString(),
+        monitoring: {
+          console: true,
+          network: true,
+          screenshots: false
+        },
+        tunnelKey: backendResponse.tunnel_key
+      };
+
+      return session;
+    } catch (err) {
+      console.error("Error navigating browser session:", err);
+      if ((err as any).response?.status === 404) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+      throw new Error(`Failed to navigate browser session: ${(err as any).message}`);
     }
   }
 });

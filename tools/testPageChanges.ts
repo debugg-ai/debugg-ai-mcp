@@ -18,7 +18,7 @@ export const testPageChangesTool: Tool = {
     properties: {
       description: {
         type: "string",
-        description: "Natural language description of what to test (e.g., 'Test login form on /login page' or 'Click the submit button and verify success message appears')",
+        description: "Natural language description of what to test (e.g., 'Test login form on /login page' or 'Click the submit button and verify success message appears'). The system will automatically detect URLs from common patterns like 'projects list', 'user profile', 'dashboard', etc.",
         minLength: 1
       },
       localPort: {
@@ -42,6 +42,10 @@ export const testPageChangesTool: Tool = {
       repoPath: {
         type: "string",
         description: "Absolute path to your project's root directory"
+      },
+      targetUrl: {
+        type: "string",
+        description: "Optional explicit target URL to test. If not provided, will be intelligently resolved from the description (e.g., 'test the projects page' → '/projects/')"
       },
     },
     required: ["description"],

@@ -9,6 +9,7 @@ import {
   GetLiveSessionStatusInput,
   GetLiveSessionLogsInput,
   GetLiveSessionScreenshotInput,
+  NavigateLiveSessionInput,
   ToolResponse, 
   ToolContext,
   ProgressCallback
@@ -17,6 +18,7 @@ import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
+import { resolveUrl } from '../utils/urlResolver.js';
 
 const logger = new Logger({ module: 'liveSessionHandlers' });
 
@@ -44,7 +46,7 @@ export async function startLiveSessionHandler(
 
   try {
     if (progressCallback) {
-      await progressCallback({ progress: 1, total: 4, message: 'Initializing live session...' });
+      await progressCallback({ progress: 1, total: 5, message: 'Initializing live session...' });
     }
 
     // Get the service client
@@ -54,12 +56,38 @@ export async function startLiveSessionHandler(
     }
 
     if (progressCallback) {
-      await progressCallback({ progress: 2, total: 4, message: 'Configuring browser monitoring...' });
+      await progressCallback({ progress: 2, total: 5, message: 'Resolving target URL...' });
+    }
+
+    // Resolve URL using URL intelligence if needed
+    let resolvedUrl = input.url;
+    let urlResolutionNote = '';
+    
+    // Check if the input looks like a URL or a description
+    if (!input.url.startsWith('http://') && !input.url.startsWith('https://')) {
+      // If we have a local port, construct localhost URL
+      if (input.localPort) {
+        const resolvedPath = resolveUrl(input.url);
+        resolvedUrl = `http://localhost:${input.localPort}${resolvedPath}`;
+        urlResolutionNote = ` (resolved from "${input.url}" to path "${resolvedPath}")`;
+        logger.info(`URL Intelligence: Resolved "${input.url}" to ${resolvedUrl}`);
+      } else {
+        // Try to resolve as a relative path description
+        const resolvedPath = resolveUrl(input.url);
+        // If no explicit domain provided and no local port, default to localhost:3000
+        resolvedUrl = `http://localhost:3000${resolvedPath}`;
+        urlResolutionNote = ` (resolved from "${input.url}" to path "${resolvedPath}", defaulting to localhost:3000)`;
+        logger.info(`URL Intelligence: Resolved "${input.url}" to ${resolvedUrl}`);
+      }
+    }
+
+    if (progressCallback) {
+      await progressCallback({ progress: 3, total: 5, message: 'Configuring browser monitoring...' });
     }
 
     // Prepare session parameters
     const sessionParams = {
-      url: input.url,
+      url: resolvedUrl,
       localPort: input.localPort,
       sessionName: input.sessionName || `Session ${new Date().toISOString()}`,
       monitorConsole: input.monitorConsole ?? true,
@@ -69,21 +97,26 @@ export async function startLiveSessionHandler(
     };
 
     if (progressCallback) {
-      await progressCallback({ progress: 3, total: 4, message: 'Starting browser session...' });
+      await progressCallback({ progress: 4, total: 5, message: 'Starting browser session...' });
     }
 
     // Start the session via API
     const session = await client.browserSessions.startSession(sessionParams);
 
     if (progressCallback) {
-      await progressCallback({ progress: 4, total: 4, message: 'Live session started successfully' });
+      await progressCallback({ progress: 5, total: 5, message: 'Live session started successfully' });
     }
 
     const duration = Date.now() - startTime;
     
     const responseContent = {
       success: true,
-      session: session
+      session: session,
+      urlResolution: urlResolutionNote ? {
+        originalInput: input.url,
+        resolvedUrl: resolvedUrl,
+        note: urlResolutionNote
+      } : undefined
     };
 
     logger.toolComplete('debugg_ai_start_live_session', duration);
@@ -360,5 +393,124 @@ export async function getLiveSessionScreenshotHandler(
     const duration = Date.now() - startTime;
     logger.toolError('debugg_ai_get_live_session_screenshot', error as Error, duration);
     throw handleExternalServiceError(error, 'Live Session', 'screenshot capture');
+  }
+}
+
+/**
+ * Handler for navigating to a new page in a live session
+ */
+export async function navigateLiveSessionHandler(
+  input: NavigateLiveSessionInput,
+  context: ToolContext,
+  progressCallback?: ProgressCallback
+): Promise<ToolResponse> {
+  const startTime = Date.now();
+  logger.toolStart('debugg_ai_navigate_live_session', input);
+
+  try {
+    if (progressCallback) {
+      await progressCallback({ progress: 1, total: 4, message: 'Getting session information...' });
+    }
+
+    // Get the service client
+    const client = await getServiceClient();
+    if (!client.browserSessions) {
+      throw new Error('Browser sessions service not available');
+    }
+
+    // Get current session to determine base URL
+    let sessionId = input.sessionId;
+    let currentUrl = '';
+    
+    if (!sessionId) {
+      // Get the most recent active session
+      const sessions = await client.browserSessions.listSessions({ status: 'active', limit: 1 });
+      if (sessions.results.length === 0) {
+        throw new Error('No active session found. Please start a session first.');
+      }
+      sessionId = sessions.results[0].sessionId;
+      currentUrl = sessions.results[0].url;
+    } else {
+      // Get specific session status
+      const statusResult = await client.browserSessions.getSessionStatus(sessionId);
+      if (statusResult.session.status !== 'active') {
+        throw new Error(`Cannot navigate: session ${sessionId} is not active`);
+      }
+      currentUrl = statusResult.session.url;
+    }
+
+    if (progressCallback) {
+      await progressCallback({ progress: 2, total: 4, message: 'Resolving navigation target...' });
+    }
+
+    // Resolve the target URL
+    let targetUrl = input.target;
+    let urlResolutionNote = '';
+
+    // Check if target is a full URL or needs resolution
+    if (!input.target.startsWith('http://') && !input.target.startsWith('https://')) {
+      // Resolve using URL intelligence
+      const resolvedPath = resolveUrl(input.target);
+      
+      if (input.preserveBaseUrl && currentUrl) {
+        // Extract base URL from current URL
+        try {
+          const currentUrlObj = new URL(currentUrl);
+          targetUrl = `${currentUrlObj.protocol}//${currentUrlObj.host}${resolvedPath}`;
+          urlResolutionNote = ` (resolved from "${input.target}" to path "${resolvedPath}", using base ${currentUrlObj.protocol}//${currentUrlObj.host})`;
+        } catch (e) {
+          // Fallback if current URL parsing fails
+          targetUrl = resolvedPath;
+          urlResolutionNote = ` (resolved from "${input.target}" to path "${resolvedPath}")`;
+        }
+      } else {
+        // Use the resolved path as-is
+        targetUrl = resolvedPath;
+        urlResolutionNote = ` (resolved from "${input.target}" to path "${resolvedPath}")`;
+      }
+      
+      logger.info(`URL Intelligence: Resolved navigation target "${input.target}" to ${targetUrl}`);
+    }
+
+    if (progressCallback) {
+      await progressCallback({ progress: 3, total: 4, message: 'Navigating browser to new page...' });
+    }
+
+    // Navigate the session (using PATCH to update session URL)
+    const navigationResult = await client.browserSessions.navigateSession(sessionId, { url: targetUrl });
+
+    if (progressCallback) {
+      await progressCallback({ progress: 4, total: 4, message: 'Navigation completed successfully' });
+    }
+
+    const duration = Date.now() - startTime;
+    
+    const responseContent = {
+      success: true,
+      session: {
+        sessionId: sessionId,
+        previousUrl: currentUrl,
+        currentUrl: targetUrl
+      },
+      urlResolution: urlResolutionNote ? {
+        originalInput: input.target,
+        resolvedUrl: targetUrl,
+        note: urlResolutionNote
+      } : undefined
+    };
+
+    logger.toolComplete('debugg_ai_navigate_live_session', duration);
+    
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(responseContent, null, 2)
+      }]
+    };
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.toolError('debugg_ai_navigate_live_session', error as Error, duration);
+    throw handleExternalServiceError(error, 'Live Session', 'navigation');
   }
 }

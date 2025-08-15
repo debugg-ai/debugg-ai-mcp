@@ -15,8 +15,29 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { E2eTestRunner } from '../e2e-agents/e2eRunner.js';
+import { resolveUrl, suggestUrls, addCustomPattern, addCustomKeywords } from '../utils/urlResolver.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
+
+// Initialize custom URL patterns from config
+function initializeUrlPatterns() {
+  if (config.urlPatterns?.customPatterns) {
+    for (const [pageType, patterns] of Object.entries(config.urlPatterns.customPatterns)) {
+      addCustomPattern(pageType, patterns);
+      logger.info(`Loaded custom URL patterns for ${pageType}`, { patterns });
+    }
+  }
+  
+  if (config.urlPatterns?.customKeywords) {
+    for (const [pageType, keywords] of Object.entries(config.urlPatterns.customKeywords)) {
+      addCustomKeywords(pageType, keywords);
+      logger.info(`Loaded custom keywords for ${pageType}`, { keywords });
+    }
+  }
+}
+
+// Initialize patterns once when module loads
+initializeUrlPatterns();
 
 /**
  * Handler for the test page changes tool
@@ -34,6 +55,34 @@ export async function testPageChangesHandler(
   try {
     // Use the progress callback from the main handler
 
+    // Resolve target URL from description if not explicitly provided
+    let targetUrl = input.targetUrl;
+    let enhancedDescription = description;
+    
+    if (!targetUrl && config.urlPatterns?.enableIntelligence !== false) {
+      targetUrl = resolveUrl(description);
+      logger.info('URL resolved from description', { 
+        originalDescription: description,
+        resolvedUrl: targetUrl 
+      });
+      
+      // Enhance description with the resolved URL for better test context
+      if (targetUrl !== '/') {
+        enhancedDescription = `${description} (testing at ${targetUrl})`;
+      }
+      
+      // Log suggested alternatives for debugging
+      const suggestions = suggestUrls(description);
+      if (suggestions.length > 0) {
+        logger.debug('Alternative URL suggestions', { suggestions });
+      }
+    } else if (targetUrl) {
+      logger.info('Using explicit target URL', { targetUrl });
+      enhancedDescription = `${description} (at ${targetUrl})`;
+    } else {
+      logger.info('URL intelligence disabled, using description as-is');
+    }
+
     // Merge input with config defaults, providing reasonable fallbacks only when needed
     const params = {
       localPort: input.localPort ?? config.defaults.localPort ?? 3000,
@@ -41,10 +90,11 @@ export async function testPageChangesHandler(
       branchName: input.branchName ?? config.defaults.branchName ?? 'main',
       repoPath: input.repoPath ?? config.defaults.repoPath ?? process.cwd(),
       filePath: input.filePath ?? config.defaults.filePath ?? '',
+      targetUrl: targetUrl,
     };
 
     logger.info('Starting E2E test with parameters', { 
-      description,
+      description: enhancedDescription,
       ...params,
       progressToken: context.progressToken 
     });
@@ -54,10 +104,10 @@ export async function testPageChangesHandler(
     await client.init(); // Make sure client is fully initialized
     const e2eTestRunner = new E2eTestRunner(client);
 
-    // Create new E2E test
+    // Create new E2E test with enhanced description containing URL context
     const e2eRun = await e2eTestRunner.createNewE2eTest(
       params.localPort,
-      description,
+      enhancedDescription,
       params.repoName,
       params.branchName,
       params.repoPath,
@@ -130,6 +180,7 @@ export async function testPageChangesHandler(
         text: JSON.stringify({
           testOutcome: testResult.testOutcome,
           testDetails: testResult.testDetails,
+          targetUrl: params.targetUrl,
           executionTime: `${duration}ms`,
           timestamp: new Date().toISOString()
         }, null, 2)

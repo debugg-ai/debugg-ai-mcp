@@ -28,6 +28,11 @@ const configSchema = z.object({
     repoPath: z.string().optional(),
     filePath: z.string().optional(),
   }),
+  urlPatterns: z.object({
+    customPatterns: z.record(z.array(z.string())).optional(),
+    customKeywords: z.record(z.array(z.string())).optional(),
+    enableIntelligence: z.boolean().default(true),
+  }).optional(),
   logging: z.object({
     level: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
     format: z.enum(['json', 'simple']).default('simple'),
@@ -60,6 +65,11 @@ export function loadConfig(): Config {
       repoPath: process.env.DEBUGGAI_LOCAL_REPO_PATH || undefined,
       filePath: process.env.DEBUGGAI_LOCAL_FILE_PATH || undefined,
     },
+    urlPatterns: {
+      customPatterns: process.env.DEBUGGAI_URL_PATTERNS ? JSON.parse(process.env.DEBUGGAI_URL_PATTERNS) : undefined,
+      customKeywords: process.env.DEBUGGAI_URL_KEYWORDS ? JSON.parse(process.env.DEBUGGAI_URL_KEYWORDS) : undefined,
+      enableIntelligence: process.env.DEBUGGAI_URL_INTELLIGENCE === 'false' ? false : true,
+    },
     logging: {
       level: (process.env.LOG_LEVEL as any) || 'info',
       format: (process.env.LOG_FORMAT as any) || 'simple',
@@ -89,6 +99,7 @@ export const config = {
   get api() { return getConfig().api; },
   get auth() { return getConfig().auth; },
   get defaults() { return getConfig().defaults; },
+  get urlPatterns() { return getConfig().urlPatterns; },
   get logging() { return getConfig().logging; }
 };
 

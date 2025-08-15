@@ -20,14 +20,16 @@ import {
   StopLiveSessionInputSchema,
   GetLiveSessionStatusInputSchema,
   GetLiveSessionLogsInputSchema,
-  GetLiveSessionScreenshotInputSchema
+  GetLiveSessionScreenshotInputSchema,
+  NavigateLiveSessionInputSchema
 } from '../types/index.js';
 import { 
   startLiveSessionHandler,
   stopLiveSessionHandler,
   getLiveSessionStatusHandler,
   getLiveSessionLogsHandler,
-  getLiveSessionScreenshotHandler
+  getLiveSessionScreenshotHandler,
+  navigateLiveSessionHandler
 } from '../handlers/liveSessionHandlers.js';
 
 /**
@@ -35,13 +37,13 @@ import {
  */
 export const startLiveSessionTool: Tool = {
   name: "debugg_ai_start_live_session",
-  description: "Launch a live remote web browser session to monitor your application in real-time. Captures browser console logs, network requests, and screenshots while your app runs.",
+  description: "Launch a live remote web browser session to monitor your application in real-time. Captures browser console logs, network requests, and screenshots while your app runs. Supports natural language descriptions like 'Monitor the dashboard' which will automatically resolve to the appropriate URL.",
   inputSchema: {
     type: "object",
     properties: {
       url: {
         type: "string",
-        description: "The URL of your application to monitor (e.g., http://localhost:3000 or https://myapp.com)",
+        description: "The URL or natural language description of where to monitor (e.g., 'http://localhost:3000', 'https://myapp.com', 'the user dashboard', 'shopping cart page')",
         minLength: 1
       },
       localPort: {
@@ -192,6 +194,35 @@ export const getLiveSessionScreenshotTool: Tool = {
 };
 
 /**
+ * Tool definition for navigating to a new page in live session
+ */
+export const navigateLiveSessionTool: Tool = {
+  name: "debugg_ai_navigate_live_session",
+  description: "Navigate the remote browser to a new page during an active session. Supports natural language descriptions like 'Go to the user profile' which will automatically resolve to the appropriate URL.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      sessionId: {
+        type: "string",
+        description: "Specific session ID to navigate. Leave empty to navigate the most recent session."
+      },
+      target: {
+        type: "string",
+        description: "The URL or natural language description of where to navigate (e.g., '/profile', 'the checkout page', 'user settings')",
+        minLength: 1
+      },
+      preserveBaseUrl: {
+        type: "boolean",
+        description: "When true, keeps the current domain and only changes the path. Useful for navigating within the same application.",
+        default: true
+      }
+    },
+    required: ["target"],
+    additionalProperties: false
+  },
+};
+
+/**
  * Validated tool definitions with handlers
  */
 export const validatedStartLiveSessionTool: ValidatedTool = {
@@ -229,10 +260,18 @@ export const validatedGetLiveSessionScreenshotTool: ValidatedTool = {
   handler: getLiveSessionScreenshotHandler,
 };
 
+export const validatedNavigateLiveSessionTool: ValidatedTool = {
+  name: "debugg_ai_navigate_live_session",
+  description: navigateLiveSessionTool.description,
+  inputSchema: NavigateLiveSessionInputSchema,
+  handler: navigateLiveSessionHandler,
+};
+
 export const validatedLiveSessionTools: ValidatedTool[] = [
   validatedStartLiveSessionTool,
   validatedStopLiveSessionTool,
   validatedGetLiveSessionStatusTool,
   validatedGetLiveSessionLogsTool,
   validatedGetLiveSessionScreenshotTool,
+  validatedNavigateLiveSessionTool,
 ];

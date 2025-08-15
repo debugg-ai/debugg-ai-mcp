@@ -10,6 +10,49 @@ import {
   getLiveSessionScreenshotHandler
 } from '../../handlers/liveSessionHandlers.js';
 import { ToolContext } from '../../types/index.js';
+import { createMockBrowserSessionsService, clearMockData } from '../mocks/browserSessionsMock.js';
+
+// Mock the services module to use our mock implementation
+const mockClient = {
+  browserSessions: createMockBrowserSessionsService(),
+  init: async () => Promise.resolve(),
+  getServerUrl: async () => Promise.resolve('https://mock.api.com'),
+  tx: null,
+  url: null,
+  userApiKey: 'test-key',
+  e2es: null
+};
+
+// Mock modules before importing them
+const mockDebuggAIServerClient = {
+  DebuggAIServerClient: class MockDebuggAIServerClient {
+    browserSessions = createMockBrowserSessionsService();
+    e2es = null;
+    tx = null;
+    url = null;
+    userApiKey = 'test-key';
+    
+    constructor(apiKey: string) {
+      this.userApiKey = apiKey;
+    }
+    
+    async init() {
+      return Promise.resolve();
+    }
+    
+    async getServerUrl() {
+      return 'https://mock.api.com';
+    }
+  }
+};
+
+const mockConfig = {
+  config: {
+    api: {
+      key: 'test-api-key'
+    }
+  }
+};
 
 describe('Live Session Handlers', () => {
   const mockProgressCallback = {
@@ -24,6 +67,7 @@ describe('Live Session Handlers', () => {
   
   beforeEach(() => {
     mockProgressCallback.mockClear();
+    clearMockData(); // Clear mock data before each test
   });
 
   const mockContext: ToolContext = {

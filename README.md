@@ -16,13 +16,24 @@ Transform your development workflow with:
 
 ## 🚀 Features
 
-### **12 Focused Development Tools**
+### **Advanced AI Testing Platform with URL Intelligence**
 
-* 🧪 **E2E Testing Suite** - Run browser tests, create test suites, and generate commit-based tests
-* 🖥️ **Live Session Monitoring** - Real-time browser console, network traffic, and screenshot monitoring
-* 📊 **Test Management** - List, create, and track test suites and commit-based test suites
-* 📱 **Real-time Progress** - Live updates with screenshots and step-by-step execution
-* 🌐 **Universal Compatibility** - Works with any MCP-compatible client (Claude Desktop, LangChain, etc.)
+* 🧪 **E2E Testing Suite** - Run browser tests with natural language descriptions, create test suites, and generate commit-based tests
+* 🖥️ **Live Session Monitoring** - Real-time browser console, network traffic, and screenshot monitoring with natural language navigation
+* 🎯 **URL Intelligence System** - Automatic URL resolution from natural language descriptions with 30+ predefined patterns
+* 📊 **Test Management** - List, create, and track test suites and commit-based test suites with intelligent filtering
+* 📱 **Real-time Progress** - Live updates with screenshots, step-by-step execution, and MCP progress notifications
+* 🔧 **MCP Parameter Injection** - Automatic backend identification with `mcp_request: true` in all API calls
+* 🚀 **Transport Optimization** - Enhanced error handling, request caching, and retry logic with exponential backoff
+* 🌐 **Universal Compatibility** - Works with any MCP-compatible client (Claude Desktop, VS Code, LangChain, etc.)
+
+### **Production-Ready Capabilities**
+
+* ⚡ **95+ Test Cases** - Comprehensive unit and integration testing framework
+* 🔍 **Advanced Debugging** - Structured logging with request correlation and comprehensive error handling
+* 🎛️ **Custom Configuration** - Runtime URL pattern addition and project-specific keyword mapping
+* 📈 **Performance Monitoring** - Request metrics, caching, and optimized transport layer
+* 🔐 **Secure Authentication** - API key validation and environment-based configuration
 
 ---
 
@@ -112,15 +123,46 @@ Add this to your MCP settings file:
 }
 ```
 
-### **Optional Environment Variables**
-```bash
-# Required
-DEBUGGAI_API_KEY=your_api_key
+### **Environment Variables**
 
-# Optional (with sensible defaults)
-DEBUGGAI_LOCAL_PORT=3000                    # Your app's port
-DEBUGGAI_LOCAL_REPO_NAME=your-org/repo      # GitHub repo name
-DEBUGGAI_LOCAL_REPO_PATH=/path/to/project   # Project directory
+#### **Required Configuration**
+```bash
+# DebuggAI API Key (get from https://debugg.ai)
+DEBUGGAI_API_KEY=your_api_key_here
+```
+
+#### **Optional Application Settings**
+```bash
+# Local Development Configuration
+DEBUGGAI_LOCAL_PORT=3000                    # Your app's port (default: 3000)
+DEBUGGAI_LOCAL_REPO_NAME=your-org/repo      # GitHub repo name  
+DEBUGGAI_LOCAL_REPO_PATH=/path/to/project   # Project directory path
+LOG_LEVEL=info                              # Logging level (error, warn, info, debug)
+```
+
+#### **URL Intelligence Configuration**
+```bash
+# Enable/disable URL intelligence feature (default: true)
+DEBUGGAI_URL_INTELLIGENCE=true
+
+# Custom URL patterns for your application (JSON format)
+DEBUGGAI_URL_PATTERNS='{"billing":["/billing/","/payments/"],"docs":["/documentation/","/help/"]}'
+
+# Custom keywords that map to your URLs (JSON format) 
+DEBUGGAI_URL_KEYWORDS='{"billing":["payment","subscription","billing"],"docs":["help","guide","documentation"]}'
+```
+
+#### **Complete Configuration Example**
+```bash
+# .env file example
+DEBUGGAI_API_KEY=sk-1234567890abcdef
+DEBUGGAI_LOCAL_PORT=8080
+DEBUGGAI_LOCAL_REPO_NAME=myorg/myapp
+DEBUGGAI_LOCAL_REPO_PATH=/Users/dev/projects/myapp
+LOG_LEVEL=debug
+DEBUGGAI_URL_INTELLIGENCE=true
+DEBUGGAI_URL_PATTERNS='{"admin":["/admin/dashboard/","/manage/"],"api":["/api/v1/","/api/v2/"]}'
+DEBUGGAI_URL_KEYWORDS='{"admin":["admin panel","management","dashboard"],"api":["api","endpoint","service"]}'
 ```
 
 ## 💡 Usage Examples
@@ -128,6 +170,65 @@ DEBUGGAI_LOCAL_REPO_PATH=/path/to/project   # Project directory
 ### **Run a Quick E2E Test**
 ```
 "Test the user login flow on my app running on port 3000"
+```
+
+### **URL Intelligence - Natural Language Navigation** 
+The MCP server features advanced URL intelligence that automatically resolves natural language descriptions to appropriate URLs:
+
+#### **Automatic URL Resolution**
+```bash
+# Authentication & User Management
+"Test user login functionality" → /login/
+"Check user registration process" → /register/
+"Verify password reset flow" → /forgot-password/
+"Test user profile page" → /profile/
+
+# Dashboard & Navigation  
+"Monitor the admin dashboard" → /dashboard/
+"Check the main navigation" → /dashboard/
+"Test admin panel functionality" → /admin/
+
+# E-commerce & Shopping
+"Test shopping cart features" → /cart/
+"Verify checkout process" → /checkout/
+"Check product catalog" → /products/
+"Test order management" → /orders/
+
+# Content & Communication
+"Test blog functionality" → /blog/
+"Check messaging system" → /messages/
+"Verify notifications" → /notifications/
+"Test search functionality" → /search/
+```
+
+#### **Live Session Integration**
+Start and navigate live browser sessions with natural language:
+```bash
+# Start a session with natural language
+"Start monitoring the user dashboard"
+"Begin live session on shopping cart"
+"Monitor the admin settings panel"
+
+# Navigate within sessions
+"Go to user profile"
+"Navigate to checkout page" 
+"Open the product catalog"
+```
+
+#### **Parameter Intelligence**
+Automatically handles dynamic URLs with smart parameter replacement:
+```bash
+"View user details" → /users/123/
+"Check product info" → /products/example-item/
+"Test order status" → /orders/order-456/
+```
+
+#### **Explicit URL Override**
+You can always override with explicit URLs when needed:
+```bash
+"Test the page at /custom/route"
+"Check functionality at '/api/v1/users'"
+"Monitor session at 'https://example.com/dashboard'"
 ```
 
 ### **Analyze Your Project** 

@@ -15,6 +15,7 @@ export const TestPageChangesInputSchema = z.object({
   repoName: z.string().optional(),
   branchName: z.string().optional(),
   repoPath: z.string().optional(),
+  targetUrl: z.string().optional(), // Optional explicit URL override
 });
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
@@ -71,7 +72,17 @@ export const GetTestStatusInputSchema = z.object({
  * Live Session Tool Schemas
  */
 export const StartLiveSessionInputSchema = z.object({
-  url: z.string().min(1, 'URL is required'),
+  url: z.string().min(1, 'URL is required').refine(
+    (url) => {
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    },
+    'URL must be a valid HTTP or HTTPS URL'
+  ),
   localPort: z.number().int().min(1).max(65535).optional(),
   sessionName: z.string().max(100).optional(),
   monitorConsole: z.boolean().optional().default(true),
@@ -102,6 +113,12 @@ export const GetLiveSessionScreenshotInputSchema = z.object({
   format: z.enum(['png', 'jpeg']).optional().default('png'),
 });
 
+export const NavigateLiveSessionInputSchema = z.object({
+  sessionId: z.string().optional(),
+  target: z.string().min(1, 'Target URL or description is required'),
+  preserveBaseUrl: z.boolean().optional().default(true),
+});
+
 
 // Input type inferences
 export type ListTestsInput = z.infer<typeof ListTestsInputSchema>;
@@ -115,6 +132,7 @@ export type StopLiveSessionInput = z.infer<typeof StopLiveSessionInputSchema>;
 export type GetLiveSessionStatusInput = z.infer<typeof GetLiveSessionStatusInputSchema>;
 export type GetLiveSessionLogsInput = z.infer<typeof GetLiveSessionLogsInputSchema>;
 export type GetLiveSessionScreenshotInput = z.infer<typeof GetLiveSessionScreenshotInputSchema>;
+export type NavigateLiveSessionInput = z.infer<typeof NavigateLiveSessionInputSchema>;
 
 /**
  * Tool execution context
@@ -246,4 +264,104 @@ export interface LogContext {
   toolName?: string;
   userId?: string;
   [key: string]: any;
+}
+
+/**
+ * URL Intelligence types
+ */
+export interface UrlPattern {
+  pageType: string;
+  patterns: string[];
+  keywords?: string[];
+}
+
+export interface UrlResolutionResult {
+  url: string;
+  confidence: 'high' | 'medium' | 'low';
+  pageType?: string;
+  isExplicit: boolean;
+}
+
+export interface UrlConfiguration {
+  patterns: Record<string, string[]>;
+  keywords: Record<string, string[]>;
+  parameterDefaults: Record<string, string[]>;
+}
+
+/**
+ * Transport layer configuration types
+ */
+export interface RetryConfig {
+  maxAttempts: number;
+  baseDelay: number;
+  maxDelay: number;
+  exponentialBase: number;
+  retryableStatusCodes: number[];
+  retryableErrorCodes: MCPErrorCode[];
+}
+
+export interface CacheConfig {
+  enabled: boolean;
+  ttl: number; // Time to live in milliseconds
+  maxSize: number; // Maximum number of cached entries
+  excludePatterns: string[]; // URL patterns to exclude from caching
+}
+
+export interface MetricsConfig {
+  enabled: boolean;
+  collectTiming: boolean;
+  collectErrors: boolean;
+  collectCacheStats: boolean;
+}
+
+export interface TransportConfig {
+  retry: RetryConfig;
+  cache: CacheConfig;
+  metrics: MetricsConfig;
+  logging: {
+    enabled: boolean;
+    logRequests: boolean;
+    logResponses: boolean;
+    logErrors: boolean;
+    sanitizeSensitiveData: boolean;
+  };
+}
+
+/**
+ * Request performance metrics
+ */
+export interface RequestMetrics {
+  startTime: number;
+  endTime?: number;
+  duration?: number;
+  method: string;
+  url: string;
+  statusCode?: number;
+  cacheHit?: boolean;
+  retryAttempt?: number;
+  error?: string;
+}
+
+/**
+ * Cache entry interface
+ */
+export interface CacheEntry<T = any> {
+  data: T;
+  timestamp: number;
+  ttl: number;
+  url: string;
+  method: string;
+}
+
+/**
+ * Transport metrics collection
+ */
+export interface TransportMetrics {
+  totalRequests: number;
+  totalErrors: number;
+  totalCacheHits: number;
+  totalCacheMisses: number;
+  averageResponseTime: number;
+  requestsByMethod: Record<string, number>;
+  errorsByCode: Record<string, number>;
 }
