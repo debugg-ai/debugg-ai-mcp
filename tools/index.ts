@@ -1,6 +1,12 @@
 /**
  * Tool registry and exports
- * Centralized location for all tool definitions
+ * Centralized location for all DebuggAI MCP tool definitions
+ * 
+ * These tools provide AI agents with:
+ * - Live remote browser sessions for real-time monitoring
+ * - End-to-end testing with natural language descriptions  
+ * - Browser console logs, network traffic, and screenshot capture
+ * - Test suite management and Git commit-based test generation
  */
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js';

@@ -1,4 +1,5 @@
 import { createE2esService, E2esService } from "./e2es.js";
+import { createBrowserSessionsService, BrowserSessionsService } from "./browserSessions.js";
 import { AxiosTransport } from "../utils/axiosTransport.js";
 
 import { AxiosRequestConfig } from "axios";
@@ -10,6 +11,7 @@ export class DebuggAIServerClient  {
 
   // Public "sub‑APIs"
   e2es: E2esService | undefined;
+  browserSessions: BrowserSessionsService | undefined;
 
   constructor(
     public userApiKey: string,
@@ -24,6 +26,7 @@ export class DebuggAIServerClient  {
     this.url = new URL(serverUrl);
     this.tx = new AxiosTransport({ baseUrl: serverUrl, apiKey: this.userApiKey });
     this.e2es = createE2esService(this.tx);
+    this.browserSessions = createBrowserSessionsService(this.tx);
   }
 
   /**

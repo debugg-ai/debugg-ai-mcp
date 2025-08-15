@@ -86,6 +86,10 @@ import type {
       return this.request<T>({ url, method: "PUT", data, ...cfg });
     }
   
+    patch<T = unknown>(url: string, data?: any, cfg?: AxiosRequestConfig) {
+      return this.request<T>({ url, method: "PATCH", data, ...cfg });
+    }
+  
     delete<T = unknown>(url: string, cfg?: AxiosRequestConfig) {
       return this.request<T>({ url, method: "DELETE", ...cfg });
     }

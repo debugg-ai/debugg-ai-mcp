@@ -16,19 +16,19 @@ import {
 import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
+import { DebuggAIServerClient } from '../services/index.js';
 
 const logger = new Logger({ module: 'liveSessionHandlers' });
 
-// Simple in-memory session storage for demonstration
-// In a production environment, this would likely be stored in a database or cache
-const activeSessions = new Map<string, any>();
-let currentSession: string | null = null;
+// Create service client for browser sessions
+let serviceClient: DebuggAIServerClient | null = null;
 
-/**
- * Generate a unique session ID
- */
-function generateSessionId(): string {
-  return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+async function getServiceClient(): Promise<DebuggAIServerClient> {
+  if (!serviceClient) {
+    serviceClient = new DebuggAIServerClient(config.api.key);
+    await serviceClient.init();
+  }
+  return serviceClient;
 }
 
 /**
@@ -47,36 +47,33 @@ export async function startLiveSessionHandler(
       await progressCallback({ progress: 1, total: 4, message: 'Initializing live session...' });
     }
 
-    const sessionId = generateSessionId();
-    const sessionData = {
-      sessionId,
+    // Get the service client
+    const client = await getServiceClient();
+    if (!client.browserSessions) {
+      throw new Error('Browser sessions service not available');
+    }
+
+    if (progressCallback) {
+      await progressCallback({ progress: 2, total: 4, message: 'Configuring browser monitoring...' });
+    }
+
+    // Prepare session parameters
+    const sessionParams = {
       url: input.url,
       localPort: input.localPort,
       sessionName: input.sessionName || `Session ${new Date().toISOString()}`,
       monitorConsole: input.monitorConsole ?? true,
       monitorNetwork: input.monitorNetwork ?? true,
       takeScreenshots: input.takeScreenshots ?? false,
-      screenshotInterval: input.screenshotInterval ?? 10,
-      status: 'starting',
-      startTime: new Date().toISOString(),
-      logs: [],
-      screenshots: []
+      screenshotInterval: input.screenshotInterval ?? 10
     };
-
-    if (progressCallback) {
-      await progressCallback({ progress: 2, total: 4, message: 'Configuring browser monitoring...' });
-    }
-
-    // Store the session
-    activeSessions.set(sessionId, sessionData);
-    currentSession = sessionId;
 
     if (progressCallback) {
       await progressCallback({ progress: 3, total: 4, message: 'Starting browser session...' });
     }
 
-    // Simulate session startup
-    sessionData.status = 'active';
+    // Start the session via API
+    const session = await client.browserSessions.startSession(sessionParams);
 
     if (progressCallback) {
       await progressCallback({ progress: 4, total: 4, message: 'Live session started successfully' });
@@ -86,32 +83,11 @@ export async function startLiveSessionHandler(
     
     const responseContent = {
       success: true,
-      session: {
-        sessionId: sessionData.sessionId,
-        sessionName: sessionData.sessionName,
-        url: sessionData.url,
-        localPort: sessionData.localPort,
-        status: sessionData.status,
-        monitoring: {
-          console: sessionData.monitorConsole,
-          network: sessionData.monitorNetwork,
-          screenshots: sessionData.takeScreenshots,
-          screenshotInterval: sessionData.screenshotInterval
-        },
-        startTime: sessionData.startTime
-      },
-      executionTime: `${duration}ms`,
-      timestamp: new Date().toISOString()
+      session: session
     };
 
-    logger.info('Live session started successfully', { 
-      sessionId: sessionData.sessionId,
-      url: input.url,
-      duration: `${duration}ms`
-    });
-
     logger.toolComplete('debugg_ai_start_live_session', duration);
-
+    
     return {
       content: [{
         type: 'text',
@@ -122,13 +98,12 @@ export async function startLiveSessionHandler(
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('debugg_ai_start_live_session', error as Error, duration);
-    
-    throw handleExternalServiceError(error, 'Live Session', 'session start');
+    throw handleExternalServiceError(error, 'Live Session', 'session creation');
   }
 }
 
 /**
- * Handler for stopping a live session
+ * Handler for stopping a live browser session
  */
 export async function stopLiveSessionHandler(
   input: StopLiveSessionInput,
@@ -140,62 +115,41 @@ export async function stopLiveSessionHandler(
 
   try {
     if (progressCallback) {
-      await progressCallback({ progress: 1, total: 3, message: 'Finding session to stop...' });
+      await progressCallback({ progress: 1, total: 3, message: 'Stopping live session...' });
     }
 
-    const sessionId = input.sessionId || currentSession;
-    
-    if (!sessionId) {
+    // Get the service client
+    const client = await getServiceClient();
+    if (!client.browserSessions) {
+      throw new Error('Browser sessions service not available');
+    }
+
+    // Use provided session ID or throw error if none provided
+    if (!input.sessionId) {
       throw new Error('No session ID provided and no current session active');
     }
 
-    const sessionData = activeSessions.get(sessionId);
-    
-    if (!sessionData) {
-      throw new Error(`Session not found: ${sessionId}`);
+    if (progressCallback) {
+      await progressCallback({ progress: 2, total: 3, message: 'Cleaning up session resources...' });
     }
+
+    // Stop the session via API
+    const result = await client.browserSessions.stopSession(input.sessionId);
 
     if (progressCallback) {
-      await progressCallback({ progress: 2, total: 3, message: 'Stopping live session...' });
-    }
-
-    // Update session status
-    sessionData.status = 'stopped';
-    sessionData.endTime = new Date().toISOString();
-
-    // If this was the current session, clear it
-    if (currentSession === sessionId) {
-      currentSession = null;
-    }
-
-    if (progressCallback) {
-      await progressCallback({ progress: 3, total: 3, message: 'Live session stopped successfully' });
+      await progressCallback({ progress: 3, total: 3, message: 'Session stopped successfully' });
     }
 
     const duration = Date.now() - startTime;
     
     const responseContent = {
       success: true,
-      session: {
-        sessionId: sessionData.sessionId,
-        sessionName: sessionData.sessionName,
-        status: sessionData.status,
-        startTime: sessionData.startTime,
-        endTime: sessionData.endTime,
-        totalLogs: sessionData.logs.length,
-        totalScreenshots: sessionData.screenshots.length
-      },
-      executionTime: `${duration}ms`,
-      timestamp: new Date().toISOString()
+      session: result.session,
+      summary: result.summary
     };
 
-    logger.info('Live session stopped successfully', { 
-      sessionId: sessionData.sessionId,
-      duration: `${duration}ms`
-    });
-
     logger.toolComplete('debugg_ai_stop_live_session', duration);
-
+    
     return {
       content: [{
         type: 'text',
@@ -206,8 +160,7 @@ export async function stopLiveSessionHandler(
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('debugg_ai_stop_live_session', error as Error, duration);
-    
-    throw handleExternalServiceError(error, 'Live Session', 'session stop');
+    throw handleExternalServiceError(error, 'Live Session', 'session termination');
   }
 }
 
@@ -223,70 +176,43 @@ export async function getLiveSessionStatusHandler(
   logger.toolStart('debugg_ai_get_live_session_status', input);
 
   try {
-    const sessionId = input.sessionId || currentSession;
-    
-    if (!sessionId) {
-      const duration = Date.now() - startTime;
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            success: true,
-            currentSession: null,
-            activeSessions: activeSessions.size,
-            executionTime: `${duration}ms`,
-            timestamp: new Date().toISOString()
-          }, null, 2)
-        }]
+    if (progressCallback) {
+      await progressCallback({ progress: 1, total: 2, message: 'Retrieving session status...' });
+    }
+
+    // Get the service client
+    const client = await getServiceClient();
+    if (!client.browserSessions) {
+      throw new Error('Browser sessions service not available');
+    }
+
+    let responseContent;
+
+    if (input.sessionId) {
+      // Get specific session status
+      const result = await client.browserSessions.getSessionStatus(input.sessionId);
+      responseContent = {
+        success: true,
+        session: result.session,
+        stats: result.stats
+      };
+    } else {
+      // List active sessions
+      const sessions = await client.browserSessions.listSessions({ status: 'active' });
+      responseContent = {
+        success: true,
+        currentSession: sessions.results.length > 0 ? sessions.results[0] : null,
+        activeSessions: sessions.results
       };
     }
 
-    const sessionData = activeSessions.get(sessionId);
-    
-    if (!sessionData) {
-      throw new Error(`Session not found: ${sessionId}`);
+    if (progressCallback) {
+      await progressCallback({ progress: 2, total: 2, message: 'Status retrieved successfully' });
     }
 
     const duration = Date.now() - startTime;
-    
-    const responseContent = {
-      success: true,
-      session: {
-        sessionId: sessionData.sessionId,
-        sessionName: sessionData.sessionName,
-        url: sessionData.url,
-        localPort: sessionData.localPort,
-        status: sessionData.status,
-        startTime: sessionData.startTime,
-        endTime: sessionData.endTime,
-        monitoring: {
-          console: sessionData.monitorConsole,
-          network: sessionData.monitorNetwork,
-          screenshots: sessionData.takeScreenshots,
-          screenshotInterval: sessionData.screenshotInterval
-        },
-        stats: {
-          totalLogs: sessionData.logs.length,
-          totalScreenshots: sessionData.screenshots.length,
-          uptime: sessionData.status === 'active' 
-            ? Date.now() - new Date(sessionData.startTime).getTime()
-            : sessionData.endTime 
-              ? new Date(sessionData.endTime).getTime() - new Date(sessionData.startTime).getTime()
-              : 0
-        }
-      },
-      executionTime: `${duration}ms`,
-      timestamp: new Date().toISOString()
-    };
-
-    logger.info('Live session status retrieved', { 
-      sessionId: sessionData.sessionId,
-      status: sessionData.status,
-      duration: `${duration}ms`
-    });
-
     logger.toolComplete('debugg_ai_get_live_session_status', duration);
-
+    
     return {
       content: [{
         type: 'text',
@@ -297,7 +223,6 @@ export async function getLiveSessionStatusHandler(
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('debugg_ai_get_live_session_status', error as Error, duration);
-    
     throw handleExternalServiceError(error, 'Live Session', 'status retrieval');
   }
 }
@@ -314,65 +239,43 @@ export async function getLiveSessionLogsHandler(
   logger.toolStart('debugg_ai_get_live_session_logs', input);
 
   try {
-    const sessionId = input.sessionId || currentSession;
-    
-    if (!sessionId) {
-      throw new Error('No session ID provided and no current session active');
+    if (progressCallback) {
+      await progressCallback({ progress: 1, total: 2, message: 'Retrieving session logs...' });
     }
 
-    const sessionData = activeSessions.get(sessionId);
-    
-    if (!sessionData) {
-      throw new Error(`Session not found: ${sessionId}`);
+    // Get the service client
+    const client = await getServiceClient();
+    if (!client.browserSessions) {
+      throw new Error('Browser sessions service not available');
     }
 
-    // Filter logs based on type and since parameter
-    let filteredLogs = sessionData.logs;
-    
-    if (input.logType && input.logType !== 'all') {
-      filteredLogs = filteredLogs.filter((log: any) => log.type === input.logType);
+    if (!input.sessionId) {
+      throw new Error('Session ID is required to retrieve logs');
     }
 
-    if (input.since) {
-      const sinceDate = new Date(input.since);
-      filteredLogs = filteredLogs.filter((log: any) => new Date(log.timestamp) >= sinceDate);
-    }
+    // Prepare log query parameters
+    const logParams = {
+      logType: input.logType || 'all',
+      since: input.since,
+      limit: input.limit || 100
+    };
 
-    // Apply limit
-    const limit = input.limit || 100;
-    const logs = filteredLogs.slice(0, limit);
+    // Get logs via API
+    const result = await client.browserSessions.getSessionLogs(input.sessionId, logParams);
+
+    if (progressCallback) {
+      await progressCallback({ progress: 2, total: 2, message: 'Logs retrieved successfully' });
+    }
 
     const duration = Date.now() - startTime;
     
     const responseContent = {
       success: true,
-      session: {
-        sessionId: sessionData.sessionId,
-        sessionName: sessionData.sessionName
-      },
-      logs: logs,
-      filters: {
-        logType: input.logType || 'all',
-        since: input.since,
-        limit: limit
-      },
-      stats: {
-        totalLogsInSession: sessionData.logs.length,
-        filteredLogsCount: filteredLogs.length,
-        returnedLogsCount: logs.length
-      },
-      executionTime: `${duration}ms`,
-      timestamp: new Date().toISOString()
+      ...result
     };
 
-    logger.info('Live session logs retrieved', { 
-      sessionId: sessionData.sessionId,
-      logsReturned: logs.length,
-      duration: `${duration}ms`
-    });
-
     logger.toolComplete('debugg_ai_get_live_session_logs', duration);
-
+    
     return {
       content: [{
         type: 'text',
@@ -383,13 +286,12 @@ export async function getLiveSessionLogsHandler(
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('debugg_ai_get_live_session_logs', error as Error, duration);
-    
-    throw handleExternalServiceError(error, 'Live Session', 'logs retrieval');
+    throw handleExternalServiceError(error, 'Live Session', 'log retrieval');
   }
 }
 
 /**
- * Handler for getting live session screenshot
+ * Handler for capturing live session screenshots
  */
 export async function getLiveSessionScreenshotHandler(
   input: GetLiveSessionScreenshotInput,
@@ -400,60 +302,53 @@ export async function getLiveSessionScreenshotHandler(
   logger.toolStart('debugg_ai_get_live_session_screenshot', input);
 
   try {
-    const sessionId = input.sessionId || currentSession;
-    
-    if (!sessionId) {
-      throw new Error('No session ID provided and no current session active');
+    if (progressCallback) {
+      await progressCallback({ progress: 1, total: 3, message: 'Preparing screenshot capture...' });
     }
 
-    const sessionData = activeSessions.get(sessionId);
-    
-    if (!sessionData) {
-      throw new Error(`Session not found: ${sessionId}`);
+    // Get the service client
+    const client = await getServiceClient();
+    if (!client.browserSessions) {
+      throw new Error('Browser sessions service not available');
     }
 
-    if (sessionData.status !== 'active') {
-      throw new Error(`Cannot take screenshot: session is ${sessionData.status}`);
+    if (!input.sessionId) {
+      throw new Error('Session ID is required to capture screenshot');
     }
 
-    // Simulate taking a screenshot
-    const screenshot = {
-      timestamp: new Date().toISOString(),
-      format: input.format || 'png',
-      quality: input.quality || 90,
-      fullPage: input.fullPage || false,
-      data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', // 1x1 placeholder
-      size: {
-        width: 1920,
-        height: input.fullPage ? 3000 : 1080
-      }
+    // First check if session is active
+    const statusResult = await client.browserSessions.getSessionStatus(input.sessionId);
+    if (statusResult.session.status !== 'active') {
+      throw new Error('Cannot take screenshot: session is stopped');
+    }
+
+    if (progressCallback) {
+      await progressCallback({ progress: 2, total: 3, message: 'Capturing screenshot...' });
+    }
+
+    // Prepare screenshot parameters
+    const screenshotParams = {
+      fullPage: input.fullPage ?? false,
+      quality: input.quality ?? 90,
+      format: input.format ?? 'png'
     };
 
-    // Add to session screenshots
-    sessionData.screenshots.push(screenshot);
+    // Capture screenshot via API
+    const result = await client.browserSessions.captureScreenshot(input.sessionId, screenshotParams);
+
+    if (progressCallback) {
+      await progressCallback({ progress: 3, total: 3, message: 'Screenshot captured successfully' });
+    }
 
     const duration = Date.now() - startTime;
     
     const responseContent = {
       success: true,
-      session: {
-        sessionId: sessionData.sessionId,
-        sessionName: sessionData.sessionName
-      },
-      screenshot: screenshot,
-      executionTime: `${duration}ms`,
-      timestamp: new Date().toISOString()
+      ...result
     };
 
-    logger.info('Live session screenshot captured', { 
-      sessionId: sessionData.sessionId,
-      format: screenshot.format,
-      fullPage: screenshot.fullPage,
-      duration: `${duration}ms`
-    });
-
     logger.toolComplete('debugg_ai_get_live_session_screenshot', duration);
-
+    
     return {
       content: [{
         type: 'text',
@@ -464,7 +359,6 @@ export async function getLiveSessionScreenshotHandler(
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('debugg_ai_get_live_session_screenshot', error as Error, duration);
-    
     throw handleExternalServiceError(error, 'Live Session', 'screenshot capture');
   }
 }
