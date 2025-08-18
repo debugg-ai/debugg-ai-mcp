@@ -23,8 +23,8 @@ import { parse } from 'yaml';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const basePath = join(__dirname, 'bin');
-
+// Use empty string to let ngrok use its default binary location  
+const basePath = '';
 export const binPath = () => basePath;
 
 
@@ -83,7 +83,10 @@ export const start = async (options?: Ngrok.Options) => {
       tunnel.configPath = configPath;
     }
     try {
-      tunnel.binPath = binPath;
+      // Let ngrok use default binPath if ours is empty
+      if (basePath) {
+        tunnel.binPath = binPath;
+      }
       try {
         const url = await connect(tunnel);
         return url;

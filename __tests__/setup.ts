@@ -4,8 +4,14 @@
  */
 
 // Set required environment variables for testing
-process.env.DEBUGGAI_API_KEY = 'test-api-key-for-testing';
-process.env.ENVIRONMENT = 'test';
+// Only set API key if not already provided (allows real API key to be used for integration tests)
+if (!process.env.DEBUGGAI_API_KEY) {
+  process.env.DEBUGGAI_API_KEY = 'test-api-key-for-testing';
+}
+// Only set ENVIRONMENT to 'test' if not already set (allows 'local' for integration tests)
+if (!process.env.ENVIRONMENT) {
+  process.env.ENVIRONMENT = 'test';
+}
 process.env.LOG_LEVEL = 'error'; // Reduce log noise during tests
 
 // Optional environment variables

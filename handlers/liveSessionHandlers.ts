@@ -68,20 +68,29 @@ export async function startLiveSessionHandler(
       await progressCallback({ progress: 2.5, total: 4, message: 'Processing URL for remote browser access...' });
     }
     
-    // Detect URL type and extract metadata
-    const isLocalhost = input.url.includes('localhost') || input.url.includes('127.0.0.1') || input.url.includes('::1');
-    const isTunneled = tunnelManager.isTunnelUrl(input.url);
-    const tunnelId = isTunneled ? tunnelManager.extractTunnelId(input.url) : undefined;
+    logger.info(`Processing URL for tunnel: ${input.url}, has API key: ${!!config.api.key}`);
     
-    const tunnelResult = {
-      url: input.url, // Pass original URL, let backend handle tunneling
-      isLocalhost: isLocalhost && !isTunneled,
-      tunnelId
-    };
-
-    // Prepare session parameters
+    // Check if we need to create a tunnel (localhost URL)
+    const isLocalhost = input.url.includes('localhost') || input.url.includes('127.0.0.1');
+    let sessionUrl = input.url;
+    let tunnelId: string | undefined;
+    
+    if (isLocalhost) {
+      // Generate a UUID for the tunnel subdomain
+      const { v4: uuidv4 } = await import('uuid');
+      tunnelId = uuidv4();
+      
+      // Create the tunneled URL that we'll send to the backend
+      const port = extractLocalhostPort(input.url);
+      const url = new URL(input.url);
+      sessionUrl = `https://${tunnelId}.ngrok.debugg.ai${url.pathname}${url.search}${url.hash}`;
+      
+      logger.info(`Generated tunnel URL for backend: ${sessionUrl} (tunnelId: ${tunnelId})`);
+    }
+    
+    // Start the session with the tunneled URL (or original URL if not localhost)
     const sessionParams = {
-      url: tunnelResult.url,
+      url: sessionUrl,
       originalUrl: input.url,
       localPort: input.localPort || extractLocalhostPort(input.url),
       sessionName: input.sessionName || `Session ${new Date().toISOString()}`,
@@ -89,19 +98,46 @@ export async function startLiveSessionHandler(
       monitorNetwork: input.monitorNetwork ?? true,
       takeScreenshots: input.takeScreenshots ?? false,
       screenshotInterval: input.screenshotInterval ?? 10,
-      isLocalhost: tunnelResult.isLocalhost,
-      tunnelId: tunnelResult.tunnelId
+      isLocalhost: isLocalhost,
+      tunnelId: tunnelId
     };
 
-    if (progressCallback) {
-      await progressCallback({ progress: 3, total: 4, message: 'Starting browser session...' });
-    }
-
-    // Start the session via API
+    // Start the session via API to get tunnelKey
     const session = await client.browserSessions.startSession(sessionParams);
     
     if (!session) {
       throw new Error('Failed to start browser session: No session returned');
+    }
+
+    // If we need a tunnel, create it now using the tunnelKey from the backend
+    if (isLocalhost && tunnelId) {
+      const tunnelAuthToken = session.tunnelKey;
+      if (!tunnelAuthToken) {
+        throw new Error('No tunnel key provided by backend - tunnels not available for localhost URLs');
+      }
+
+      logger.info(`Creating tunnel with backend-provided key for ${input.url} -> ${sessionUrl}`);
+      
+      // Create the tunnel using the original localhost URL and the generated tunnel ID
+      const port = extractLocalhostPort(input.url);
+      if (!port) {
+        throw new Error(`Could not extract port from localhost URL: ${input.url}`);
+      }
+      
+      // Use tunnel manager to create the tunnel with the specific tunnel ID
+      const tunnelResult = await tunnelManager.processUrl(input.url, tunnelAuthToken, tunnelId);
+      
+      logger.info(`Tunnel created: ${tunnelResult.url} (ID: ${tunnelResult.tunnelId})`);
+      
+      // Touch the tunnel to reset its timer
+      if (tunnelResult.tunnelId) {
+        tunnelManager.touchTunnel(tunnelResult.tunnelId);
+      }
+    }
+    
+    logger.info(`Session created successfully: ${session.sessionId}`);
+    if (isLocalhost && tunnelId) {
+      logger.info(`Tunnel will be available at: https://${tunnelId}.ngrok.debugg.ai`);
     }
 
     if (progressCallback) {
@@ -235,6 +271,12 @@ export async function getLiveSessionStatusHandler(
     if (input.sessionId) {
       // Get specific session status
       const result = await client.browserSessions.getSessionStatus(input.sessionId);
+      
+      // Reset tunnel timer if this session has an associated tunnel
+      if (result.session && 'tunnelId' in result.session && result.session.tunnelId) {
+        tunnelManager.touchTunnel(result.session.tunnelId as string);
+      }
+      
       responseContent = {
         success: true,
         session: result.session,
@@ -309,6 +351,11 @@ export async function getLiveSessionLogsHandler(
 
     // Get logs via API
     const result = await client.browserSessions.getSessionLogs(input.sessionId, logParams);
+    
+    // Reset tunnel timer if this session has an associated tunnel
+    if (result && 'session' in result && result.session && 'tunnelId' in result.session && result.session.tunnelId) {
+      tunnelManager.touchTunnel(result.session.tunnelId as string);
+    }
 
     if (progressCallback) {
       await progressCallback({ progress: 2, total: 2, message: 'Logs retrieved successfully' });
@@ -385,6 +432,18 @@ export async function getLiveSessionScreenshotHandler(
 
     // Capture screenshot via API
     const result = await client.browserSessions.captureScreenshot(input.sessionId, screenshotParams);
+    
+    // Reset tunnel timer if this session has an associated tunnel
+    // First get session info to check for tunnel
+    try {
+      const sessionStatus = await client.browserSessions.getSessionStatus(input.sessionId);
+      if (sessionStatus.session && 'tunnelId' in sessionStatus.session && sessionStatus.session.tunnelId) {
+        tunnelManager.touchTunnel(sessionStatus.session.tunnelId as string);
+      }
+    } catch (error) {
+      // Don't fail the screenshot if we can't get session info
+      logger.warn(`Could not get session info to reset tunnel timer: ${error}`);
+    }
 
     if (progressCallback) {
       await progressCallback({ progress: 3, total: 3, message: 'Screenshot captured successfully' });

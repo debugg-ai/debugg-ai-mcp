@@ -1,11 +1,26 @@
 // src/E2eTestRunner.ts
 import { DebuggAIServerClient } from '../services/index.js';
 import { E2eRun } from '../services/types.js';
-import { downloadBinary, tunnelManager } from '../services/ngrok/index.js';
+// Remove dependency on problematic ngrok wrapper
 import { RunResultFormatter } from './resultsFormatter.js';
 import { fetchAndOpenGif } from './recordingHandler.js';
 import { v4 as uuidv4 } from 'uuid';
-import ngrok from 'ngrok';
+import { createRequire } from 'module';
+
+// Use createRequire to avoid ES module resolution issues
+const require = createRequire(import.meta.url);
+let ngrokModule: any = null;
+
+async function getNgrok() {
+    if (!ngrokModule) {
+        try {
+            ngrokModule = require('ngrok');
+        } catch (error) {
+            throw new Error(`Failed to load ngrok module: ${error}`);
+        }
+    }
+    return ngrokModule;
+}
 
 // test-runner.ts
 export interface FailureDetail {
@@ -45,10 +60,8 @@ export interface StepMessageContent {
 
 async function startTunnel(authToken: string, localPort: number, domain: string) {
     try {
-        // await start({
-        //     addr: localPort,
-        //     hostname: domain,
-        // });
+        const ngrok = await getNgrok();
+        
         if (process.env.DOCKER_CONTAINER === "true") {
             const url = await ngrok.connect({ proto: 'http', addr: `host.docker.internal:${localPort}`, hostname: domain, authtoken: authToken });
             return url;
@@ -58,14 +71,21 @@ async function startTunnel(authToken: string, localPort: number, domain: string)
         }
     } catch (err) {
         console.error('Error starting ngrok tunnel:', err);
+        throw err;
     }
 }
 
 async function stopTunnel(url?: string) {
-    if (url) {
-        await ngrok.disconnect(url);
-    } else {
-        await ngrok.disconnect();
+    try {
+        const ngrok = await getNgrok();
+        
+        if (url) {
+            await ngrok.disconnect(url);
+        } else {
+            await ngrok.disconnect();
+        }
+    } catch (err) {
+        console.error('Error stopping ngrok tunnel:', err);
     }
 }
 
@@ -81,7 +101,7 @@ export class E2eTestRunner {
     }
 
     async configureNgrok(): Promise<void> {
-        await downloadBinary();
+        // ngrok binary is downloaded automatically by the ngrok package
     }
 
     async startTunnel(authToken: string, port: number, url: string): Promise<string> {

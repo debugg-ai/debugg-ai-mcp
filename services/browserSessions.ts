@@ -111,28 +111,6 @@ export interface BrowserSessionsService {
   listSessions(params?: { status?: string; limit?: number; offset?: number }): Promise<PaginatedResponse<BrowserSession>>;
 }
 
-/**
- * Helper function to map backend session status to MCP status
- */
-function mapBackendStatus(backendStatus: string): 'starting' | 'active' | 'stopped' | 'error' {
-  switch (backendStatus?.toUpperCase()) {
-    case 'PENDING':
-    case 'INITIALIZING':
-      return 'starting';
-    case 'ACTIVE':
-    case 'RUNNING':
-      return 'active';
-    case 'COMPLETED':
-    case 'TERMINATED':
-    case 'STOPPED':
-      return 'stopped';
-    case 'FAILED':
-    case 'ERROR':
-      return 'error';
-    default:
-      return 'starting';
-  }
-}
 
 /**
  * Create Browser Sessions Service with AxiosTransport
@@ -158,24 +136,8 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         throw new Error('Failed to start browser session - no response from service');
       }
 
-      // Convert backend response format to MCP format
-      const session: BrowserSession = {
-        sessionId: backendResponse.uuid || backendResponse.key || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        sessionName: backendResponse.session_name || params.sessionName || 'Unnamed Session',
-        url: backendResponse.initial_url || backendResponse.current_url || params.url,
-        localPort: params.localPort,
-        status: mapBackendStatus(backendResponse.status || 'PENDING'),
-        startTime: backendResponse.timestamp || new Date().toISOString(),
-        monitoring: {
-          console: params.monitorConsole ?? true,
-          network: params.monitorNetwork ?? true,
-          screenshots: params.takeScreenshots ?? false,
-          screenshotInterval: params.screenshotInterval ?? 10
-        },
-        tunnelKey: backendResponse.tunnel_key
-      };
-
-      return session;
+      // Return the backend response directly
+      return backendResponse;
     } catch (err) {
       console.error("Error starting browser session:", err);
       throw new Error(`Failed to start browser session: ${(err as any).message}`);
@@ -196,35 +158,8 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         throw new Error('Failed to stop browser session - no response from service');
       }
 
-      // Convert backend response to MCP format
-      const session: BrowserSession = {
-        sessionId: backendResponse.uuid || sessionId,
-        sessionName: backendResponse.session_name || 'Session',
-        url: backendResponse.initial_url || backendResponse.current_url || '',
-        status: mapBackendStatus(backendResponse.status || 'STOPPED'),
-        startTime: backendResponse.timestamp || new Date().toISOString(),
-        endTime: new Date().toISOString(),
-        monitoring: {
-          console: true,
-          network: true,
-          screenshots: false
-        },
-        tunnelKey: backendResponse.tunnel_key
-      };
-
-      const summary: SessionSummary = {
-        duration: 0, // Would need to calculate from start/end time
-        finalStats: {
-          uptime: 0,
-          totalLogs: 0,
-          consoleLogs: 0,
-          networkRequests: 0,
-          errors: 0,
-          screenshotsCaptured: 0
-        }
-      };
-
-      return { session, summary };
+      // Return the backend response directly
+      return { session: backendResponse, summary: backendResponse.summary || {} };
     } catch (err) {
       console.error("Error stopping browser session:", err);
       throw new Error(`Failed to stop browser session: ${(err as any).message}`);
@@ -244,32 +179,8 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         throw new Error('Failed to get session status - session not found or service error');
       }
 
-      // Convert backend response to MCP format
-      const session: BrowserSession = {
-        sessionId: backendResponse.uuid || sessionId,
-        sessionName: backendResponse.session_name || 'Session',
-        url: backendResponse.initial_url || backendResponse.current_url || '',
-        status: mapBackendStatus(backendResponse.status || 'PENDING'),
-        startTime: backendResponse.timestamp || new Date().toISOString(),
-        monitoring: {
-          console: true,
-          network: true,
-          screenshots: false
-        },
-        tunnelKey: backendResponse.tunnel_key
-      };
-
-      // Create basic stats (would need actual data from backend)
-      const stats: SessionStats = {
-        uptime: 0, // Would calculate from start time
-        totalLogs: 0,
-        consoleLogs: 0,
-        networkRequests: 0,
-        errors: 0,
-        screenshotsCaptured: 0
-      };
-
-      return { session, stats };
+      // Return the backend response directly
+      return { session: backendResponse, stats: backendResponse.stats || {} };
     } catch (err) {
       console.error("Error getting session status:", err);
       if ((err as any).response?.status === 404) {
@@ -299,72 +210,30 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
       if (params?.since) queryParams.timestamp__gte = params.since;
       if (params?.limit) queryParams.limit = params.limit;
 
-      const logs: SessionLog[] = [];
-      let consoleCount = 0;
-      let networkCount = 0;
-      let errorCount = 0;
-
-      // Fetch console logs if requested
-      if (!params?.logType || params.logType === 'all' || params.logType === 'console') {
-        try {
-          const consoleResponse = await tx.get<any>('api/v1/browser-sessions/console-logs/', queryParams);
-          if (consoleResponse?.results) {
-            const consoleLogs = consoleResponse.results.map((log: any): SessionLog => ({
-              timestamp: log.timestamp || new Date().toISOString(),
-              type: 'console',
-              level: log.level || 'log',
-              message: log.message || '',
-              source: log.source,
-              details: log.details
-            }));
-            logs.push(...consoleLogs);
-            consoleCount = consoleLogs.length;
-          }
-        } catch (err) {
-          console.warn('Failed to fetch console logs:', err);
+      // Use the appropriate logs endpoint based on logType
+      let serverUrl = 'api/v1/browser-sessions/logs/';
+      if (params?.logType && params.logType !== 'all') {
+        switch (params.logType) {
+          case 'console':
+            serverUrl = 'api/v1/browser-sessions/console-logs/';
+            break;
+          case 'network':
+            serverUrl = 'api/v1/browser-sessions/network-events/';
+            break;
+          case 'errors':
+            serverUrl = 'api/v1/browser-sessions/error-logs/';
+            break;
         }
       }
 
-      // Fetch network events if requested
-      if (!params?.logType || params.logType === 'all' || params.logType === 'network') {
-        try {
-          const networkResponse = await tx.get<any>('api/v1/browser-sessions/network-events/', queryParams);
-          if (networkResponse?.results) {
-            const networkLogs = networkResponse.results.map((event: any): SessionLog => ({
-              timestamp: event.timestamp || new Date().toISOString(),
-              type: 'network',
-              message: `${event.method || 'GET'} ${event.url || ''} - ${event.status || ''}`,
-              details: {
-                url: event.url,
-                method: event.method,
-                status: event.status,
-                responseTime: event.response_time
-              }
-            }));
-            logs.push(...networkLogs);
-            networkCount = networkLogs.length;
-          }
-        } catch (err) {
-          console.warn('Failed to fetch network events:', err);
-        }
-      }
-
-      // Sort logs by timestamp
-      logs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-      // Apply limit if specified
-      const limitedLogs = params?.limit ? logs.slice(0, params.limit) : logs;
-
+      const response = await tx.get<any>(serverUrl, queryParams);
+      
+      // Return the backend response directly
       return {
-        session: { sessionId, sessionName: 'Browser Session' },
-        logs: limitedLogs,
+        session: response.session || { sessionId },
+        logs: response.logs || response.results || [],
         filters: params || {},
-        stats: { 
-          totalLogs: logs.length, 
-          consoleCount, 
-          networkCount, 
-          errorCount 
-        }
+        stats: response.stats || { totalLogs: 0, consoleCount: 0, networkCount: 0, errorCount: 0 }
       };
     } catch (err) {
       console.error("Error getting session logs:", err);
@@ -386,57 +255,21 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
     screenshot: SessionScreenshot;
   }> {
     try {
-      // For now, we'll use the screenshots list endpoint to get existing screenshots
-      // In the future, this would trigger a new screenshot capture
-      const serverUrl = 'api/v1/browser-sessions/screenshots/';
+      // POST to trigger a new screenshot capture
+      const serverUrl = `api/v1/browser-sessions/sessions/${sessionId}/screenshot/`;
       
-      const queryParams = {
-        session: sessionId,
-        limit: 1
+      const requestBody = {
+        fullPage: params?.fullPage,
+        quality: params?.quality,
+        format: params?.format
       };
 
-      const response = await tx.get<any>(serverUrl, queryParams);
+      const response = await tx.post<any>(serverUrl, requestBody);
 
-      if (!response?.results || response.results.length === 0) {
-        // If no screenshots exist, we'll return a placeholder
-        // In a real implementation, this would trigger screenshot capture
-        const screenshot: SessionScreenshot = {
-          data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==', // 1x1 transparent PNG
-          format: params?.format || 'png',
-          quality: params?.quality,
-          fullPage: params?.fullPage || false,
-          timestamp: new Date().toISOString(),
-          size: {
-            width: 1,
-            height: 1,
-            bytes: 68
-          }
-        };
-
-        return {
-          session: { sessionId },
-          screenshot
-        };
-      }
-
-      // Convert backend screenshot to MCP format
-      const backendScreenshot = response.results[0];
-      const screenshot: SessionScreenshot = {
-        data: backendScreenshot.data || '',
-        format: (backendScreenshot.format || params?.format || 'png') as 'png' | 'jpeg',
-        quality: backendScreenshot.quality || params?.quality,
-        fullPage: backendScreenshot.full_page || params?.fullPage || false,
-        timestamp: backendScreenshot.timestamp || new Date().toISOString(),
-        size: {
-          width: backendScreenshot.width || 0,
-          height: backendScreenshot.height || 0,
-          bytes: backendScreenshot.file_size || 0
-        }
-      };
-
+      // Return the backend response directly
       return {
-        session: { sessionId },
-        screenshot
+        session: response.session || { sessionId },
+        screenshot: response.screenshot || response
       };
     } catch (err) {
       console.error("Error capturing screenshot:", err);
@@ -457,25 +290,7 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
       const serverUrl = "api/v1/browser-sessions/sessions/";
       
       const queryParams: Record<string, any> = {};
-      if (params?.status) {
-        // Map MCP status to backend status
-        switch (params.status) {
-          case 'starting':
-            queryParams.status = 'PENDING';
-            break;
-          case 'active':
-            queryParams.status = 'ACTIVE';
-            break;
-          case 'stopped':
-            queryParams.status = 'COMPLETED';
-            break;
-          case 'error':
-            queryParams.status = 'FAILED';
-            break;
-          default:
-            queryParams.status = params.status;
-        }
-      }
+      if (params?.status) queryParams.status = params.status;
       if (params?.limit) queryParams.limit = params.limit;
       if (params?.offset) queryParams.offset = params.offset;
 
@@ -490,26 +305,12 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         throw new Error('Failed to list sessions - no response from service');
       }
 
-      // Convert backend sessions to MCP format
-      const sessions: BrowserSession[] = (response.results || []).map((backendSession: any): BrowserSession => ({
-        sessionId: backendSession.uuid || backendSession.key || `session_${Date.now()}`,
-        sessionName: backendSession.session_name || 'Unnamed Session',
-        url: backendSession.initial_url || backendSession.current_url || '',
-        status: mapBackendStatus(backendSession.status || 'PENDING'),
-        startTime: backendSession.timestamp || new Date().toISOString(),
-        monitoring: {
-          console: true,
-          network: true,
-          screenshots: false
-        },
-        tunnelKey: backendSession.tunnel_key
-      }));
-
+      // Return the backend response directly
       return {
-        count: response.count || 0,
+        count: response.count,
         next: response.next,
         previous: response.previous,
-        results: sessions
+        results: response.results || []
       };
     } catch (err) {
       console.error("Error listing sessions:", err);
