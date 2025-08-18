@@ -52,6 +52,9 @@ export async function startLiveSessionHandler(
 
     // Get the service client
     const client = await getServiceClient();
+    if (!client) {
+      throw new Error('Service client not available');
+    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
@@ -96,6 +99,10 @@ export async function startLiveSessionHandler(
 
     // Start the session via API
     const session = await client.browserSessions.startSession(sessionParams);
+    
+    if (!session) {
+      throw new Error('Failed to start browser session: No session returned');
+    }
 
     if (progressCallback) {
       await progressCallback({ progress: 4, total: 4, message: 'Live session started successfully' });
@@ -142,6 +149,9 @@ export async function stopLiveSessionHandler(
 
     // Get the service client
     const client = await getServiceClient();
+    if (!client) {
+      throw new Error('Service client not available');
+    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
@@ -213,6 +223,9 @@ export async function getLiveSessionStatusHandler(
 
     // Get the service client
     const client = await getServiceClient();
+    if (!client) {
+      throw new Error('Service client not available');
+    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
@@ -276,6 +289,9 @@ export async function getLiveSessionLogsHandler(
 
     // Get the service client
     const client = await getServiceClient();
+    if (!client) {
+      throw new Error('Service client not available');
+    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
@@ -339,6 +355,9 @@ export async function getLiveSessionScreenshotHandler(
 
     // Get the service client
     const client = await getServiceClient();
+    if (!client) {
+      throw new Error('Service client not available');
+    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
