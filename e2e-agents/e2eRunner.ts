@@ -1,7 +1,7 @@
 // src/E2eTestRunner.ts
 import { DebuggAIServerClient } from '../services/index.js';
 import { E2eRun } from '../services/types.js';
-import { downloadBinary, start, stop } from '../tunnels/ngrok/index.js';
+import { downloadBinary, tunnelManager } from '../services/ngrok/index.js';
 import { RunResultFormatter } from './resultsFormatter.js';
 import { fetchAndOpenGif } from './recordingHandler.js';
 import { v4 as uuidv4 } from 'uuid';

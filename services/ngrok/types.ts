@@ -1,4 +1,13 @@
-import { Ngrok } from 'ngrok';
+import { Ngrok, NgrokClient } from 'ngrok';
+
+export interface TunnelClient {
+  start: (options?: Ngrok.Options) => Promise<string | null>;
+  stop: (tunnel?: string) => Promise<void>;
+  getActiveTunnels: (api: NgrokClient) => Promise<Ngrok.Tunnel[]>;
+  getUrl: (api: NgrokClient) => Promise<string>;
+  getApi: () => Promise<NgrokClient>;
+  downloadBinary: () => Promise<void>;
+}
 
 export type TunnelsResponse = {
   tunnels: Ngrok.Tunnel[];

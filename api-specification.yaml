@@ -1,0 +1,1783 @@
+openapi: 3.0.3
+info:
+  title: DebuggAI MCP Server API
+  description: |
+    Backend API specification for DebuggAI Model Context Protocol (MCP) Server.
+    This API provides endpoints for browser automation, E2E testing, live session monitoring,
+    and test suite management for AI-driven web application testing.
+    
+    ## Key Features
+    - **Live Browser Sessions**: Remote browser control with real-time monitoring
+    - **E2E Testing**: Natural language browser test execution
+    - **Test Suite Management**: Organized test collections and Git-based test generation
+    - **Real-time Monitoring**: Console logs, network traffic, and screenshot capture
+    
+    ## Authentication
+    All endpoints require authentication via Bearer token in the Authorization header.
+  version: 1.0.15
+  contact:
+    name: DebuggAI Support
+    url: https://debugg.ai
+    email: support@debugg.ai
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: https://api.debugg.ai
+    description: Production server
+  - url: https://debuggai-backend.ngrok.app
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ============================================================================
+  # LIVE SESSION ENDPOINTS (NEW - NEED IMPLEMENTATION)
+  # ============================================================================
+  
+  /api/v1/browser-sessions/:
+    post:
+      tags:
+        - Browser Sessionss
+      summary: Start Live Browser Session
+      description: |
+        Launch a live remote web browser session to monitor your application in real-time.
+        Creates a new browser instance with configurable monitoring options for console logs,
+        network requests, and automatic screenshot capture.
+      operationId: startLiveSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: URL of the application to monitor (e.g., http://localhost:3000)
+                  example: "http://localhost:3000"
+                localPort:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                  description: Port number for localhost apps (only needed for local development servers)
+                  example: 3000
+                sessionName:
+                  type: string
+                  maxLength: 100
+                  description: Human-readable name for this monitoring session
+                  example: "Dashboard Testing Session"
+                monitorConsole:
+                  type: boolean
+                  default: true
+                  description: Capture JavaScript console.log(), console.error(), and other console output
+                monitorNetwork:
+                  type: boolean
+                  default: true
+                  description: Track all HTTP requests and responses made by the browser
+                takeScreenshots:
+                  type: boolean
+                  default: false
+                  description: Automatically capture screenshots at regular intervals
+                screenshotInterval:
+                  type: integer
+                  minimum: 1
+                  maximum: 300
+                  default: 10
+                  description: Screenshot capture interval in seconds (when takeScreenshots is true)
+            examples:
+              localhost_monitoring:
+                summary: Monitor local development server
+                value:
+                  url: "http://localhost:3000"
+                  localPort: 3000
+                  sessionName: "React App Testing"
+                  monitorConsole: true
+                  monitorNetwork: true
+                  takeScreenshots: false
+              production_monitoring:
+                summary: Monitor production website
+                value:
+                  url: "https://myapp.com"
+                  sessionName: "Production Health Check"
+                  monitorConsole: true
+                  monitorNetwork: true
+                  takeScreenshots: true
+                  screenshotInterval: 30
+      responses:
+        '201':
+          description: Live session started successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  session:
+                    $ref: '#/components/schemas/LiveSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    
+    get:
+      tags:
+        - Browser Sessionss
+      summary: List Active Browser Sessionss
+      description: Get a list of all active and recent live browser sessions
+      operationId: listLiveSessions
+      parameters:
+        - name: status
+          in: query
+          description: Filter sessions by status
+          schema:
+            type: string
+            enum: [starting, active, stopped, error]
+        - name: limit
+          in: query
+          description: Number of sessions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Number of sessions to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of live sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LiveSession'
+
+  /api/v1/browser-sessions/{sessionId}/:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        description: Unique identifier for the live session
+        schema:
+          type: string
+          pattern: '^session_[0-9]+_[a-z0-9]+$'
+          example: "session_1702834567123_abc123def"
+    
+    get:
+      tags:
+        - Browser Sessionss
+      summary: Get Browser Sessions Status
+      description: |
+        Check if the remote browser session is running, what URL it's on,
+        how long it's been active, and get monitoring statistics.
+      operationId: getLiveSessionStatus
+      responses:
+        '200':
+          description: Session status retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  session:
+                    $ref: '#/components/schemas/LiveSession'
+                  stats:
+                    $ref: '#/components/schemas/SessionStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    
+    delete:
+      tags:
+        - Browser Sessionss
+      summary: Stop Browser Sessions
+      description: |
+        Stop a running remote browser session and cleanup all monitoring.
+        Browser closes and all captured data is saved.
+      operationId: stopLiveSession
+      responses:
+        '200':
+          description: Session stopped successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  session:
+                    $ref: '#/components/schemas/LiveSession'
+                  summary:
+                    $ref: '#/components/schemas/SessionSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/browser-sessions/{sessionId}/logs/:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    
+    get:
+      tags:
+        - Browser Sessionss
+      summary: Get Browser Sessions Logs
+      description: |
+        Retrieve browser console logs, network request logs, and JavaScript errors
+        captured from the remote browser during the live session. These are the actual
+        console.log(), console.error(), API calls, and error messages that occurred
+        while your app was running.
+      operationId: getLiveSessionLogs
+      parameters:
+        - name: logType
+          in: query
+          description: Filter log types
+          schema:
+            type: string
+            enum: [console, network, errors, all]
+            default: all
+        - name: since
+          in: query
+          description: Only return logs after this timestamp (ISO format)
+          schema:
+            type: string
+            format: date-time
+            example: "2024-01-01T12:00:00Z"
+        - name: limit
+          in: query
+          description: Maximum number of log entries to return (most recent first)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: Session logs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  session:
+                    type: object
+                    properties:
+                      sessionId:
+                        type: string
+                      sessionName:
+                        type: string
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionLog'
+                  filters:
+                    type: object
+                    properties:
+                      logType:
+                        type: string
+                      since:
+                        type: string
+                        format: date-time
+                      limit:
+                        type: integer
+                  stats:
+                    type: object
+                    properties:
+                      totalLogs:
+                        type: integer
+                      consoleCount:
+                        type: integer
+                      networkCount:
+                        type: integer
+                      errorCount:
+                        type: integer
+
+  /api/v1/browser-sessions/{sessionId}/screenshot/:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+    
+    post:
+      tags:
+        - Browser Sessionss
+      summary: Capture Browser Sessions Screenshot
+      description: |
+        Capture a screenshot of what the remote browser currently displays.
+        Shows exactly what users would see on their screen at this moment.
+      operationId: captureLiveSessionScreenshot
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullPage:
+                  type: boolean
+                  default: false
+                  description: Capture entire webpage vs. just visible area in browser viewport
+                quality:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  default: 90
+                  description: Image quality (only affects JPEG format)
+                format:
+                  type: string
+                  enum: [png, jpeg]
+                  default: png
+                  description: Image format (png for lossless, jpeg for smaller size)
+      responses:
+        '200':
+          description: Screenshot captured successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  session:
+                    type: object
+                    properties:
+                      sessionId:
+                        type: string
+                  screenshot:
+                    $ref: '#/components/schemas/Screenshot'
+
+  # ============================================================================
+  # E2E TESTING ENDPOINTS (EXISTING - VERIFY IMPLEMENTATION)
+  # ============================================================================
+
+  /api/v1/e2e-tests/:
+    post:
+      tags:
+        - E2E Tests
+      summary: Create E2E Test
+      description: |
+        Run end-to-end browser tests using AI agents that interact with your web
+        application like real users. Tests specific pages, features, or workflows
+        by clicking buttons, filling forms, and validating behavior.
+      operationId: createE2eTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - description
+              properties:
+                description:
+                  type: string
+                  minLength: 1
+                  description: Natural language description of what to test
+                  example: "Test login form on /login page and verify success message appears"
+                localPort:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                  description: Port number where local development server is running
+                  example: 3000
+                filePath:
+                  type: string
+                  description: Absolute path to the main file being tested
+                  example: "/Users/dev/myapp/src/pages/Login.tsx"
+                repoName:
+                  type: string
+                  description: Name of your Git repository
+                  example: "my-web-app"
+                branchName:
+                  type: string
+                  description: Current Git branch name
+                  example: "feature/login"
+                repoPath:
+                  type: string
+                  description: Absolute path to your project's root directory
+                  example: "/Users/dev/myapp"
+                absPath:
+                  type: string
+                  description: Absolute file path (computed from filePath)
+      responses:
+        '201':
+          description: E2E test created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTest'
+    
+    get:
+      tags:
+        - E2E Tests
+      summary: List E2E Tests
+      description: |
+        View all end-to-end browser tests that have been run for your project.
+        Shows test results, status, screenshots, and detailed execution logs.
+      operationId: listE2eTests
+      parameters:
+        - name: repoName
+          in: query
+          description: Filter tests by repository name
+          schema:
+            type: string
+            example: "my-web-app"
+        - name: branchName
+          in: query
+          description: Filter tests by Git branch name
+          schema:
+            type: string
+            example: "main"
+        - name: status
+          in: query
+          description: Show only tests with this status
+          schema:
+            type: string
+            enum: [pending, running, completed, failed]
+        - name: page
+          in: query
+          description: Page number for pagination
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of tests per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of E2E tests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedE2eTests'
+
+  /api/v1/e2e-tests/{uuid}/:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        description: UUID of the E2E test
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      tags:
+        - E2E Tests
+      summary: Get E2E Test
+      description: Get details of a specific E2E test including results and screenshots
+      operationId: getE2eTest
+      responses:
+        '200':
+          description: E2E test details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTest'
+    
+    delete:
+      tags:
+        - E2E Tests
+      summary: Delete E2E Test
+      description: Delete a specific E2E test
+      operationId: deleteE2eTest
+      responses:
+        '204':
+          description: E2E test deleted successfully
+
+  /api/v1/e2e-tests/{uuid}/run/:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    post:
+      tags:
+        - E2E Tests
+      summary: Run E2E Test
+      description: Execute an existing E2E test
+      operationId: runE2eTest
+      responses:
+        '200':
+          description: E2E test execution started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTest'
+
+  # ============================================================================
+  # E2E RUNS ENDPOINTS
+  # ============================================================================
+
+  /api/v1/e2e-runs/:
+    post:
+      tags:
+        - E2E Runs
+      summary: Create E2E Run
+      description: Create a new E2E test run with file contents
+      operationId: createE2eRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fileContents
+                - filePath
+                - repoName
+                - branchName
+              properties:
+                fileContents:
+                  type: string
+                  format: byte
+                  description: Base64 encoded file contents
+                filePath:
+                  type: string
+                  description: Relative path to the file
+                repoName:
+                  type: string
+                  description: Repository name
+                branchName:
+                  type: string
+                  description: Branch name
+                absPath:
+                  type: string
+                  description: Absolute path to the file
+                repoPath:
+                  type: string
+                  description: Absolute path to repository root
+      responses:
+        '201':
+          description: E2E run created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eRun'
+
+  /api/v1/e2e-runs/{uuid}/:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      tags:
+        - E2E Runs
+      summary: Get E2E Run
+      description: Get details of a specific E2E run
+      operationId: getE2eRun
+      responses:
+        '200':
+          description: E2E run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eRun'
+
+  # ============================================================================
+  # TEST SUITES ENDPOINTS
+  # ============================================================================
+
+  /api/v1/test-suites/:
+    get:
+      tags:
+        - Test Suites
+      summary: List Test Suites
+      description: |
+        View organized collections of related tests for your project. Test suites
+        group multiple browser tests together (e.g., 'User Authentication Suite'
+        containing login, logout, and password reset tests).
+      operationId: listTestSuites
+      parameters:
+        - name: repoName
+          in: query
+          description: Filter test suites by repository name
+          schema:
+            type: string
+        - name: branchName
+          in: query
+          description: Filter test suites by Git branch name
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by suite status
+          schema:
+            type: string
+            enum: [pending, running, completed, failed]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of test suites
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTestSuites'
+
+  /api/v1/test-suites/generate_tests/:
+    post:
+      tags:
+        - Test Suites
+      summary: Create Test Suite
+      description: |
+        Generate a comprehensive collection of browser tests for a specific feature
+        or user workflow. AI creates multiple related tests that thoroughly validate
+        functionality (e.g., create 'Shopping Cart Suite' with add item, remove item,
+        checkout, and error handling tests).
+      operationId: createTestSuite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - description
+              properties:
+                description:
+                  type: string
+                  minLength: 1
+                  description: Description of the feature or functionality to create tests for
+                  example: "Create comprehensive tests for user authentication flow"
+                repoName:
+                  type: string
+                  description: Repository name for context
+                branchName:
+                  type: string  
+                  description: Branch name for context
+                repoPath:
+                  type: string
+                  description: Local repository path
+                filePath:
+                  type: string
+                  description: Specific file path related to the feature
+                absPath:
+                  type: string
+                  description: Absolute file path
+      responses:
+        '201':
+          description: Test suite created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTestSuite'
+
+  /api/v1/test-suites/{uuid}/:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      tags:
+        - Test Suites
+      summary: Get Test Suite Status
+      description: |
+        Check the progress and results of a running or completed test suite.
+        Shows whether tests are still running, how many passed/failed,
+        screenshots from test execution, and detailed error messages.
+      operationId: getTestSuite
+      responses:
+        '200':
+          description: Test suite details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTestSuite'
+
+  /api/v1/test-suites/{uuid}/run/:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    post:
+      tags:
+        - Test Suites
+      summary: Run Test Suite
+      description: Execute all tests in a test suite
+      operationId: runTestSuite
+      responses:
+        '200':
+          description: Test suite execution started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTestSuite'
+
+  # ============================================================================
+  # COMMIT SUITES ENDPOINTS
+  # ============================================================================
+
+  /api/v1/commit-suites/:
+    post:
+      tags:
+        - Commit Suites
+      summary: Create Commit Suite
+      description: |
+        Automatically generate browser tests based on your recent code changes.
+        AI analyzes your Git commits and creates relevant tests to verify that
+        your new features and bug fixes work correctly in the browser.
+      operationId: createCommitSuite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - description
+              properties:
+                description:
+                  type: string
+                  minLength: 1
+                  description: Description of the changes or commit to create tests for
+                  example: "Added user login functionality with OAuth integration"
+                repoName:
+                  type: string
+                  description: Repository name for context
+                branchName:
+                  type: string
+                  description: Branch name for context
+                repoPath:
+                  type: string
+                  description: Local repository path
+                filePath:
+                  type: string
+                  description: Specific file path related to the changes
+                absPath:
+                  type: string
+                  description: Absolute file path
+      responses:
+        '201':
+          description: Commit suite created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTestCommitSuite'
+    
+    get:
+      tags:
+        - Commit Suites
+      summary: List Commit Suites
+      description: |
+        View all test suites that were automatically generated from your Git commits.
+        These are collections of browser tests created to validate specific code changes.
+      operationId: listCommitSuites
+      parameters:
+        - name: repoName
+          in: query
+          description: Filter by repository name
+          schema:
+            type: string
+        - name: branchName
+          in: query
+          description: Filter by branch name
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by commit suite status
+          schema:
+            type: string
+            enum: [pending, running, completed, failed]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of commit suites
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCommitSuites'
+
+  /api/v1/commit-suites/{uuid}/:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    get:
+      tags:
+        - Commit Suites
+      summary: Get Commit Suite
+      description: Get details of a specific commit suite
+      operationId: getCommitSuite
+      responses:
+        '200':
+          description: Commit suite details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTestCommitSuite'
+
+  /api/v1/commit-suites/{uuid}/run/:
+    parameters:
+      - name: uuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    
+    post:
+      tags:
+        - Commit Suites
+      summary: Run Commit Suite
+      description: Execute all tests in a commit suite
+      operationId: runCommitSuite
+      responses:
+        '200':
+          description: Commit suite execution started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2eTestCommitSuite'
+
+# ============================================================================
+# COMPONENTS SECTION
+# ============================================================================
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        DebuggAI API uses Bearer token authentication. Include your API key in the
+        Authorization header: `Authorization: Token your-api-key-here`
+
+  schemas:
+    # ========================================================================
+    # LIVE SESSION SCHEMAS (NEW)
+    # ========================================================================
+    
+    LiveSession:
+      type: object
+      required:
+        - sessionId
+        - sessionName
+        - url
+        - status
+        - startTime
+      properties:
+        sessionId:
+          type: string
+          description: Unique session identifier
+          example: "session_1702834567123_abc123def"
+        sessionName:
+          type: string
+          description: Human-readable session name
+          example: "Dashboard Testing Session"
+        url:
+          type: string
+          format: uri
+          description: URL being monitored
+          example: "http://localhost:3000"
+        localPort:
+          type: integer
+          description: Local port number (if applicable)
+          example: 3000
+        status:
+          type: string
+          enum: [starting, active, stopped, error]
+          description: Current session status
+        startTime:
+          type: string
+          format: date-time
+          description: When the session was started
+        endTime:
+          type: string
+          format: date-time
+          description: When the session ended (if stopped)
+          nullable: true
+        monitoring:
+          type: object
+          properties:
+            console:
+              type: boolean
+              description: Whether console monitoring is enabled
+            network:
+              type: boolean
+              description: Whether network monitoring is enabled
+            screenshots:
+              type: boolean
+              description: Whether screenshot capture is enabled
+            screenshotInterval:
+              type: integer
+              description: Screenshot interval in seconds
+        tunnelKey:
+          type: string
+          description: Tunnel key for browser access
+          nullable: true
+        
+    SessionStats:
+      type: object
+      properties:
+        uptime:
+          type: integer
+          description: Session uptime in seconds
+          example: 3600
+        totalLogs:
+          type: integer
+          description: Total number of logs captured
+          example: 247
+        consoleLogs:
+          type: integer
+          description: Number of console logs
+          example: 156
+        networkRequests:
+          type: integer
+          description: Number of network requests
+          example: 89
+        errors:
+          type: integer
+          description: Number of errors captured
+          example: 2
+        screenshotsCaptured:
+          type: integer
+          description: Number of screenshots taken
+          example: 12
+        
+    SessionSummary:
+      type: object
+      properties:
+        duration:
+          type: integer
+          description: Total session duration in seconds
+        finalStats:
+          $ref: '#/components/schemas/SessionStats'
+        dataUrls:
+          type: object
+          properties:
+            logs:
+              type: string
+              format: uri
+              description: URL to download complete logs
+            screenshots:
+              type: string
+              format: uri
+              description: URL to download screenshots archive
+        
+    SessionLog:
+      type: object
+      required:
+        - timestamp
+        - type
+        - message
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: When the log entry was created
+        type:
+          type: string
+          enum: [console, network, error]
+          description: Type of log entry
+        level:
+          type: string
+          enum: [log, info, warn, error, debug]
+          description: Log level (for console logs)
+        message:
+          type: string
+          description: Log message content
+        source:
+          type: string
+          description: Source of the log (file:line or URL)
+        details:
+          type: object
+          description: Additional log details (varies by type)
+          additionalProperties: true
+          
+    Screenshot:
+      type: object
+      required:
+        - data
+        - format
+        - timestamp
+      properties:
+        data:
+          type: string
+          format: byte
+          description: Base64 encoded image data
+        format:
+          type: string
+          enum: [png, jpeg]
+          description: Image format
+        quality:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Image quality (for JPEG)
+        fullPage:
+          type: boolean
+          description: Whether this is a full page screenshot
+        timestamp:
+          type: string
+          format: date-time
+          description: When the screenshot was taken
+        size:
+          type: object
+          properties:
+            width:
+              type: integer
+              description: Image width in pixels
+            height:
+              type: integer
+              description: Image height in pixels
+            bytes:
+              type: integer
+              description: File size in bytes
+
+    # ========================================================================
+    # E2E TESTING SCHEMAS (EXISTING)
+    # ========================================================================
+    
+    E2eTest:
+      type: object
+      required:
+        - id
+        - uuid
+        - name
+        - timeStamp
+        - testScript
+      properties:
+        id:
+          type: string
+          description: Test ID
+        uuid:
+          type: string
+          format: uuid
+          description: Unique test identifier
+        timeStamp:
+          type: string
+          format: date-time
+          description: When the test was created
+        lastModified:
+          type: string
+          format: date-time
+          description: When the test was last modified
+        project:
+          type: integer
+          description: Project ID
+        projectName:
+          type: string
+          description: Project name
+          nullable: true
+        tunnelKey:
+          type: string
+          description: Tunnel key for browser access
+          nullable: true
+        curRun:
+          $ref: '#/components/schemas/E2eRun'
+          nullable: true
+        host:
+          $ref: '#/components/schemas/Host'
+          nullable: true
+        name:
+          type: string
+          description: Test name
+        description:
+          type: string
+          description: Test description
+          nullable: true
+        agent:
+          type: integer
+          description: Agent ID
+          nullable: true
+        agentTaskDescription:
+          type: string
+          description: Agent task description
+          nullable: true
+        testScript:
+          type: string
+          description: Test script path or URL
+        createdBy:
+          type: integer
+          description: User ID who created the test
+          nullable: true
+          
+    E2eRun:
+      type: object
+      required:
+        - id
+        - uuid
+        - timestamp
+        - key
+        - runType
+        - status
+        - outcome
+      properties:
+        id:
+          type: integer
+          description: Run ID
+        uuid:
+          type: string
+          format: uuid
+          description: Unique run identifier
+        timestamp:
+          type: string
+          format: date-time
+          description: When the run was created
+        lastModified:
+          type: string
+          format: date-time
+          description: When the run was last modified
+        key:
+          type: string
+          description: Run key
+        runType:
+          type: string
+          enum: [generate, run]
+          description: Type of run
+        test:
+          $ref: '#/components/schemas/E2eTest'
+          nullable: true
+        tunnelKey:
+          type: string
+          description: Tunnel key for browser access
+          nullable: true
+        status:
+          type: string
+          enum: [pending, running, completed]
+          description: Current run status
+        outcome:
+          type: string
+          enum: [pending, skipped, unknown, pass, fail]
+          description: Run outcome
+        conversations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+          description: Conversations related to the run
+        startedBy:
+          type: integer
+          description: User ID who started the run
+          nullable: true
+        runOnHost:
+          type: integer
+          description: Host ID where the run executed
+          nullable: true
+        targetUrl:
+          type: string
+          format: uri
+          description: Target URL for the run
+          nullable: true
+        finalScreenshot:
+          type: string
+          format: uri
+          description: URL of the final screenshot
+          nullable: true
+        runGif:
+          type: string
+          format: uri
+          description: URL of the run GIF recording
+          nullable: true
+        runJson:
+          type: string
+          format: uri
+          description: URL of the run JSON data
+          nullable: true
+        metrics:
+          $ref: '#/components/schemas/E2eRunMetrics'
+          nullable: true
+          
+    E2eRunMetrics:
+      type: object
+      properties:
+        executionTime:
+          type: integer
+          description: Execution time in milliseconds
+        numSteps:
+          type: integer
+          description: Number of steps executed
+          
+    E2eTestSuite:
+      type: object
+      required:
+        - uuid
+        - id
+        - name
+        - project
+        - key
+        - timestamp
+        - lastMod
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          description: Unique suite identifier
+        id:
+          type: integer
+          description: Suite ID
+        name:
+          type: string
+          description: Suite name
+        description:
+          type: string
+          description: Suite description
+          nullable: true
+        project:
+          type: integer
+          description: Project ID
+        host:
+          type: integer
+          description: Host ID
+          nullable: true
+        createdBy:
+          type: integer
+          description: User ID who created the suite
+          nullable: true
+        completed:
+          type: boolean
+          description: Whether the suite is completed
+        completedAt:
+          type: string
+          format: date-time
+          description: When the suite was completed
+          nullable: true
+        tests:
+          type: array
+          items:
+            $ref: '#/components/schemas/E2eTest'
+          description: Tests in the suite
+        key:
+          type: string
+          description: Suite key
+        feature:
+          $ref: '#/components/schemas/TestFeature'
+          nullable: true
+        testType:
+          $ref: '#/components/schemas/TestType'
+          nullable: true
+        userRole:
+          $ref: '#/components/schemas/UserRole'
+          nullable: true
+        deviceType:
+          $ref: '#/components/schemas/DeviceType'
+          nullable: true
+        region:
+          $ref: '#/components/schemas/Region'
+          nullable: true
+        featureId:
+          type: integer
+          nullable: true
+        testTypeId:
+          type: integer
+          nullable: true
+        userRoleId:
+          type: integer
+          nullable: true
+        deviceTypeId:
+          type: integer
+          nullable: true
+        regionId:
+          type: integer
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+          description: When the suite was created
+        lastMod:
+          type: string
+          format: date-time
+          description: When the suite was last modified
+        tunnelKey:
+          type: string
+          description: Tunnel key for browser access
+          nullable: true
+          
+    E2eTestCommitSuite:
+      type: object
+      required:
+        - id
+        - uuid
+        - project
+        - description
+        - runStatus
+        - timestamp
+        - lastMod
+      properties:
+        id:
+          type: integer
+          description: Commit suite ID
+        uuid:
+          type: string
+          format: uuid
+          description: Unique commit suite identifier
+        commitHash:
+          type: string
+          description: Full commit hash
+          nullable: true
+        commitHashShort:
+          type: string
+          description: Short commit hash (first 8 characters)
+          nullable: true
+        project:
+          type: integer
+          description: Project ID
+        projectName:
+          type: string
+          description: Project name
+          nullable: true
+        description:
+          type: string
+          description: Commit suite description
+        summarizedChanges:
+          type: string
+          description: Summary of changes
+          nullable: true
+        tests:
+          type: array
+          items:
+            $ref: '#/components/schemas/E2eTest'
+          description: Tests in the commit suite
+        tunnelKey:
+          type: string
+          description: Tunnel key for browser access
+          nullable: true
+        key:
+          type: string
+          description: UUID key for URL endpoint
+          nullable: true
+        runStatus:
+          type: string
+          enum: [pending, running, completed]
+          description: Current run status
+        createdBy:
+          $ref: '#/components/schemas/PublicUserInfo'
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+          description: When the commit suite was created
+        lastMod:
+          type: string
+          format: date-time
+          description: When the commit suite was last modified
+
+    # ========================================================================
+    # SUPPORTING SCHEMAS
+    # ========================================================================
+    
+    Host:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          description: Host ID
+        name:
+          type: string
+          description: Host name
+          
+    Conversation:
+      type: object
+      required:
+        - uuid
+        - timestamp
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          description: Conversation UUID
+        creatorUuid:
+          type: string
+          description: Creator UUID
+        user:
+          type: integer
+          description: User ID
+        company:
+          type: integer
+          description: Company ID
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        timestamp:
+          type: string
+          format: date-time
+          description: Conversation timestamp
+        lastMod:
+          type: string
+          format: date-time
+          description: Last modification time
+          
+    Message:
+      type: object
+      required:
+        - uuid
+        - sender
+        - role
+        - content
+        - timestamp
+        - lastMod
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          description: Message UUID
+        sender:
+          type: string
+          description: Message sender
+        role:
+          type: string
+          description: Sender role
+        content:
+          type: string
+          description: Message content
+        cleanedTickedContent:
+          type: string
+          description: Cleaned content
+          nullable: true
+        jsonContent:
+          type: object
+          description: JSON content
+          nullable: true
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+          description: Message timestamp
+        lastMod:
+          type: string
+          format: date-time
+          description: Last modification time
+          
+    PublicUserInfo:
+      type: object
+      required:
+        - uuid
+        - email
+        - firstName
+        - lastName
+        - company
+      properties:
+        uuid:
+          type: string
+          format: uuid
+          description: User UUID
+        email:
+          type: string
+          format: email
+          description: User email
+        firstName:
+          type: string
+          description: User first name
+        lastName:
+          type: string
+          description: User last name
+        company:
+          type: string
+          description: Company name
+          
+    TestFeature:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          description: Feature ID
+        name:
+          type: string
+          description: Feature name
+        description:
+          type: string
+          description: Feature description
+          
+    TestType:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          description: Test type ID
+        name:
+          type: string
+          description: Test type name
+          
+    UserRole:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          description: User role ID
+        name:
+          type: string
+          description: User role name
+          
+    DeviceType:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          description: Device type ID
+        name:
+          type: string
+          description: Device type name
+          
+    Region:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          description: Region ID
+        name:
+          type: string
+          description: Region name
+
+    # ========================================================================
+    # PAGINATION SCHEMAS
+    # ========================================================================
+    
+    PaginatedE2eTests:
+      type: object
+      required:
+        - count
+        - results
+      properties:
+        count:
+          type: integer
+          description: Total number of tests
+        next:
+          type: string
+          format: uri
+          description: URL for next page
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          description: URL for previous page
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/E2eTest'
+            
+    PaginatedTestSuites:
+      type: object
+      required:
+        - count
+        - results
+      properties:
+        count:
+          type: integer
+          description: Total number of test suites
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/E2eTestSuite'
+            
+    PaginatedCommitSuites:
+      type: object
+      required:
+        - count
+        - results
+      properties:
+        count:
+          type: integer
+          description: Total number of commit suites
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/E2eTestCommitSuite'
+
+    # ========================================================================
+    # ERROR SCHEMAS
+    # ========================================================================
+    
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+          description: When the error occurred
+
+  responses:
+    BadRequest:
+      description: Bad request - invalid parameters or request format
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "validation_error"
+            message: "Invalid URL format provided"
+            details:
+              field: "url"
+              provided: "not-a-url"
+              expected: "Valid URL (e.g., http://localhost:3000)"
+            
+    Unauthorized:
+      description: Unauthorized - invalid or missing API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "unauthorized"
+            message: "Invalid API key provided"
+            
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "not_found"
+            message: "Session not found: session_1234567890_abc123"
+            
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "internal_error"
+            message: "Failed to start browser session"
+            details:
+              cause: "Browser service unavailable"
+
+tags:
+  - name: Browser Sessionss
+    description: |
+      Manage live remote browser sessions with real-time monitoring.
+      Start browsers, capture console logs, monitor network traffic, and take screenshots.
+  - name: E2E Tests
+    description: |
+      End-to-end browser testing using AI agents that interact with web applications
+      like real users. Run individual tests and get detailed results.
+  - name: E2E Runs
+    description: |
+      Manage E2E test executions and retrieve detailed run results.
+  - name: Test Suites
+    description: |
+      Organized collections of related tests for comprehensive feature validation.
+      Create suites and manage test groups.
+  - name: Commit Suites
+    description: |
+      Automatically generated test suites based on Git commit analysis.
+      Validate code changes with targeted browser tests.

@@ -17,6 +17,8 @@ import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
+import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { extractLocalhostPort } from '../utils/urlParser.js';
 
 const logger = new Logger({ module: 'liveSessionHandlers' });
 
@@ -30,6 +32,7 @@ async function getServiceClient(): Promise<DebuggAIServerClient> {
   }
   return serviceClient;
 }
+
 
 /**
  * Handler for starting a live browser session
@@ -57,15 +60,34 @@ export async function startLiveSessionHandler(
       await progressCallback({ progress: 2, total: 4, message: 'Configuring browser monitoring...' });
     }
 
+    // Process URL - detect if it needs tunneling or is already tunneled
+    if (progressCallback) {
+      await progressCallback({ progress: 2.5, total: 4, message: 'Processing URL for remote browser access...' });
+    }
+    
+    // Detect URL type and extract metadata
+    const isLocalhost = input.url.includes('localhost') || input.url.includes('127.0.0.1') || input.url.includes('::1');
+    const isTunneled = tunnelManager.isTunnelUrl(input.url);
+    const tunnelId = isTunneled ? tunnelManager.extractTunnelId(input.url) : undefined;
+    
+    const tunnelResult = {
+      url: input.url, // Pass original URL, let backend handle tunneling
+      isLocalhost: isLocalhost && !isTunneled,
+      tunnelId
+    };
+
     // Prepare session parameters
     const sessionParams = {
-      url: input.url,
-      localPort: input.localPort,
+      url: tunnelResult.url,
+      originalUrl: input.url,
+      localPort: input.localPort || extractLocalhostPort(input.url),
       sessionName: input.sessionName || `Session ${new Date().toISOString()}`,
       monitorConsole: input.monitorConsole ?? true,
       monitorNetwork: input.monitorNetwork ?? true,
       takeScreenshots: input.takeScreenshots ?? false,
-      screenshotInterval: input.screenshotInterval ?? 10
+      screenshotInterval: input.screenshotInterval ?? 10,
+      isLocalhost: tunnelResult.isLocalhost,
+      tunnelId: tunnelResult.tunnelId
     };
 
     if (progressCallback) {
@@ -135,6 +157,15 @@ export async function stopLiveSessionHandler(
 
     // Stop the session via API
     const result = await client.browserSessions.stopSession(input.sessionId);
+    
+    // Clean up any associated tunnels
+    if (result.session && 'tunnelId' in result.session && result.session.tunnelId) {
+      try {
+        await tunnelManager.stopTunnel(result.session.tunnelId as string);
+      } catch (error) {
+        logger.warn(`Failed to cleanup tunnel ${result.session.tunnelId}:`, error);
+      }
+    }
 
     if (progressCallback) {
       await progressCallback({ progress: 3, total: 3, message: 'Session stopped successfully' });
