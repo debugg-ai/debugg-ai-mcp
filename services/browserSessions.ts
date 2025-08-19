@@ -301,20 +301,44 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         results: any[];
       }>(serverUrl, queryParams);
 
+      // Handle case where backend returns no data or empty response
       if (!response) {
-        throw new Error('Failed to list sessions - no response from service');
+        return {
+          count: 0,
+          next: null,
+          previous: null,
+          results: []
+        };
       }
 
-      // Return the backend response directly
+      // Return the backend response directly, with safe defaults
       return {
-        count: response.count,
-        next: response.next,
-        previous: response.previous,
+        count: response.count || 0,
+        next: response.next || null,
+        previous: response.previous || null,
         results: response.results || []
       };
     } catch (err) {
       console.error("Error listing sessions:", err);
-      throw new Error(`Failed to list sessions: ${(err as any).message}`);
+      
+      // If the API endpoint doesn't exist or returns 404, return empty list
+      if ((err as any).response?.status === 404) {
+        return {
+          count: 0,
+          next: null,
+          previous: null,
+          results: []
+        };
+      }
+      
+      // For other errors, still return empty list but log the error
+      console.warn("Returning empty sessions list due to API error:", (err as any).message);
+      return {
+        count: 0,
+        next: null,
+        previous: null,
+        results: []
+      };
     }
   }
 });

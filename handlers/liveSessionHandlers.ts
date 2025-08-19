@@ -288,7 +288,8 @@ export async function getLiveSessionStatusHandler(
       responseContent = {
         success: true,
         currentSession: sessions.results.length > 0 ? sessions.results[0] : null,
-        activeSessions: sessions.results
+        activeSessions: sessions.results,
+        message: sessions.results.length === 0 ? 'No active sessions found' : `Found ${sessions.results.length} active session(s)`
       };
     }
 
