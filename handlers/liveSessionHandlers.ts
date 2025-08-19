@@ -416,7 +416,8 @@ export async function getLiveSessionScreenshotHandler(
 
     // First check if session is active
     const statusResult = await client.browserSessions.getSessionStatus(input.sessionId);
-    if (statusResult.session.status !== 'active') {
+    console.error(statusResult);
+    if (statusResult.session.status.toLowerCase() !== 'active') {
       throw new Error('Cannot take screenshot: session is stopped');
     }
 
