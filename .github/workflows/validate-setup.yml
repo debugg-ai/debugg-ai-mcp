@@ -1,0 +1,144 @@
+name: Validate Publishing Setup
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'package.json'
+      - '.github/workflows/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        registry-url: 'https://registry.npmjs.org'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Validate package.json
+      run: |
+        echo "Validating package.json configuration..."
+        
+        # Check required fields
+        PACKAGE_NAME=$(node -p "require('./package.json').name")
+        PACKAGE_VERSION=$(node -p "require('./package.json').version")
+        PACKAGE_BIN=$(node -p "require('./package.json').bin")
+        PACKAGE_FILES=$(node -p "JSON.stringify(require('./package.json').files)")
+        
+        echo "Package Name: $PACKAGE_NAME"
+        echo "Package Version: $PACKAGE_VERSION"
+        echo "Package Bin: $PACKAGE_BIN"
+        echo "Package Files: $PACKAGE_FILES"
+        
+        # Validate name format
+        if [[ ! $PACKAGE_NAME =~ ^@debugg-ai/ ]]; then
+          echo "❌ Package name should start with @debugg-ai/"
+          exit 1
+        fi
+        
+        # Validate version format
+        if [[ ! $PACKAGE_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "❌ Version should follow semantic versioning (x.y.z)"
+          exit 1
+        fi
+        
+        # Check if files array includes dist
+        if [[ ! $PACKAGE_FILES =~ "dist" ]]; then
+          echo "❌ Package files should include 'dist' directory"
+          exit 1
+        fi
+        
+        echo "✅ Package configuration is valid"
+        
+    - name: Test build process
+      run: |
+        echo "Testing build process..."
+        npm run build
+        
+        # Check if dist directory was created
+        if [ ! -d "dist" ]; then
+          echo "❌ Build did not create dist directory"
+          exit 1
+        fi
+        
+        # Check if main entry point exists
+        if [ ! -f "dist/index.js" ]; then
+          echo "❌ Main entry point dist/index.js not found"
+          exit 1
+        fi
+        
+        # Check if binary is executable
+        if [ ! -x "dist/index.js" ]; then
+          echo "❌ Binary dist/index.js is not executable"
+          exit 1
+        fi
+        
+        echo "✅ Build process completed successfully"
+        
+    - name: Test package structure
+      run: |
+        echo "Testing package structure..."
+        
+        # Simulate npm pack to see what would be included
+        npm pack --dry-run > pack_output.txt 2>&1
+        cat pack_output.txt
+        
+        # Check if essential files are included
+        if ! grep -q "dist/" pack_output.txt; then
+          echo "❌ dist directory not included in package"
+          exit 1
+        fi
+        
+        if ! grep -q "package.json" pack_output.txt; then
+          echo "❌ package.json not included in package"
+          exit 1
+        fi
+        
+        echo "✅ Package structure is correct"
+        
+    - name: Run tests
+      run: npm test
+      env:
+        DEBUGGAI_API_KEY: 'test-api-key-for-testing'
+        
+    - name: Check NPM token (optional)
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        if [ -z "$NODE_AUTH_TOKEN" ]; then
+          echo "⚠️ NPM_TOKEN secret not found or not accessible"
+          echo "This is expected for PRs from forks"
+          echo "For publishing, ensure NPM_TOKEN is set in repository secrets"
+        else
+          echo "✅ NPM_TOKEN is available"
+          # Test NPM authentication without exposing token
+          if npm whoami >/dev/null 2>&1; then
+            echo "✅ NPM authentication successful"
+          else
+            echo "❌ NPM authentication failed"
+            echo "Check that NPM_TOKEN has correct permissions"
+          fi
+        fi
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        
+    - name: Validation Summary
+      run: |
+        echo "## Validation Complete! ✅" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Results:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Package configuration valid" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Build process works" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Package structure correct" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Tests passing" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "The publishing setup is ready! 🚀" >> $GITHUB_STEP_SUMMARY

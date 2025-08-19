@@ -1,5 +1,5 @@
 // services/issues.ts
-import { E2eRun, E2eTest, E2eTestSuite, PaginatedResponse } from "./types.js";
+import { E2eRun, E2eTest, E2eTestSuite, E2eTestCommitSuite, PaginatedResponse } from "./types.js";
 import { AxiosTransport } from "../utils/axiosTransport.js";
 
 
@@ -17,6 +17,12 @@ export interface E2esService {
     listE2eTestSuites(params?: Record<string, any>): Promise<PaginatedResponse<E2eTestSuite> | null>;
     getE2eTestSuite(uuid: string, params?: Record<string, any>): Promise<E2eTestSuite | null>;
     runE2eTestSuite(uuid: string, params?: Record<string, any>): Promise<E2eTestSuite | null>;
+
+    // Commit suites
+    createE2eCommitSuite(description: string, params?: Record<string, any>): Promise<E2eTestCommitSuite | null>;
+    runE2eCommitSuite(uuid: string, params?: Record<string, any>): Promise<E2eTestCommitSuite | null>;
+    getE2eCommitSuite(uuid: string, params?: Record<string, any>): Promise<E2eTestCommitSuite | null>;
+    listE2eCommitSuites(params?: Record<string, any>): Promise<PaginatedResponse<E2eTestCommitSuite> | null>;
 }
 
 const paramsToBody = (params: Record<string, any>) => {
@@ -293,6 +299,69 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
             return null;
         }
     },
+    async createE2eCommitSuite(
+        description: string,
+        params?: Record<string, any>
+    ): Promise<E2eTestCommitSuite | null> {
+        try {
+            const serverUrl = "api/v1/commit-suites/";
+            const body = paramsToBody({...params, description});    
+            const response = await tx.post<E2eTestCommitSuite>(serverUrl, { ...body });
+            console.error("Raw API response:", response);
+            return response;
+        } catch (err) {
+            console.error("Error creating E2E commit suite:", err);
+            return null;
+        }
+    },
+
+    async runE2eCommitSuite(
+        uuid: string,
+        params?: Record<string, any>
+    ): Promise<E2eTestCommitSuite | null> {
+        try {
+            const serverUrl = `api/v1/commit-suites/${uuid}/run/`;
+            const response = await tx.post<E2eTestCommitSuite>(serverUrl, { ...params });
+            console.error("Raw API response:", response);
+            return response;
+        } catch (err) {
+            console.error("Error running E2E commit suite:", err);
+            return null;
+        }
+    },
+
+    async getE2eCommitSuite(
+        uuid: string,
+        params?: Record<string, any>
+    ): Promise<E2eTestCommitSuite | null> {
+        try {
+            const serverUrl = `api/v1/commit-suites/${uuid}/`;
+            const response = await tx.get<E2eTestCommitSuite>(serverUrl, { ...params });    
+            console.error("Raw API response:", response);
+            return response;
+        } catch (err) {
+            console.error("Error fetching E2E commit suite:", err);
+            console.error("Error details:", {
+                status: (err as any).response?.status,
+                data: (err as any).response?.data,
+                message: (err as any).message
+            });
+            return null;
+        }
+    },
+
+    async listE2eCommitSuites(params?: Record<string, any>): Promise<PaginatedResponse<E2eTestCommitSuite> | null> {
+        try {
+            const serverUrl = "api/v1/commit-suites/";
+            const response = await tx.get<PaginatedResponse<E2eTestCommitSuite>>(serverUrl, { ...params });
+            console.error("Raw API response for commit suites:", response);
+            return response;
+        } catch (err) {
+            console.error("Error listing E2E commit suites:", err);
+            return null;
+        }
+    },
+
     formatRunResult(result: E2eRun): string {
         if (!result) return 'No result data available.';
         // const failureOutput = failures.map(f => 

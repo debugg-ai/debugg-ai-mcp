@@ -12,7 +12,17 @@
   "scripts": {
     "build": "tsc && shx chmod +x dist/index.js",
     "prepare": "npm run build",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.js",
+    "test:integration:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.js --watch",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version",
+    "publish:check": "npm pack --dry-run",
+    "prepublishOnly": "npm test && npm run build"
   },
   "keywords": [
     "debugg",
@@ -36,11 +46,19 @@
     "mkdirp": "^3.0.1",
     "ngrok": "^5.0.0-beta.2",
     "uuid": "^11.1.0",
+    "winston": "^3.15.0",
     "zod": "^3.25.32"
   },
   "devDependencies": {
+    "@faker-js/faker": "^9.9.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.15.24",
+    "@types/uuid": "^10.0.0",
+    "jest": "^30.0.5",
+    "jest-environment-jsdom": "^30.0.5",
+    "jest-mock-axios": "^4.8.0",
     "shx": "^0.4.0",
+    "ts-jest": "^29.4.1",
     "typescript": "^5.8.3"
   }
 }

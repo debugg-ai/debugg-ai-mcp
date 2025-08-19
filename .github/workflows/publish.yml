@@ -1,0 +1,91 @@
+name: Publish to NPM
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - '.gitignore'
+      - 'docs/**'
+      - 'reference-usages/**'
+      - 'test-config.json'
+      - '.claude/**'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for proper versioning
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        registry-url: 'https://registry.npmjs.org'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run tests
+      run: npm test
+      env:
+        DEBUGGAI_API_KEY: 'test-api-key-for-testing'
+        
+    - name: Build project
+      run: npm run build
+      
+    - name: Check if version already exists on NPM
+      id: version_check
+      run: |
+        PACKAGE_NAME=$(node -p "require('./package.json').name")
+        PACKAGE_VERSION=$(node -p "require('./package.json').version")
+        
+        if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >/dev/null 2>&1; then
+          echo "Version $PACKAGE_VERSION already exists on NPM"
+          echo "should_publish=false" >> $GITHUB_OUTPUT
+        else
+          echo "Version $PACKAGE_VERSION does not exist on NPM, proceeding with publish"
+          echo "should_publish=true" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
+        echo "package_version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+        
+    - name: Publish to NPM
+      if: steps.version_check.outputs.should_publish == 'true'
+      run: npm publish --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        
+    - name: Create GitHub Release
+      if: steps.version_check.outputs.should_publish == 'true'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.version_check.outputs.package_version }}
+        release_name: Release v${{ steps.version_check.outputs.package_version }}
+        body: |
+          Release of ${{ steps.version_check.outputs.package_name }} version ${{ steps.version_check.outputs.package_version }}
+          
+          ## Changes
+          See [CHANGELOG.md](https://github.com/debugg-ai/debugg-ai-mcp/blob/main/CHANGELOG.md) for details.
+          
+          ## Installation
+          ```bash
+          npx ${{ steps.version_check.outputs.package_name }}
+          ```
+        draft: false
+        prerelease: false
+        
+    - name: Skip publish (version exists)
+      if: steps.version_check.outputs.should_publish == 'false'
+      run: |
+        echo "::notice::Version ${{ steps.version_check.outputs.package_version }} already exists on NPM. Skipping publish."
+        echo "To publish a new version, update the version in package.json and push again."
