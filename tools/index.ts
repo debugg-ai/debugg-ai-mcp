@@ -29,6 +29,10 @@ import {
   getTestStatusTool,
   validatedE2ESuiteTools 
 } from './e2eSuites.js';
+import { 
+  quickScreenshotTool,
+  validatedQuickScreenshotTool 
+} from './quickScreenshot.js';
 
 /**
  * All available tools for MCP server
@@ -46,6 +50,7 @@ export const tools: Tool[] = [
   createCommitSuiteTool,
   listCommitSuitesTool,
   getTestStatusTool,
+  quickScreenshotTool,
 ];
 
 /**
@@ -55,6 +60,7 @@ export const validatedTools: ValidatedTool[] = [
   validatedTestPageChangesTool,
   ...validatedLiveSessionTools,
   ...validatedE2ESuiteTools,
+  validatedQuickScreenshotTool,
 ];
 
 /**

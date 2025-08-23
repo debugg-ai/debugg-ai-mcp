@@ -2,6 +2,7 @@ import { createE2esService, E2esService } from "./e2es.js";
 import { createBrowserSessionsService, BrowserSessionsService } from "./browserSessions.js";
 import { AxiosTransport, AxiosTransportOptions } from "../utils/axiosTransport.js";
 import axios, { AxiosRequestConfig, AxiosInstance } from "axios";
+import { config } from "../config/index.js";
 
 /**
  * DebuggTransport extends AxiosTransport to automatically add isMcpRequest=true
@@ -67,4 +68,13 @@ export class DebuggAIServerClient  {
     }
   }
 
+}
+
+/**
+ * Create and initialize a service client
+ */
+export async function createClientService(): Promise<DebuggAIServerClient> {
+  const client = new DebuggAIServerClient(config.api.key);
+  await client.init();
+  return client;
 }

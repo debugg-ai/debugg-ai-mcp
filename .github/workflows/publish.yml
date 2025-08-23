@@ -15,6 +15,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
     
     steps:
     - name: Checkout code
@@ -65,12 +68,10 @@ jobs:
         
     - name: Create GitHub Release
       if: steps.version_check.outputs.should_publish == 'true'
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ steps.version_check.outputs.package_version }}
-        release_name: Release v${{ steps.version_check.outputs.package_version }}
+        name: Release v${{ steps.version_check.outputs.package_version }}
         body: |
           Release of ${{ steps.version_check.outputs.package_name }} version ${{ steps.version_check.outputs.package_version }}
           

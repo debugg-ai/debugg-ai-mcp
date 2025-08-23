@@ -87,6 +87,60 @@ export interface ScreenshotParams {
   format?: 'png' | 'jpeg';
 }
 
+// Quick Screenshot Parameters
+export interface QuickScreenshotParams {
+  url: string;
+  type?: 'VIEWPORT' | 'FULL_PAGE';
+}
+
+// Quick Screenshot Response
+export interface QuickScreenshotResponse {
+  taskId: string;
+  sessionId: string;
+  screenshotActionId: string;
+  url: string;
+  screenshotType: string;
+  status: string;
+  message: string;
+  polling: {
+    statusUrl: string;
+    downloadUrlAvailableWhenComplete: string;
+    pollIntervalSeconds: number;
+  };
+  sessionInfo: {
+    sessionName: string;
+    status: string;
+    vncUrl: string;
+    createdAt: string;
+  };
+}
+
+// Quick Screenshot Status Response
+export interface QuickScreenshotStatusResponse {
+  taskId: string;
+  sessionId: string;
+  screenshotActionId: string;
+  url: string;
+  screenshotType: string;
+  status: string;
+  message: string;
+  downloadUrl?: string;
+  sessionInfo: {
+    sessionName: string;
+    status: string;
+    vncUrl: string;
+    createdAt: string;
+  };
+}
+
+// Quick Screenshot Download Response
+export interface QuickScreenshotDownloadResponse {
+  downloadUrl: string;
+  expiresAt: string;
+  fileSize: number;
+  mimeType: string;
+}
+
 // Log Query Parameters
 export interface LogQueryParams {
   logType?: 'console' | 'network' | 'errors' | 'all';
@@ -109,6 +163,9 @@ export interface BrowserSessionsService {
     screenshot: SessionScreenshot;
   }>;
   listSessions(params?: { status?: string; limit?: number; offset?: number }): Promise<PaginatedResponse<BrowserSession>>;
+  quickScreenshot(params: QuickScreenshotParams): Promise<QuickScreenshotResponse>;
+  getQuickScreenshotStatus(taskId: string): Promise<QuickScreenshotStatusResponse>;
+  getQuickScreenshotDownload(taskId: string): Promise<QuickScreenshotDownloadResponse>;
 }
 
 
@@ -339,6 +396,77 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         previous: null,
         results: []
       };
+    }
+  },
+
+  /**
+   * Quick screenshot - opens new tab, navigates to URL and takes screenshot
+   */
+  async quickScreenshot(params: QuickScreenshotParams): Promise<QuickScreenshotResponse> {
+    try {
+      const serverUrl = "api/v1/browser-sessions/sessions/quick_screenshot/";
+      
+      const requestBody = {
+        url: params.url,
+        type: params.type || 'VIEWPORT'
+      };
+
+      const response = await tx.post<QuickScreenshotResponse>(serverUrl, requestBody);
+
+      if (!response) {
+        throw new Error('Failed to initiate quick screenshot - no response from service');
+      }
+
+      return response;
+    } catch (err) {
+      console.error("Error taking quick screenshot:", err);
+      throw new Error(`Failed to take quick screenshot: ${(err as any).message}`);
+    }
+  },
+
+  /**
+   * Get quick screenshot status - check if screenshot task is completed
+   */
+  async getQuickScreenshotStatus(taskId: string): Promise<QuickScreenshotStatusResponse> {
+    try {
+      const serverUrl = `api/v1/browser-sessions/sessions/quick_screenshot_status/?task_id=${taskId}`;
+      
+      const response = await tx.get<QuickScreenshotStatusResponse>(serverUrl);
+
+      if (!response) {
+        throw new Error('Failed to get quick screenshot status - task not found');
+      }
+
+      return response;
+    } catch (err) {
+      console.error("Error getting quick screenshot status:", err);
+      if ((err as any).response?.status === 404) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+      throw new Error(`Failed to get quick screenshot status: ${(err as any).message}`);
+    }
+  },
+
+  /**
+   * Get quick screenshot download URL when completed
+   */
+  async getQuickScreenshotDownload(taskId: string): Promise<QuickScreenshotDownloadResponse> {
+    try {
+      const serverUrl = `api/v1/browser-sessions/sessions/quick_screenshot_download/?task_id=${taskId}`;
+      
+      const response = await tx.get<QuickScreenshotDownloadResponse>(serverUrl);
+
+      if (!response) {
+        throw new Error('Failed to get quick screenshot download - task not found or not ready');
+      }
+
+      return response;
+    } catch (err) {
+      console.error("Error getting quick screenshot download:", err);
+      if ((err as any).response?.status === 404) {
+        throw new Error(`Task not found or download not ready: ${taskId}`);
+      }
+      throw new Error(`Failed to get quick screenshot download: ${(err as any).message}`);
     }
   }
 });
