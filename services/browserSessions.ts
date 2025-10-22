@@ -8,12 +8,15 @@ import { AxiosTransport } from "../utils/axiosTransport.js";
 // Browser Session Types
 export interface BrowserSessionParams {
   url: string;
+  originalUrl?: string;
   localPort?: number;
   sessionName?: string;
   monitorConsole?: boolean;
   monitorNetwork?: boolean;
   takeScreenshots?: boolean;
   screenshotInterval?: number;
+  isLocalhost?: boolean;
+  tunnelId?: string;
 }
 
 export interface BrowserSession {
@@ -180,12 +183,22 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
   async startSession(params: BrowserSessionParams): Promise<BrowserSession> {
     try {
       const serverUrl = "api/v1/browser-sessions/sessions/";
-      
-      const requestBody = {
+
+      const requestBody: Record<string, any> = {
         initialUrl: params.url,
         sessionName: params.sessionName || `Session ${new Date().toISOString()}`,
         // Let the AxiosTransport interceptor convert these to snake_case
       };
+
+      // Add optional parameters if provided
+      if (params.originalUrl) requestBody.originalUrl = params.originalUrl;
+      if (params.localPort !== undefined) requestBody.localPort = params.localPort;
+      if (params.monitorConsole !== undefined) requestBody.monitorConsole = params.monitorConsole;
+      if (params.monitorNetwork !== undefined) requestBody.monitorNetwork = params.monitorNetwork;
+      if (params.takeScreenshots !== undefined) requestBody.takeScreenshots = params.takeScreenshots;
+      if (params.screenshotInterval !== undefined) requestBody.screenshotInterval = params.screenshotInterval;
+      if (params.isLocalhost !== undefined) requestBody.isLocalhost = params.isLocalhost;
+      if (params.tunnelId) requestBody.tunnelId = params.tunnelId;
 
       const backendResponse = await tx.post<any>(serverUrl, requestBody);
 
