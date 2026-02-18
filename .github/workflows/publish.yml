@@ -34,7 +34,9 @@ jobs:
         
     - name: Install dependencies
       run: npm ci
-      
+      env:
+        NGROK_SKIP_INSTALL_BINARY: '1'
+
     - name: Run tests
       run: npm test
       env:
