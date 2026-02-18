@@ -30,7 +30,7 @@ export async function createTestSuiteHandler(
   context: ToolContext
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_create_test_suite', input);
+  logger.toolStart('create_test_suite', input);
 
   try {
     const client = new DebuggAIServerClient(config.api.key);
@@ -94,7 +94,7 @@ export async function createTestSuiteHandler(
       duration: `${duration}ms`
     });
 
-    logger.toolComplete('debugg_ai_create_test_suite', duration);
+    logger.toolComplete('create_test_suite', duration);
 
     return {
       content: [{
@@ -105,7 +105,7 @@ export async function createTestSuiteHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_create_test_suite', error as Error, duration);
+    logger.toolError('create_test_suite', error as Error, duration);
     
     throw handleExternalServiceError(error, 'DebuggAI', 'test suite creation');
   }
@@ -119,7 +119,7 @@ export async function createCommitSuiteHandler(
   context: ToolContext
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_create_commit_suite', input);
+  logger.toolStart('create_commit_suite', input);
 
   try {
     const client = new DebuggAIServerClient(config.api.key);
@@ -186,7 +186,7 @@ export async function createCommitSuiteHandler(
       duration: `${duration}ms`
     });
 
-    logger.toolComplete('debugg_ai_create_commit_suite', duration);
+    logger.toolComplete('create_commit_suite', duration);
 
     return {
       content: [{
@@ -197,7 +197,7 @@ export async function createCommitSuiteHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_create_commit_suite', error as Error, duration);
+    logger.toolError('create_commit_suite', error as Error, duration);
     
     throw handleExternalServiceError(error, 'DebuggAI', 'commit suite creation');
   }
@@ -211,7 +211,7 @@ export async function getTestStatusHandler(
   context: ToolContext
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_get_test_status', input);
+  logger.toolStart('get_test_status', input);
 
   try {
     const client = new DebuggAIServerClient(config.api.key);
@@ -319,7 +319,7 @@ export async function getTestStatusHandler(
       duration: `${duration}ms`
     });
 
-    logger.toolComplete('debugg_ai_get_test_status', duration);
+    logger.toolComplete('get_test_status', duration);
 
     return {
       content: [{
@@ -330,7 +330,7 @@ export async function getTestStatusHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_get_test_status', error as Error, duration);
+    logger.toolError('get_test_status', error as Error, duration);
     
     throw handleExternalServiceError(error, 'DebuggAI', 'test status retrieval');
   }
@@ -345,7 +345,7 @@ export async function listTestsHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_list_tests', input);
+  logger.toolStart('list_tests', input);
 
   try {
     if (progressCallback) {
@@ -419,7 +419,7 @@ export async function listTestsHandler(
       duration: `${duration}ms`
     });
 
-    logger.toolComplete('debugg_ai_list_tests', duration);
+    logger.toolComplete('list_tests', duration);
 
     return {
       content: [{
@@ -430,7 +430,7 @@ export async function listTestsHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_list_tests', error as Error, duration);
+    logger.toolError('list_tests', error as Error, duration);
     
     throw handleExternalServiceError(error, 'DebuggAI', 'test listing');
   }
@@ -445,7 +445,7 @@ export async function listTestSuitesHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_list_test_suites', input);
+  logger.toolStart('list_test_suites', input);
 
   try {
     if (progressCallback) {
@@ -521,7 +521,7 @@ export async function listTestSuitesHandler(
       duration: `${duration}ms`
     });
 
-    logger.toolComplete('debugg_ai_list_test_suites', duration);
+    logger.toolComplete('list_test_suites', duration);
 
     return {
       content: [{
@@ -532,7 +532,7 @@ export async function listTestSuitesHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_list_test_suites', error as Error, duration);
+    logger.toolError('list_test_suites', error as Error, duration);
     
     throw handleExternalServiceError(error, 'DebuggAI', 'test suite listing');
   }
@@ -547,7 +547,7 @@ export async function listCommitSuitesHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_list_commit_suites', input);
+  logger.toolStart('list_commit_suites', input);
 
   try {
     if (progressCallback) {
@@ -624,7 +624,7 @@ export async function listCommitSuitesHandler(
       duration: `${duration}ms`
     });
 
-    logger.toolComplete('debugg_ai_list_commit_suites', duration);
+    logger.toolComplete('list_commit_suites', duration);
 
     return {
       content: [{
@@ -635,7 +635,7 @@ export async function listCommitSuitesHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_list_commit_suites', error as Error, duration);
+    logger.toolError('list_commit_suites', error as Error, duration);
     
     throw handleExternalServiceError(error, 'DebuggAI', 'commit suite listing');
   }

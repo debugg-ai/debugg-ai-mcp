@@ -69,7 +69,8 @@ export function createErrorResponse(error: unknown, toolName?: string): ToolResp
           }
         }, null, 2)
       }
-    ]
+    ],
+    isError: true,
   };
 }
 

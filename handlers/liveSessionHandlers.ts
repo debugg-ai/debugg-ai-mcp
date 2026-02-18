@@ -43,7 +43,7 @@ export async function startLiveSessionHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_start_live_session', input);
+  logger.toolStart('start_live_session', input);
 
   try {
     if (progressCallback) {
@@ -151,7 +151,7 @@ export async function startLiveSessionHandler(
       session: session
     };
 
-    logger.toolComplete('debugg_ai_start_live_session', duration);
+    logger.toolComplete('start_live_session', duration);
     
     return {
       content: [{
@@ -162,7 +162,7 @@ export async function startLiveSessionHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_start_live_session', error as Error, duration);
+    logger.toolError('start_live_session', error as Error, duration);
     throw handleExternalServiceError(error, 'Live Session', 'session creation');
   }
 }
@@ -176,7 +176,7 @@ export async function stopLiveSessionHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_stop_live_session', input);
+  logger.toolStart('stop_live_session', input);
 
   try {
     if (progressCallback) {
@@ -225,7 +225,7 @@ export async function stopLiveSessionHandler(
       summary: result.summary
     };
 
-    logger.toolComplete('debugg_ai_stop_live_session', duration);
+    logger.toolComplete('stop_live_session', duration);
     
     return {
       content: [{
@@ -236,7 +236,7 @@ export async function stopLiveSessionHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_stop_live_session', error as Error, duration);
+    logger.toolError('stop_live_session', error as Error, duration);
     throw handleExternalServiceError(error, 'Live Session', 'session termination');
   }
 }
@@ -250,7 +250,7 @@ export async function getLiveSessionStatusHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_get_live_session_status', input);
+  logger.toolStart('get_live_session_status', input);
 
   try {
     if (progressCallback) {
@@ -298,7 +298,7 @@ export async function getLiveSessionStatusHandler(
     }
 
     const duration = Date.now() - startTime;
-    logger.toolComplete('debugg_ai_get_live_session_status', duration);
+    logger.toolComplete('get_live_session_status', duration);
     
     return {
       content: [{
@@ -309,7 +309,7 @@ export async function getLiveSessionStatusHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_get_live_session_status', error as Error, duration);
+    logger.toolError('get_live_session_status', error as Error, duration);
     throw handleExternalServiceError(error, 'Live Session', 'status retrieval');
   }
 }
@@ -323,7 +323,7 @@ export async function getLiveSessionLogsHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_get_live_session_logs', input);
+  logger.toolStart('get_live_session_logs', input);
 
   try {
     if (progressCallback) {
@@ -369,7 +369,7 @@ export async function getLiveSessionLogsHandler(
       ...result
     };
 
-    logger.toolComplete('debugg_ai_get_live_session_logs', duration);
+    logger.toolComplete('get_live_session_logs', duration);
     
     return {
       content: [{
@@ -380,7 +380,7 @@ export async function getLiveSessionLogsHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_get_live_session_logs', error as Error, duration);
+    logger.toolError('get_live_session_logs', error as Error, duration);
     throw handleExternalServiceError(error, 'Live Session', 'log retrieval');
   }
 }
@@ -394,7 +394,7 @@ export async function getLiveSessionScreenshotHandler(
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  logger.toolStart('debugg_ai_get_live_session_screenshot', input);
+  logger.toolStart('get_live_session_screenshot', input);
 
   try {
     if (progressCallback) {
@@ -457,7 +457,7 @@ export async function getLiveSessionScreenshotHandler(
       ...result
     };
 
-    logger.toolComplete('debugg_ai_get_live_session_screenshot', duration);
+    logger.toolComplete('get_live_session_screenshot', duration);
     
     return {
       content: [{
@@ -468,7 +468,7 @@ export async function getLiveSessionScreenshotHandler(
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_get_live_session_screenshot', error as Error, duration);
+    logger.toolError('get_live_session_screenshot', error as Error, duration);
     throw handleExternalServiceError(error, 'Live Session', 'screenshot capture');
   }
 }

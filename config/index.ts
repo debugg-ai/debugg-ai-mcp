@@ -1,13 +1,9 @@
 /**
  * Centralized configuration management for DebuggAI MCP Server
- * Handles environment variable validation and default values
  */
 
 import { z } from 'zod';
 
-/**
- * Configuration schema with validation
- */
 const configSchema = z.object({
   server: z.object({
     name: z.string().default('DebuggAI MCP Server'),
@@ -15,11 +11,7 @@ const configSchema = z.object({
   }),
   api: z.object({
     key: z.string().min(1, 'DEBUGGAI_API_KEY is required'),
-    baseUrl: z.string().url().optional(),
-  }),
-  auth: z.object({
-    testUsername: z.string().optional(),
-    testPassword: z.string().optional(),
+    baseUrl: z.string().url().default('https://api.debugg.ai'),
   }),
   defaults: z.object({
     localPort: z.number().int().min(1).max(65535).optional(),
@@ -36,9 +28,6 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
-/**
- * Load and validate configuration from environment variables
- */
 export function loadConfig(): Config {
   const rawConfig = {
     server: {
@@ -47,11 +36,7 @@ export function loadConfig(): Config {
     },
     api: {
       key: process.env.DEBUGGAI_API_KEY || '',
-      baseUrl: process.env.DEBUGGAI_API_BASE_URL,
-    },
-    auth: {
-      testUsername: process.env.TEST_USERNAME_EMAIL || '',
-      testPassword: process.env.TEST_USER_PASSWORD || '',
+      baseUrl: process.env.DEBUGGAI_API_URL || 'https://api.debugg.ai',
     },
     defaults: {
       localPort: process.env.DEBUGGAI_LOCAL_PORT ? parseInt(process.env.DEBUGGAI_LOCAL_PORT, 10) : undefined,
@@ -79,15 +64,11 @@ export function loadConfig(): Config {
   }
 }
 
-/**
- * Global configuration instance - loaded lazily to avoid import-time errors in tests
- */
 let _config: Config | undefined;
 
 export const config = {
   get server() { return getConfig().server; },
   get api() { return getConfig().api; },
-  get auth() { return getConfig().auth; },
   get defaults() { return getConfig().defaults; },
   get logging() { return getConfig().logging; }
 };

@@ -58,10 +58,13 @@ function createMCPServer(): Server {
     {
       name: config.server.name,
       version: config.server.version,
+      description: "AI-powered browser automation and E2E testing platform for web applications.",
     },
     {
       capabilities: {
-        tools: {},
+        tools: {
+          listChanged: false,
+        },
       },
     }
   );
@@ -102,29 +105,29 @@ function createProgressCallback(progressToken?: string): ProgressCallback | unde
 /**
  * Handle tool execution requests with proper validation and error handling
  */
-server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => {
+server.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise<any> => {
+  const typedReq = req as CallToolRequest;
   const requestId = `req_${Date.now()}`;
   const requestLogger = logger.child({ requestId });
-  
-  requestLogger.info("Received tool call request", { 
-    toolName: req.params.name,
-    hasProgressToken: !!req.params._meta?.progressToken,
-    progressToken: req.params._meta?.progressToken,
-    progressTokenType: typeof req.params._meta?.progressToken
 
+  requestLogger.info("Received tool call request", {
+    toolName: typedReq.params.name,
+    hasProgressToken: !!typedReq.params._meta?.progressToken,
+    progressToken: typedReq.params._meta?.progressToken,
+    progressTokenType: typeof typedReq.params._meta?.progressToken
   });
 
+  const { name, arguments: args } = typedReq.params;
+  const progressToken = typedReq.params._meta?.progressToken;
+
+  // Unknown tool is a protocol error - throw directly so SDK returns JSON-RPC error
+  const tool = getTool(name);
+  if (!tool) {
+    requestLogger.warn(`Tool not found: ${name}`);
+    throw new Error(`Unknown tool: ${name}`);
+  }
+
   try {
-    const { name, arguments: args } = req.params;
-    const progressToken = req.params._meta?.progressToken;
-
-    // Get tool from registry
-    const tool = getTool(name);
-    if (!tool) {
-      requestLogger.warn(`Tool not found: ${name}`);
-      throw new Error(`Tool not found: ${name}`);
-    }
-
     // Validate input using the tool's schema
     const validatedInput = validateInput(tool.inputSchema, args, name);
 
@@ -141,11 +144,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
     // Execute tool handler with progress callback
     requestLogger.info(`Executing tool: ${name}`);
     const result = await tool.handler(validatedInput, context, progressCallback);
-    
+
     requestLogger.info(`Tool execution completed: ${name}`);
     return result;
 
   } catch (error) {
+    // Validation and execution errors are tool execution errors (isError: true)
+    // so the model can self-correct
     const mcpError = toMCPError(error, 'tool execution');
     requestLogger.error('Tool execution failed', {
       errorCode: mcpError.code,
@@ -153,14 +158,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req: CallToolRequest) => 
       data: mcpError.data
     });
 
-    return createErrorResponse(mcpError, req.params.name);
+    return createErrorResponse(mcpError, typedReq.params.name);
   }
 });
 
 /**
  * Handle list tools requests
  */
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+server.setRequestHandler(ListToolsRequestSchema as any, async (): Promise<any> => {
   logger.info('Tools list requested', { toolCount: tools.length });
   return {
     tools: tools,

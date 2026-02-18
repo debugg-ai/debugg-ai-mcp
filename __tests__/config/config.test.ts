@@ -15,7 +15,6 @@ describe('Configuration Management', () => {
     expect(result).toBeDefined();
     expect(result.server).toBeDefined();
     expect(result.api).toBeDefined();
-    expect(result.auth).toBeDefined();
     expect(result.defaults).toBeDefined();
     expect(result.logging).toBeDefined();
   });

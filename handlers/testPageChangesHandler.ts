@@ -1,6 +1,6 @@
 /**
  * Test Page Changes Handler Implementation
- * Handles the execution of the debugg_ai_test_page_changes tool
+ * Handles the execution of the check_app_in_browser tool
  */
 
 import { 
@@ -29,7 +29,7 @@ export async function testPageChangesHandler(
   const startTime = Date.now();
   const { description } = input;
   
-  logger.toolStart('debugg_ai_test_page_changes', input);
+  logger.toolStart('check_app_in_browser', input);
 
   try {
     // Use the progress callback from the main handler
@@ -82,23 +82,30 @@ export async function testPageChangesHandler(
     // Handle E2E run execution with progress tracking
     const finalRun = await e2eTestRunner.handleE2eRun(e2eRun, async (update) => {
       logger.info(`E2E test status update: ${update.status}`, { status: update.status });
-      
+
       const curStep = update.conversations?.[0]?.messages?.length || 0;
       const updateMessage = update.conversations?.[0]?.messages?.[curStep - 1]?.jsonContent?.currentState?.nextGoal;
-      
+
       logger.progress(
         updateMessage || `Step ${curStep}`,
         curStep,
         20
       );
 
-      // Send MCP progress notification to reset timeout
+      // Send MCP progress notification — failures are logged but must not
+      // abort the test run (the browser agent is still running on the backend)
       if (progressCallback) {
-        await progressCallback({
-          progress: curStep,
-          total: 20,
-          message: updateMessage || `Processing step ${curStep}`
-        });
+        try {
+          await progressCallback({
+            progress: curStep,
+            total: 20,
+            message: updateMessage || `Processing step ${curStep}`
+          });
+        } catch (notifyError) {
+          logger.warn('Progress notification failed', {
+            error: notifyError instanceof Error ? notifyError.message : String(notifyError)
+          });
+        }
       }
     });
 
@@ -160,13 +167,13 @@ export async function testPageChangesHandler(
       }
     }
 
-    logger.toolComplete('debugg_ai_test_page_changes', duration);
+    logger.toolComplete('check_app_in_browser', duration);
 
     return { content: responseContent };
 
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.toolError('debugg_ai_test_page_changes', error as Error, duration);
+    logger.toolError('check_app_in_browser', error as Error, duration);
     
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   }

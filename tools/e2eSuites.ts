@@ -26,7 +26,8 @@ import {
  * Tool for listing E2E tests
  */
 export const listTestsTool: Tool = {
-  name: "debugg_ai_list_tests",
+  name: "list_tests",
+  title: "List E2E Tests",
   description: "View all end-to-end browser tests that have been run for your project. Shows test results, status, screenshots, and detailed execution logs.",
   inputSchema: {
     type: "object",
@@ -66,7 +67,8 @@ export const listTestsTool: Tool = {
  * Tool for listing E2E test suites
  */
 export const listTestSuitesTool: Tool = {
-  name: "debugg_ai_list_test_suites",
+  name: "list_test_suites",
+  title: "List Test Suites",
   description: "View organized collections of related tests for your project. Test suites group multiple browser tests together (e.g., 'User Authentication Suite' containing login, logout, and password reset tests).",
   inputSchema: {
     type: "object",
@@ -106,7 +108,8 @@ export const listTestSuitesTool: Tool = {
  * Tool for creating test suites
  */
 export const createTestSuiteTool: Tool = {
-  name: "debugg_ai_create_test_suite",
+  name: "create_test_suite",
+  title: "Create Test Suite",
   description: "Generate a comprehensive collection of browser tests for a specific feature or user workflow. AI creates multiple related tests that thoroughly validate functionality (e.g., create 'Shopping Cart Suite' with add item, remove item, checkout, and error handling tests).",
   inputSchema: {
     type: "object",
@@ -142,7 +145,8 @@ export const createTestSuiteTool: Tool = {
  * Tool for creating commit-based test suites
  */
 export const createCommitSuiteTool: Tool = {
-  name: "debugg_ai_create_commit_suite",
+  name: "create_commit_suite",
+  title: "Create Commit Test Suite",
   description: "Automatically generate browser tests based on your recent code changes. AI analyzes your Git commits and creates relevant tests to verify that your new features and bug fixes work correctly in the browser.",
   inputSchema: {
     type: "object",
@@ -178,7 +182,8 @@ export const createCommitSuiteTool: Tool = {
  * Tool for listing commit suites
  */
 export const listCommitSuitesTool: Tool = {
-  name: "debugg_ai_list_commit_suites",
+  name: "list_commit_suites",
+  title: "List Commit Test Suites",
   description: "View all test suites that were automatically generated from your Git commits. These are collections of browser tests created to validate specific code changes.",
   inputSchema: {
     type: "object",
@@ -218,7 +223,8 @@ export const listCommitSuitesTool: Tool = {
  * Tool for getting test status
  */
 export const getTestStatusTool: Tool = {
-  name: "debugg_ai_get_test_status",
+  name: "get_test_status",
+  title: "Get Test Suite Status",
   description: "Check the progress and results of a running or completed test suite. Shows whether tests are still running, how many passed/failed, screenshots from test execution, and detailed error messages if any tests failed.",
   inputSchema: {
     type: "object",

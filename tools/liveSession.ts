@@ -34,7 +34,8 @@ import {
  * Tool definition for starting a live browser session
  */
 export const startLiveSessionTool: Tool = {
-  name: "debugg_ai_start_live_session",
+  name: "start_live_session",
+  title: "Start Live Browser Session",
   description: "Launch a live remote web browser session to monitor your application in real-time. Captures browser console logs, network requests, and screenshots while your app runs.",
   inputSchema: {
     type: "object",
@@ -87,7 +88,8 @@ export const startLiveSessionTool: Tool = {
  * Tool definition for stopping a live session
  */
 export const stopLiveSessionTool: Tool = {
-  name: "debugg_ai_stop_live_session", 
+  name: "stop_live_session",
+  title: "Stop Live Browser Session",
   description: "Stop a running remote browser session and cleanup all monitoring. Browser closes and all captured data is saved.",
   inputSchema: {
     type: "object",
@@ -105,7 +107,8 @@ export const stopLiveSessionTool: Tool = {
  * Tool definition for getting live session status
  */
 export const getLiveSessionStatusTool: Tool = {
-  name: "debugg_ai_get_live_session_status",
+  name: "get_live_session_status",
+  title: "Get Live Session Status",
   description: "Check if the remote browser session is running, what URL it's on, how long it's been active, and monitoring statistics.",
   inputSchema: {
     type: "object",
@@ -123,7 +126,8 @@ export const getLiveSessionStatusTool: Tool = {
  * Tool definition for getting live session logs
  */
 export const getLiveSessionLogsTool: Tool = {
-  name: "debugg_ai_get_live_session_logs",
+  name: "get_live_session_logs",
+  title: "Get Live Session Logs",
   description: "Retrieve browser console logs, network request logs, and JavaScript errors captured from the remote browser during the live session. These are the actual console.log(), console.error(), API calls, and error messages that occurred while your app was running.",
   inputSchema: {
     type: "object",
@@ -159,7 +163,8 @@ export const getLiveSessionLogsTool: Tool = {
  * Tool definition for getting live session screenshot
  */
 export const getLiveSessionScreenshotTool: Tool = {
-  name: "debugg_ai_get_live_session_screenshot",
+  name: "get_live_session_screenshot",
+  title: "Capture Live Session Screenshot",
   description: "Capture a screenshot of what the remote browser currently displays. Shows exactly what users would see on their screen at this moment.",
   inputSchema: {
     type: "object",
@@ -195,35 +200,35 @@ export const getLiveSessionScreenshotTool: Tool = {
  * Validated tool definitions with handlers
  */
 export const validatedStartLiveSessionTool: ValidatedTool = {
-  name: "debugg_ai_start_live_session",
+  name: "start_live_session",
   description: startLiveSessionTool.description,
   inputSchema: StartLiveSessionInputSchema,
   handler: startLiveSessionHandler,
 };
 
 export const validatedStopLiveSessionTool: ValidatedTool = {
-  name: "debugg_ai_stop_live_session",
+  name: "stop_live_session",
   description: stopLiveSessionTool.description,
   inputSchema: StopLiveSessionInputSchema,
   handler: stopLiveSessionHandler,
 };
 
 export const validatedGetLiveSessionStatusTool: ValidatedTool = {
-  name: "debugg_ai_get_live_session_status",
+  name: "get_live_session_status",
   description: getLiveSessionStatusTool.description,
   inputSchema: GetLiveSessionStatusInputSchema,
   handler: getLiveSessionStatusHandler,
 };
 
 export const validatedGetLiveSessionLogsTool: ValidatedTool = {
-  name: "debugg_ai_get_live_session_logs",
+  name: "get_live_session_logs",
   description: getLiveSessionLogsTool.description,
   inputSchema: GetLiveSessionLogsInputSchema,
   handler: getLiveSessionLogsHandler,
 };
 
 export const validatedGetLiveSessionScreenshotTool: ValidatedTool = {
-  name: "debugg_ai_get_live_session_screenshot",
+  name: "get_live_session_screenshot",
   description: getLiveSessionScreenshotTool.description,
   inputSchema: GetLiveSessionScreenshotInputSchema,
   handler: getLiveSessionScreenshotHandler,

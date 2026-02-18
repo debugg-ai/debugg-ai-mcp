@@ -90,7 +90,8 @@ async function pollForCompletion(
  * Quick Screenshot MCP Tool Definition
  */
 export const quickScreenshotTool: Tool = {
-  name: 'debugg_ai_quick_screenshot',
+  name: 'quick_screenshot',
+  title: 'Quick URL Screenshot',
   description: 'Quickly capture a screenshot of any URL. Opens a new browser tab, navigates to the URL, takes a screenshot, and waits for completion. No session management required.',
   inputSchema: {
     type: 'object',

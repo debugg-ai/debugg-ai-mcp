@@ -1,6 +1,6 @@
 /**
  * Test Page Changes Tool Definition
- * Defines the debugg_ai_test_page_changes tool with proper validation
+ * Defines the check_app_in_browser tool with proper validation
  */
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
@@ -11,7 +11,8 @@ import { testPageChangesHandler } from '../handlers/testPageChangesHandler.js';
  * Tool definition for testing page changes with DebuggAI
  */
 export const testPageChangesTool: Tool = {
-  name: "debugg_ai_test_page_changes",
+  name: "check_app_in_browser",
+  title: "Run E2E Browser Test",
   description: "Run end-to-end browser tests using AI agents that interact with your web application like real users. Tests specific pages, features, or workflows by clicking buttons, filling forms, and validating behavior. Returns screenshots and detailed results.",
   inputSchema: {
     type: "object",

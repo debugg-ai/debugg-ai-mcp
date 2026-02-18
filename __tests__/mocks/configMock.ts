@@ -11,11 +11,7 @@ export const createMockConfig = (overrides: Partial<Config> = {}): Config => {
     },
     api: {
       key: 'test-api-key-for-testing',
-      baseUrl: undefined,
-    },
-    auth: {
-      testUsername: 'test@example.com',
-      testPassword: 'test-password',
+      baseUrl: 'https://api.debugg.ai',
     },
     defaults: {
       localPort: 3000,
@@ -37,5 +33,6 @@ export const mockValidConfig = createMockConfig();
 export const mockConfigWithApiKey = createMockConfig({
   api: {
     key: 'valid-api-key-12345',
+    baseUrl: 'https://api.debugg.ai',
   },
 });

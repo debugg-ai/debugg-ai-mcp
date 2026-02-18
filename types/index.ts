@@ -205,6 +205,7 @@ export interface ToolResponse {
     data?: string;
     mimeType?: string;
   }>;
+  isError?: boolean;
 }
 
 /**

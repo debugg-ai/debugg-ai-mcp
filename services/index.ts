@@ -47,25 +47,11 @@ export class DebuggAIServerClient  {
   }
 
   public async init() {
-    const serverUrl = await this.getServerUrl();
-    console.error("Server URL:", serverUrl);
-
+    const serverUrl = config.api.baseUrl;
     this.url = new URL(serverUrl);
     this.tx = new DebuggTransport({ baseUrl: serverUrl, apiKey: this.userApiKey });
     this.e2es = createE2esService(this.tx);
     this.browserSessions = createBrowserSessionsService(this.tx);
-  }
-
-  /**
-   * Get the server URL based on the deployment environment
-   * @returns The server URL
-   */
-  public async getServerUrl(): Promise<string> {
-    if (process.env.ENVIRONMENT === "local") {
-      return "https://debuggai-backend.ngrok.app";
-    } else {
-      return "https://api.debugg.ai";
-    }
   }
 
 }
