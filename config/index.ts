@@ -10,7 +10,8 @@ const configSchema = z.object({
     version: z.string().default('0.1.1'),
   }),
   api: z.object({
-    key: z.string().min(1, 'DEBUGGAI_API_KEY is required'),
+    key: z.string().min(1, 'API key is required (set DEBUGGAI_API_KEY)'),
+    tokenType: z.enum(['token', 'bearer']).default('token'),
     baseUrl: z.string().url().default('https://api.debugg.ai'),
   }),
   defaults: z.object({
@@ -35,7 +36,9 @@ export function loadConfig(): Config {
       version: '0.1.1',
     },
     api: {
-      key: process.env.DEBUGGAI_API_KEY || '',
+      // Priority: DEBUGGAI_API_TOKEN → DEBUGGAI_JWT_TOKEN → DEBUGGAI_API_KEY
+      key: process.env.DEBUGGAI_API_TOKEN || process.env.DEBUGGAI_JWT_TOKEN || process.env.DEBUGGAI_API_KEY || '',
+      tokenType: (process.env.DEBUGGAI_TOKEN_TYPE as 'token' | 'bearer') || 'token',
       baseUrl: process.env.DEBUGGAI_API_URL || 'https://api.debugg.ai',
     },
     defaults: {

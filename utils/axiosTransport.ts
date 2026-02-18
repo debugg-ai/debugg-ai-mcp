@@ -16,6 +16,7 @@ import type {
   export interface AxiosTransportOptions {
     baseUrl: string;
     apiKey?: string;
+    tokenType?: 'token' | 'bearer';
     /** You can pass a pre‑configured axios instance (e.g. for tests) */
     instance?: AxiosInstance;
   }
@@ -27,7 +28,7 @@ import type {
   export class AxiosTransport {
     readonly axios: AxiosInstance;
   
-    constructor({ baseUrl, apiKey, instance }: AxiosTransportOptions) {
+    constructor({ baseUrl, apiKey, tokenType = 'token', instance }: AxiosTransportOptions) {
       // Use an injected instance or create one that mimics `axiosServices`
       // Use provided apiKey as the Token. Must be requested on the app.
       this.axios =
@@ -37,7 +38,7 @@ import type {
           headers: {
             Accept: "application/json",
             "Content-Type": "application/json",
-            ...(apiKey ? { Authorization: `Token ${apiKey}` } : {}),
+            ...(apiKey ? { Authorization: `${tokenType === 'bearer' ? 'Bearer' : 'Token'} ${apiKey}` } : {}),
           },
         });
   

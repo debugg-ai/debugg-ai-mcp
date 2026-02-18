@@ -1,12 +1,6 @@
-# 🧪 Official MCP Server for Debugg AI
+# Official MCP Server for Debugg AI
 
-**AI-powered development and testing toolkit** implementing the [Model Context Protocol (MCP)](https://modelcontext.org), designed to give AI agents comprehensive testing, debugging, and code analysis capabilities.
-
-Transform your development workflow with:
-- **Zero-config E2E testing** - Run browser tests with natural language descriptions
-- **Live session monitoring** - Real-time browser console, network, and screenshot monitoring
-- **Test suite management** - Create and manage comprehensive test suites
-- **Seamless CI/CD integration** - View all test results in your [Debugg.AI App](https://app.debugg.ai) dashboard 
+**AI-powered browser testing and monitoring** via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Gives AI agents the ability to run end-to-end browser tests, monitor live sessions, and validate UI changes against your running application.
 
 <a href="https://glama.ai/mcp/servers/@debugg-ai/debugg-ai-mcp">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@debugg-ai/debugg-ai-mcp/badge" alt="Debugg AI MCP server" />
@@ -14,94 +8,40 @@ Transform your development workflow with:
 
 ---
 
-## 🚀 Features
+## What it does
 
-### **12 Focused Development Tools**
-
-* 🧪 **E2E Testing Suite** - Run browser tests, create test suites, and generate commit-based tests
-* 🖥️ **Live Session Monitoring** - Real-time browser console, network traffic, and screenshot monitoring
-* 📊 **Test Management** - List, create, and track test suites and commit-based test suites
-* 📱 **Real-time Progress** - Live updates with screenshots and step-by-step execution
-* 🌐 **Universal Compatibility** - Works with any MCP-compatible client (Claude Desktop, LangChain, etc.)
+- **Run browser tests with natural language** — describe what to test, the AI agent clicks through your app and returns screenshots + results
+- **Monitor live browser sessions** — capture console logs, network requests, and screenshots in real time
+- **Manage test suites** — create, organize, and track E2E tests tied to features or commits
+- **Seamless CI/CD** — view all results in your [Debugg.AI dashboard](https://app.debugg.ai)
 
 ---
 
-## Examples
+## Demo
 
-### Input prompt: "Test the ability to create an account and login"
+### Prompt: "Test the ability to create an account and login"
 
 ![Test Create Account and Login](/assets/recordings/test-create-account-login.gif)
 
-### Results:
+**Result:**
+- Duration: 86.80 seconds
+- Status: Success — signed up and logged in with `alice.wonderland1234@example.com`
 
-    **Task Completed**
+> [Full Use Case Demo](https://debugg.ai/demo)
 
-    - Duration: 86.80 seconds
-    - Final Result: Successfully completed the task of signing up and logging into the account with the email 'alice.wonderland1234@example.com'.
-    - Status: Success
+---
 
-### Full Demo:
+## Quick Setup
 
-> Watch a more in-depth, [Full Use Case Demo](https://debugg.ai/demo)
-
-
---- 
-
-
-
-## 🛠️ Quick Setup
-
-### 1. Get Your API Key
+### 1. Get your API key
 Create a free account at [debugg.ai](https://debugg.ai) and generate your API key.
 
-### 2. Choose Your Installation Method
-
-**Option A: NPX (Recommended)**
-```bash
-npx -y @debugg-ai/debugg-ai-mcp
-```
-
-**Option B: Docker**
-```bash
-docker run -i --rm --init \
-  -e DEBUGGAI_API_KEY=your_api_key \
-  quinnosha/debugg-ai-mcp
-```
-
----
-
-## 🧰 Available Tools
-
-### **E2E Testing Tools**
-- `debugg_ai_test_page_changes` - Run browser tests with natural language descriptions
-- `debugg_ai_create_test_suite` - Create organized test suites for features
-- `debugg_ai_create_commit_suite` - Generate tests based on git commits
-- `debugg_ai_get_test_status` - Monitor test execution and results
-
-### **Test Management Tools**
-- `debugg_ai_list_tests` - List all E2E tests with filtering and pagination
-- `debugg_ai_list_test_suites` - List all test suites with filtering options
-- `debugg_ai_list_commit_suites` - List all commit-based test suites
-
-### **Live Session Monitoring Tools**
-- `debugg_ai_start_live_session` - Start a live browser session with real-time monitoring
-- `debugg_ai_stop_live_session` - Stop an active live session
-- `debugg_ai_get_live_session_status` - Get the current status of a live session
-- `debugg_ai_get_live_session_logs` - Retrieve console and network logs from a live session
-- `debugg_ai_get_live_session_screenshot` - Capture screenshots from an active live session
-
----
-
-## ⚙️ Configuration
-
-### **For Claude Desktop**
-
-Add this to your MCP settings file:
+### 2. Add to Claude Desktop
 
 ```json
 {
   "mcpServers": {
-    "debugg-ai-mcp": {
+    "debugg-ai": {
       "command": "npx",
       "args": ["-y", "@debugg-ai/debugg-ai-mcp"],
       "env": {
@@ -112,119 +52,102 @@ Add this to your MCP settings file:
 }
 ```
 
-### **Optional Environment Variables**
+**Or with Docker:**
+```bash
+docker run -i --rm --init \
+  -e DEBUGGAI_API_KEY=your_api_key \
+  quinnosha/debugg-ai-mcp
+```
+
+---
+
+## Tools
+
+### E2E Testing
+| Tool | Description |
+|------|-------------|
+| `check_app_in_browser` | Run a browser test with a natural language description. Returns screenshots and pass/fail result. |
+| `create_test_suite` | Generate a suite of browser tests for a feature or workflow |
+| `create_commit_suite` | Auto-generate tests from recent git commits |
+| `get_test_status` | Check progress and results of a running or completed test suite |
+
+### Test Management
+| Tool | Description |
+|------|-------------|
+| `list_tests` | List all E2E tests with filtering and pagination |
+| `list_test_suites` | List all test suites |
+| `list_commit_suites` | List all commit-based test suites |
+
+### Live Session Monitoring
+| Tool | Description |
+|------|-------------|
+| `start_live_session` | Launch a remote browser session with real-time monitoring |
+| `stop_live_session` | Stop an active session and save captured data |
+| `get_live_session_status` | Check session status, current URL, and uptime |
+| `get_live_session_logs` | Retrieve console logs, network requests, and JS errors |
+| `get_live_session_screenshot` | Capture a screenshot of what the browser currently shows |
+
+### Quick Operations
+| Tool | Description |
+|------|-------------|
+| `quick_screenshot` | Capture a screenshot of any URL — no session setup required |
+
+---
+
+## Configuration
+
 ```bash
 # Required
 DEBUGGAI_API_KEY=your_api_key
 
-# Optional (with sensible defaults)
-DEBUGGAI_LOCAL_PORT=3000                    # Your app's port
+# Optional — provide defaults so you don't have to pass them every time
+DEBUGGAI_LOCAL_PORT=3000                    # Your app's local port
 DEBUGGAI_LOCAL_REPO_NAME=your-org/repo      # GitHub repo name
-DEBUGGAI_LOCAL_REPO_PATH=/path/to/project   # Project directory
+DEBUGGAI_LOCAL_REPO_PATH=/path/to/project   # Absolute path to project root
+DEBUGGAI_LOCAL_BRANCH_NAME=main             # Current branch
+
+# Override API endpoint (defaults to https://api.debugg.ai)
+DEBUGGAI_API_URL=https://api.debugg.ai
 ```
 
-## 💡 Usage Examples
+---
 
-### **Run a Quick E2E Test**
+## Usage examples
+
 ```
 "Test the user login flow on my app running on port 3000"
-```
 
-### **Analyze Your Project** 
-```
-"What frameworks and languages are used in my codebase?"
-```
+"Check that the checkout process works end to end"
 
-### **Get Issue Insights**
-```
-"Show me all high-priority issues in my project"
-```
+"Take a screenshot of localhost:3000 and tell me if anything looks broken"
 
-### **Generate Test Coverage**
-```
-"Generate test coverage for the authentication module"
+"Create a test suite for the user authentication feature"
+
+"Generate browser tests for my last 3 commits"
 ```
 
 ---
 
-## 🧑‍💻 Local Development
+## Local Development
 
 ```bash
-# Install dependencies
 npm install
-
-# Run tests
 npm test
-
-# Build project
 npm run build
 
-# Start server locally
-node dist/index.js
+# Test with MCP inspector
+npx @modelcontextprotocol/inspector --config test-config.json --server debugg-ai
 ```
 
 ---
 
-## 📁 Project Structure
+## Links
 
-```
-debugg-ai-mcp/
-├── config/          # Configuration management  
-├── tools/           # 14 MCP tool definitions
-├── handlers/        # Tool implementation logic
-├── services/        # DebuggAI API integration
-├── utils/           # Shared utilities & logging
-├── types/           # TypeScript type definitions
-├── __tests__/       # Comprehensive test suite
-└── index.ts         # Main server entry point
-```
+- **Dashboard**: [app.debugg.ai](https://app.debugg.ai)
+- **Docs**: [debugg.ai/docs](https://debugg.ai/docs)
+- **Issues**: [GitHub Issues](https://github.com/debugg-ai/debugg-ai-mcp/issues)
+- **Discord**: [debugg.ai/discord](https://debugg.ai/discord)
 
 ---
-
-## 🚀 Publishing & Releases
-
-This project uses automated publishing to NPM. Here's how it works:
-
-### **Automatic Publishing**
-- Every push to `main` triggers automatic NPM publishing
-- Only publishes if the version doesn't already exist
-- Includes full test suite validation and build verification
-
-### **Version Management**
-```bash
-# Bump version locally
-npm run version:patch  # 1.0.15 → 1.0.16
-npm run version:minor  # 1.0.15 → 1.1.0
-npm run version:major  # 1.0.15 → 2.0.0
-
-# Check package contents
-npm run publish:check
-```
-
-### **Manual Version Bump via GitHub**
-1. Go to **Actions** → **Version Bump**
-2. Click **"Run workflow"**
-3. Select version type or enter custom version
-4. Workflow will update version and trigger publish
-
-### **Setup for Contributors**
-See [`.github/PUBLISHING_SETUP.md`](.github/PUBLISHING_SETUP.md) for complete setup instructions.
-
----
-
-## 💬 Support & Links
-
-- 📖 **Documentation**: [debugg.ai/docs](https://debugg.ai/docs)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/debugg-ai/debugg-ai-mcp/issues)
-- 💬 **Discord**: [Join our community](https://debugg.ai/discord)
-- 🌐 **Dashboard**: [app.debugg.ai](https://app.debugg.ai)
-
----
-
-## 🔒 License
 
 Apache-2.0 License © 2025 DebuggAI
-
----
-
-<p align="center">Made with ❤️ in San Francisco</p>

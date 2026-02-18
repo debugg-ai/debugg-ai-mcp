@@ -4,7 +4,7 @@
   "description": "Zero-Config, Fully AI-Managed End-to-End Testing for all code gen platforms.",
   "type": "module",
   "bin": {
-    "@debugg-ai/debugg-ai-mcp": "dist/index.js"
+    "debugg-ai-mcp": "dist/index.js"
   },
   "files": [
     "dist"

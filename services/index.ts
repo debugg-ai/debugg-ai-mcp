@@ -49,7 +49,7 @@ export class DebuggAIServerClient  {
   public async init() {
     const serverUrl = config.api.baseUrl;
     this.url = new URL(serverUrl);
-    this.tx = new DebuggTransport({ baseUrl: serverUrl, apiKey: this.userApiKey });
+    this.tx = new DebuggTransport({ baseUrl: serverUrl, apiKey: this.userApiKey, tokenType: config.api.tokenType });
     this.e2es = createE2esService(this.tx);
     this.browserSessions = createBrowserSessionsService(this.tx);
   }
