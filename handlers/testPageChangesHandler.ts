@@ -79,7 +79,7 @@ export async function testPageChangesHandler(
     // --- Build context data ---
     const contextData: Record<string, any> = {
       targetUrl: targetUrlRaw,
-      question: input.description,
+      goal: input.description,
     };
 
     // --- Build env (credentials/environment) ---
