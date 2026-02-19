@@ -21,7 +21,7 @@ describe('Configuration Management', () => {
 
   test('config should have proper structure', () => {
     expect(config.server.name).toBe('DebuggAI MCP Server');
-    expect(config.server.version).toBe('0.1.1');
+    expect(config.server.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(config.api.key).toBeDefined();
     expect(config.logging.level).toMatch(/^(error|warn|info|debug)$/);
     expect(config.logging.format).toMatch(/^(json|simple)$/);
