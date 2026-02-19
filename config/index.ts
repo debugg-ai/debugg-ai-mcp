@@ -4,13 +4,10 @@
 
 import { z } from 'zod';
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { resolve, dirname } from 'path';
+import { resolve } from 'path';
 
 const _require = createRequire(import.meta.url);
-// Resolve package.json relative to the compiled file's location (dist/config/ → ../../package.json)
-const _pkgPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../package.json');
-const _pkg = _require(_pkgPath) as { version: string };
+const _pkg = _require(resolve(process.cwd(), 'package.json')) as { version: string };
 
 const configSchema = z.object({
   server: z.object({
