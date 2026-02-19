@@ -42,9 +42,6 @@ export class DebuggAIServerClient  {
   browserSessions: BrowserSessionsService | undefined;
   workflows: WorkflowsService | undefined;
 
-  // Cached ngrok auth token — stable per account, fetched once per server session
-  private _ngrokAuthToken: string | undefined;
-
   constructor(
     public userApiKey: string,
   ) {
@@ -61,33 +58,12 @@ export class DebuggAIServerClient  {
   }
 
   /**
-   * Returns the ngrok auth token for this account.
-   * The token is stable per account — fetched once via a minimal e2e test creation
-   * and cached for the lifetime of this server session.
+   * Revoke an ngrok API key by its key ID.
+   * Call this after workflow execution completes to clean up the short-lived key.
    */
-  public async getNgrokAuthToken(): Promise<string> {
-    if (this._ngrokAuthToken) return this._ngrokAuthToken;
-
+  public async revokeNgrokKey(ngrokKeyId: string): Promise<void> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
-
-    // The e2e-tests POST returns tunnel_key (stable per account) at creation time.
-    // We create a minimal probe test, extract the key, then delete the test.
-    const created = await this.tx.post<any>('api/v1/e2e-tests/', {
-      description: '_mcp_tunnel_probe',
-      repoName: '_mcp',
-      branchName: 'main',
-    });
-
-    const token = created?.tunnelKey;
-    if (!token) throw new Error('Backend did not return a tunnel auth token');
-
-    // Clean up the probe test
-    if (created?.uuid) {
-      this.tx.delete(`api/v1/e2e-tests/${created.uuid}/`).catch(() => {});
-    }
-
-    this._ngrokAuthToken = token;
-    return token;
+    await this.tx.post('api/v1/ngrok/revoke/', { ngrokKeyId });
   }
 
 }

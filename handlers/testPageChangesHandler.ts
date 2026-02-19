@@ -53,37 +53,15 @@ export async function testPageChangesHandler(
   await client.init();
 
   let tunnelId: string | undefined;
+  let ngrokKeyId: string | undefined;
 
   try {
     const targetUrlRaw = resolveTargetUrl(input);
-    let targetUrl = targetUrlRaw;
-
-    // --- Localhost tunneling ---
-    if (isLocalhostUrl(targetUrlRaw)) {
-      if (progressCallback) {
-        await progressCallback({ progress: 1, total: 10, message: 'Creating secure tunnel for localhost...' });
-      }
-
-      const port = extractLocalhostPort(targetUrlRaw);
-      if (!port) {
-        throw new Error(`Could not extract port from localhost URL: ${targetUrlRaw}`);
-      }
-
-      const { v4: uuidv4 } = await import('uuid');
-      tunnelId = uuidv4();
-      const tunnelPublicUrl = `https://${tunnelId}.ngrok.debugg.ai`;
-
-      const tunnelAuthToken = await client.getNgrokAuthToken();
-
-      const tunnelResult = await tunnelManager.processUrl(targetUrlRaw, tunnelAuthToken, tunnelId);
-      targetUrl = tunnelResult.url;
-
-      logger.info(`Tunnel ready: ${targetUrl}`);
-    }
+    const isLocalhost = isLocalhostUrl(targetUrlRaw);
 
     // --- Find workflow template ---
     if (progressCallback) {
-      await progressCallback({ progress: 2, total: 10, message: 'Locating evaluation workflow template...' });
+      await progressCallback({ progress: 1, total: 10, message: 'Locating evaluation workflow template...' });
     }
 
     if (!cachedTemplateUuid) {
@@ -100,17 +78,39 @@ export async function testPageChangesHandler(
 
     // --- Build context data ---
     const contextData: Record<string, any> = {
-      targetUrl: targetUrl,
+      targetUrl: targetUrlRaw,
       question: input.description,
     };
 
     // --- Execute ---
     if (progressCallback) {
-      await progressCallback({ progress: 3, total: 10, message: 'Queuing workflow execution...' });
+      await progressCallback({ progress: 2, total: 10, message: 'Queuing workflow execution...' });
     }
 
-    const executionUuid = await client.workflows!.executeWorkflow(cachedTemplateUuid, contextData);
+    const executeResponse = await client.workflows!.executeWorkflow(cachedTemplateUuid, contextData);
+    const executionUuid = executeResponse.executionUuid;
+    ngrokKeyId = executeResponse.ngrokKeyId ?? undefined;
     logger.info(`Execution queued: ${executionUuid}`);
+
+    // --- Localhost tunneling (after execute, using tunnel_key + executionUuid as subdomain) ---
+    if (isLocalhost) {
+      if (progressCallback) {
+        await progressCallback({ progress: 3, total: 10, message: 'Creating secure tunnel for localhost...' });
+      }
+
+      const port = extractLocalhostPort(targetUrlRaw);
+      if (!port) {
+        throw new Error(`Could not extract port from localhost URL: ${targetUrlRaw}`);
+      }
+
+      if (!executeResponse.tunnelKey) {
+        throw new Error('Backend did not return a tunnel key for localhost execution');
+      }
+
+      tunnelId = executionUuid;
+      const tunnelResult = await tunnelManager.processUrl(targetUrlRaw, executeResponse.tunnelKey, tunnelId);
+      logger.info(`Tunnel ready: ${tunnelResult.url}`);
+    }
 
     // --- Poll ---
     let lastSteps = 0;
@@ -143,7 +143,7 @@ export async function testPageChangesHandler(
       success: finalExecution.state?.success ?? false,
       status: finalExecution.status,
       stepsTaken: finalExecution.state?.stepsTaken ?? surferNode?.outputData?.stepsTaken ?? 0,
-      targetUrl,
+      targetUrl: targetUrlRaw,
       executionId: executionUuid,
       durationMs: finalExecution.durationMs ?? duration,
     };
@@ -185,6 +185,12 @@ export async function testPageChangesHandler(
 
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
+    // Revoke the short-lived ngrok key
+    if (ngrokKeyId) {
+      client.revokeNgrokKey(ngrokKeyId).catch(err =>
+        logger.warn(`Failed to revoke ngrok key ${ngrokKeyId}: ${err}`)
+      );
+    }
     // Clean up tunnel if we created one
     if (tunnelId) {
       tunnelManager.stopTunnel(tunnelId).catch(err =>

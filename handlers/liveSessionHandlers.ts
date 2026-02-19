@@ -109,9 +109,12 @@ export async function startLiveSessionHandler(
       throw new Error('Failed to start browser session: No session returned');
     }
 
-    // If we need a tunnel, create it now using the account ngrok auth token
+    // If we need a tunnel, create it now using the tunnel key from the session response
     if (isLocalhost && tunnelId) {
-      const tunnelAuthToken = await client.getNgrokAuthToken();
+      if (!session.tunnelKey) {
+        throw new Error('Backend did not return a tunnel key for localhost session');
+      }
+      const tunnelAuthToken = session.tunnelKey;
 
       logger.info(`Creating tunnel with backend-provided key for ${input.url} -> ${sessionUrl}`);
       
