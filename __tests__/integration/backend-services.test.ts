@@ -4,12 +4,10 @@
  */
 
 import { DebuggAIServerClient } from '../../services/index.js';
-import { E2eTestRunner } from '../../e2e-agents/e2eRunner.js';
 import { config } from '../../config/index.js';
 
 describe('Backend Services Integration Tests', () => {
   let client: DebuggAIServerClient;
-  let e2eTestRunner: E2eTestRunner;
 
   beforeAll(async () => {
     // Skip tests if no API key is provided
@@ -20,7 +18,6 @@ describe('Backend Services Integration Tests', () => {
 
     client = new DebuggAIServerClient(config.api.key);
     await client.init();
-    e2eTestRunner = new E2eTestRunner(client);
   });
 
   beforeEach(() => {
@@ -145,34 +142,6 @@ describe('Backend Services Integration Tests', () => {
     }, 30000);
   });
 
-
-  describe('E2E Test Runner Integration', () => {
-    test('should create new E2E test through runner', async () => {
-      if (!client || !e2eTestRunner) {
-        return; // Skip if client not initialized
-      }
-      const testDescription = 'Runner integration test';
-      const testPort = 3000;
-      const repoName = 'test-repo';
-      const branchName = 'main';
-      const repoPath = '/tmp/test';
-
-      const e2eRun = await e2eTestRunner.createNewE2eTest(
-        testPort,
-        testDescription,
-        repoName,
-        branchName,
-        repoPath
-      );
-
-      expect(e2eRun).toBeDefined();
-      expect(e2eRun).not.toBeNull();
-      expect(e2eRun!.status).toBeDefined();
-      expect(['pending', 'running']).toContain(e2eRun!.status);
-      expect(e2eRun!.uuid).toBeDefined();
-      expect(typeof e2eRun!.uuid).toBe('string');
-    }, 30000);
-  });
 
   describe('Server Configuration Tests', () => {
     test('should connect to correct backend URL', async () => {

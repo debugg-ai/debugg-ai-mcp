@@ -73,23 +73,7 @@ export async function testPageChangesHandler(
       tunnelId = uuidv4();
       const tunnelPublicUrl = `https://${tunnelId}.ngrok.debugg.ai`;
 
-      // Start a minimal browser session to obtain the ngrok auth token
-      const session = await client.browserSessions!.startSession({
-        url: tunnelPublicUrl,
-        originalUrl: targetUrlRaw,
-        localPort: port,
-        sessionName: `Tunnel provisioning for ${targetUrlRaw}`,
-        monitorConsole: false,
-        monitorNetwork: false,
-        takeScreenshots: false,
-        isLocalhost: true,
-        tunnelId,
-      });
-
-      const tunnelAuthToken = session.tunnelKey;
-      if (!tunnelAuthToken) {
-        throw new Error('Browser sessions service did not return a tunnel auth token');
-      }
+      const tunnelAuthToken = await client.getNgrokAuthToken();
 
       const tunnelResult = await tunnelManager.processUrl(targetUrlRaw, tunnelAuthToken, tunnelId);
       targetUrl = tunnelResult.url;
