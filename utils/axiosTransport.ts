@@ -49,10 +49,20 @@ import type {
           res.data = objToCamelCase(res.data);
           return res;
         },
-        (err) =>
-          Promise.reject(
-            (err.response && err.response.data) || "Unknown Axios error",
-          ),
+        (err) => {
+          const data = err.response?.data;
+          if (data) {
+            const msg =
+              typeof data === 'string'
+                ? data
+                : data.detail || data.message || data.error || JSON.stringify(data);
+            const newErr = new Error(String(msg));
+            (newErr as any).statusCode = err.response?.status;
+            (newErr as any).responseData = data;
+            return Promise.reject(newErr);
+          }
+          return Promise.reject(new Error(err.message || 'Unknown Axios error'));
+        },
       );
   
       // Request → snake_case

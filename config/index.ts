@@ -3,11 +3,19 @@
  */
 
 import { z } from 'zod';
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { resolve, dirname } from 'path';
+
+const _require = createRequire(import.meta.url);
+// Resolve package.json relative to the compiled file's location (dist/config/ → ../../package.json)
+const _pkgPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+const _pkg = _require(_pkgPath) as { version: string };
 
 const configSchema = z.object({
   server: z.object({
     name: z.string().default('DebuggAI MCP Server'),
-    version: z.string().default('0.1.1'),
+    version: z.string(),
   }),
   api: z.object({
     key: z.string().min(1, 'API key is required (set DEBUGGAI_API_KEY)'),
@@ -33,7 +41,7 @@ export function loadConfig(): Config {
   const rawConfig = {
     server: {
       name: 'DebuggAI MCP Server',
-      version: '0.1.1',
+      version: _pkg.version,
     },
     api: {
       // Priority: DEBUGGAI_API_TOKEN → DEBUGGAI_JWT_TOKEN → DEBUGGAI_API_KEY

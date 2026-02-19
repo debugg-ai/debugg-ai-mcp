@@ -10,6 +10,7 @@ import { CallToolRequest, Tool } from '@modelcontextprotocol/sdk/types.js';
  */
 export const TestPageChangesInputSchema = z.object({
   description: z.string().min(1, 'Description is required'),
+  url: z.string().url('Must be a valid URL').optional(),
   localPort: z.number().int().min(1).max(65535).optional(),
   filePath: z.string().optional(),
   repoName: z.string().optional(),

@@ -1,180 +1,211 @@
 /**
- * Test Page Changes Handler Implementation
- * Handles the execution of the check_app_in_browser tool
+ * Test Page Changes Handler
+ * Executes the App Evaluation Workflow via the 4-step pattern:
+ *   find template → execute → poll → result
  */
 
-import { 
-  TestPageChangesInput, 
-  ToolResponse, 
-  ToolContext, 
+import {
+  TestPageChangesInput,
+  ToolResponse,
+  ToolContext,
   ProgressCallback,
-  E2ETestResult 
 } from '../types/index.js';
 import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
-import { E2eTestRunner } from '../e2e-agents/e2eRunner.js';
+import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { extractLocalhostPort } from '../utils/urlParser.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
+// Cache the template UUID within a server session to avoid re-fetching
+let cachedTemplateUuid: string | null = null;
+
+function isLocalhostUrl(url: string): boolean {
+  return url.includes('localhost') || url.includes('127.0.0.1');
+}
+
 /**
- * Handler for the test page changes tool
+ * Resolve the target URL from input.
+ * - If `url` is provided, use it directly.
+ * - If only `localPort` is provided, construct http://localhost:{port}.
+ * - Otherwise error.
  */
+function resolveTargetUrl(input: TestPageChangesInput): string {
+  if (input.url) return input.url;
+  if (input.localPort) return `http://localhost:${input.localPort}`;
+  throw new Error(
+    'Provide a target URL via the "url" parameter (e.g. "https://example.com") ' +
+    'or a "localPort" for a local dev server.'
+  );
+}
+
 export async function testPageChangesHandler(
   input: TestPageChangesInput,
   context: ToolContext,
   progressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
-  const { description } = input;
-  
   logger.toolStart('check_app_in_browser', input);
 
-  try {
-    // Use the progress callback from the main handler
+  const client = new DebuggAIServerClient(config.api.key);
+  await client.init();
 
-    // Merge input with config defaults, providing reasonable fallbacks only when needed
-    const params = {
-      localPort: input.localPort ?? config.defaults.localPort ?? 3000,
-      repoName: input.repoName ?? config.defaults.repoName ?? 'unknown-repo',
-      branchName: input.branchName ?? config.defaults.branchName ?? 'main',
-      repoPath: input.repoPath ?? config.defaults.repoPath ?? process.cwd(),
-      filePath: input.filePath ?? config.defaults.filePath ?? '',
+  let tunnelId: string | undefined;
+
+  try {
+    const targetUrlRaw = resolveTargetUrl(input);
+    let targetUrl = targetUrlRaw;
+
+    // --- Localhost tunneling ---
+    if (isLocalhostUrl(targetUrlRaw)) {
+      if (progressCallback) {
+        await progressCallback({ progress: 1, total: 10, message: 'Creating secure tunnel for localhost...' });
+      }
+
+      const port = extractLocalhostPort(targetUrlRaw);
+      if (!port) {
+        throw new Error(`Could not extract port from localhost URL: ${targetUrlRaw}`);
+      }
+
+      const { v4: uuidv4 } = await import('uuid');
+      tunnelId = uuidv4();
+      const tunnelPublicUrl = `https://${tunnelId}.ngrok.debugg.ai`;
+
+      // Start a minimal browser session to obtain the ngrok auth token
+      const session = await client.browserSessions!.startSession({
+        url: tunnelPublicUrl,
+        originalUrl: targetUrlRaw,
+        localPort: port,
+        sessionName: `Tunnel provisioning for ${targetUrlRaw}`,
+        monitorConsole: false,
+        monitorNetwork: false,
+        takeScreenshots: false,
+        isLocalhost: true,
+        tunnelId,
+      });
+
+      const tunnelAuthToken = session.tunnelKey;
+      if (!tunnelAuthToken) {
+        throw new Error('Browser sessions service did not return a tunnel auth token');
+      }
+
+      const tunnelResult = await tunnelManager.processUrl(targetUrlRaw, tunnelAuthToken, tunnelId);
+      targetUrl = tunnelResult.url;
+
+      logger.info(`Tunnel ready: ${targetUrl}`);
+    }
+
+    // --- Find workflow template ---
+    if (progressCallback) {
+      await progressCallback({ progress: 2, total: 10, message: 'Locating evaluation workflow template...' });
+    }
+
+    if (!cachedTemplateUuid) {
+      const template = await client.workflows!.findEvaluationTemplate();
+      if (!template) {
+        throw new Error(
+          'App Evaluation Workflow Template not found. ' +
+          'Ensure the template is seeded in the backend (GET /api/v1/workflows/?is_template=true).'
+        );
+      }
+      cachedTemplateUuid = template.uuid;
+      logger.info(`Using workflow template: ${template.name} (${template.uuid})`);
+    }
+
+    // --- Build context data ---
+    const contextData: Record<string, any> = {
+      targetUrl: targetUrl,
+      question: input.description,
     };
 
-    logger.info('Starting E2E test with parameters', { 
-      description,
-      ...params,
-      progressToken: context.progressToken 
-    });
-
-    // Initialize DebuggAI client and runner
-    const client = new DebuggAIServerClient(config.api.key);
-    await client.init(); // Make sure client is fully initialized
-    const e2eTestRunner = new E2eTestRunner(client);
-
-    // Create new E2E test
-    const e2eRun = await e2eTestRunner.createNewE2eTest(
-      params.localPort,
-      description,
-      params.repoName,
-      params.branchName,
-      params.repoPath,
-      params.filePath
-    );
-
-    if (!e2eRun) {
-      throw new Error('Failed to create E2E test run');
-    }
-
-    logger.info('E2E test created successfully', { runId: e2eRun.id });
-
-    // Send initial progress notification
+    // --- Execute ---
     if (progressCallback) {
-      await progressCallback({
-        progress: 0,
-        total: 20,
-        message: 'E2E test started'
-      });
+      await progressCallback({ progress: 3, total: 10, message: 'Queuing workflow execution...' });
     }
 
-    // Handle E2E run execution with progress tracking
-    const finalRun = await e2eTestRunner.handleE2eRun(e2eRun, async (update) => {
-      logger.info(`E2E test status update: ${update.status}`, { status: update.status });
+    const executionUuid = await client.workflows!.executeWorkflow(cachedTemplateUuid, contextData);
+    logger.info(`Execution queued: ${executionUuid}`);
 
-      const curStep = update.conversations?.[0]?.messages?.length || 0;
-      const updateMessage = update.conversations?.[0]?.messages?.[curStep - 1]?.jsonContent?.currentState?.nextGoal;
-
-      logger.progress(
-        updateMessage || `Step ${curStep}`,
-        curStep,
-        20
-      );
-
-      // Send MCP progress notification — failures are logged but must not
-      // abort the test run (the browser agent is still running on the backend)
+    // --- Poll ---
+    let lastSteps = 0;
+    const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
+      const steps = exec.state?.stepsTaken ?? 0;
+      if (steps !== lastSteps || exec.status !== 'pending') {
+        lastSteps = steps;
+        logger.info(`Execution status: ${exec.status}, steps: ${steps}`);
+      }
       if (progressCallback) {
-        try {
-          await progressCallback({
-            progress: curStep,
-            total: 20,
-            message: updateMessage || `Processing step ${curStep}`
-          });
-        } catch (notifyError) {
-          logger.warn('Progress notification failed', {
-            error: notifyError instanceof Error ? notifyError.message : String(notifyError)
-          });
-        }
+        const progress = Math.min(3 + steps, 9);
+        await progressCallback({
+          progress,
+          total: 10,
+          message: `${exec.status}: ${steps} step${steps !== 1 ? 's' : ''} taken`,
+        }).catch(() => {});
       }
     });
 
     const duration = Date.now() - startTime;
-    
-    if (!finalRun) {
-      throw new Error('E2E test execution failed');
-    }
 
-    // Extract results
-    const testResult: E2ETestResult = {
-      testOutcome: finalRun.outcome,
-      testDetails: finalRun.conversations?.[0]?.messages?.map(
-        (message) => message.jsonContent?.currentState?.nextGoal
-      ).filter(Boolean),
-      finalScreenshot: finalRun.finalScreenshot || undefined,
-      runGif: finalRun.runGif || undefined,
+    // --- Format result ---
+    const outcome = finalExecution.state?.outcome ?? finalExecution.status;
+    const surferNode = finalExecution.nodeExecutions?.find(
+      n => n.nodeType === 'surfer.execute_task'
+    );
+
+    const responsePayload: Record<string, any> = {
+      outcome,
+      success: finalExecution.state?.success ?? false,
+      status: finalExecution.status,
+      stepsTaken: finalExecution.state?.stepsTaken ?? surferNode?.outputData?.stepsTaken ?? 0,
+      targetUrl,
+      executionId: executionUuid,
+      durationMs: finalExecution.durationMs ?? duration,
     };
 
-    logger.info('E2E test completed successfully', { 
-      testOutcome: testResult.testOutcome,
-      duration: `${duration}ms`
-    });
-
-    // Prepare response content
-    const responseContent: ToolResponse['content'] = [
-      {
-        type: 'text',
-        text: JSON.stringify({
-          testOutcome: testResult.testOutcome,
-          testDetails: testResult.testDetails,
-          executionTime: `${duration}ms`,
-          timestamp: new Date().toISOString()
-        }, null, 2)
-      }
-    ];
-
-    // Add screenshot if available
-    if (testResult.finalScreenshot) {
-      try {
-        const response = await fetch(testResult.finalScreenshot);
-        if (response.ok) {
-          const arrayBuffer = await response.arrayBuffer();
-          const base64Image = Buffer.from(arrayBuffer).toString('base64');
-          
-          responseContent.push({
-            type: 'image',
-            data: base64Image,
-            mimeType: 'image/png'
-          });
-
-          logger.info('Screenshot included in response');
-        }
-      } catch (error) {
-        logger.warn('Failed to fetch screenshot', { 
-          screenshotUrl: testResult.finalScreenshot,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
+    if (finalExecution.state?.error) {
+      responsePayload.agentError = finalExecution.state.error;
+    }
+    if (finalExecution.errorMessage) {
+      responsePayload.errorMessage = finalExecution.errorMessage;
+    }
+    if (finalExecution.errorInfo?.failedNodeId) {
+      responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
+    }
+    if (surferNode?.outputData) {
+      responsePayload.surferOutput = surferNode.outputData;
     }
 
     logger.toolComplete('check_app_in_browser', duration);
 
-    return { content: responseContent };
+    if (progressCallback) {
+      await progressCallback({ progress: 10, total: 10, message: `Complete: ${outcome}` });
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(responsePayload, null, 2),
+      }],
+    };
 
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('check_app_in_browser', error as Error, duration);
-    
+
+    // Invalidate cached template UUID on auth/not-found errors
+    if (error instanceof Error && (error.message.includes('not found') || error.message.includes('401'))) {
+      cachedTemplateUuid = null;
+    }
+
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
+  } finally {
+    // Clean up tunnel if we created one
+    if (tunnelId) {
+      tunnelManager.stopTunnel(tunnelId).catch(err =>
+        logger.warn(`Failed to stop tunnel ${tunnelId}: ${err}`)
+      );
+    }
   }
 }

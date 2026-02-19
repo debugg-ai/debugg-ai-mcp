@@ -19,12 +19,16 @@ export const testPageChangesTool: Tool = {
     properties: {
       description: {
         type: "string",
-        description: "Natural language description of what to test (e.g., 'Test login form on /login page' or 'Click the submit button and verify success message appears')",
+        description: "Natural language description of what to test or evaluate (e.g., 'Does the login form validate empty fields?' or 'Navigate to the homepage and verify the hero section loads')",
         minLength: 1
+      },
+      url: {
+        type: "string",
+        description: "Target URL for the browser agent to navigate to (e.g., 'https://example.com' or 'http://localhost:3000'). Use this for external URLs. For local dev servers, use localPort instead."
       },
       localPort: {
         type: "number",
-        description: "Port number where your local development server is running (e.g., 3000 for React, 8080 for Vue)",
+        description: "Port of your local dev server (e.g. 3000, 8080). A secure tunnel is created automatically so the remote browser can reach it.",
         minimum: 1,
         maximum: 65535
       },
