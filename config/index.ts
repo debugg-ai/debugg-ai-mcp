@@ -3,11 +3,25 @@
  */
 
 import { z } from 'zod';
-import { createRequire } from 'module';
-import { resolve } from 'path';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-const _require = createRequire(import.meta.url);
-const _pkg = _require(resolve(process.cwd(), 'package.json')) as { version: string };
+function findPackageVersion(): string {
+  const __dir = dirname(fileURLToPath(import.meta.url));
+  let dir = __dir;
+  while (true) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
+      if (pkg.name === '@debugg-ai/debugg-ai-mcp') return pkg.version as string;
+    } catch { /* keep walking */ }
+    const parent = dirname(dir);
+    if (parent === dir) return 'unknown';
+    dir = parent;
+  }
+}
+
+const _version = findPackageVersion();
 
 const configSchema = z.object({
   server: z.object({
@@ -38,7 +52,7 @@ export function loadConfig(): Config {
   const rawConfig = {
     server: {
       name: 'DebuggAI MCP Server',
-      version: _pkg.version,
+      version: _version,
     },
     api: {
       // Priority: DEBUGGAI_API_TOKEN → DEBUGGAI_JWT_TOKEN → DEBUGGAI_API_KEY
