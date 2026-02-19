@@ -36,7 +36,7 @@ import {
 export const startLiveSessionTool: Tool = {
   name: "start_live_session",
   title: "Start Live Browser Session",
-  description: "Launch a live remote web browser session to monitor your application in real-time. Captures browser console logs, network requests, and screenshots while your app runs.",
+  description: "Open a live remote browser pointed at your app. Passively monitors console logs, network requests, and screenshots as the app runs. Returns a session ID used by the other live session tools.",
   inputSchema: {
     type: "object",
     properties: {
@@ -90,7 +90,7 @@ export const startLiveSessionTool: Tool = {
 export const stopLiveSessionTool: Tool = {
   name: "stop_live_session",
   title: "Stop Live Browser Session",
-  description: "Stop a running remote browser session and cleanup all monitoring. Browser closes and all captured data is saved.",
+  description: "Stop a live browser session. Captured logs and screenshots are preserved.",
   inputSchema: {
     type: "object",
     properties: {
@@ -109,7 +109,7 @@ export const stopLiveSessionTool: Tool = {
 export const getLiveSessionStatusTool: Tool = {
   name: "get_live_session_status",
   title: "Get Live Session Status",
-  description: "Check if the remote browser session is running, what URL it's on, how long it's been active, and monitoring statistics.",
+  description: "Check whether a live browser session is active, what URL it's on, and how long it's been running.",
   inputSchema: {
     type: "object",
     properties: {
@@ -128,7 +128,7 @@ export const getLiveSessionStatusTool: Tool = {
 export const getLiveSessionLogsTool: Tool = {
   name: "get_live_session_logs",
   title: "Get Live Session Logs",
-  description: "Retrieve browser console logs, network request logs, and JavaScript errors captured from the remote browser during the live session. These are the actual console.log(), console.error(), API calls, and error messages that occurred while your app was running.",
+  description: "Retrieve console output, network requests, and JS errors captured during a live browser session.",
   inputSchema: {
     type: "object",
     properties: {
@@ -165,7 +165,7 @@ export const getLiveSessionLogsTool: Tool = {
 export const getLiveSessionScreenshotTool: Tool = {
   name: "get_live_session_screenshot",
   title: "Capture Live Session Screenshot",
-  description: "Capture a screenshot of what the remote browser currently displays. Shows exactly what users would see on their screen at this moment.",
+  description: "Capture a screenshot of what the live browser session is currently showing.",
   inputSchema: {
     type: "object",
     properties: {

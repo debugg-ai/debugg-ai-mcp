@@ -82,12 +82,24 @@ export async function testPageChangesHandler(
       question: input.description,
     };
 
+    // --- Build env (credentials/environment) ---
+    const env: Record<string, any> = {};
+    if (input.environmentId) env.environmentId = input.environmentId;
+    if (input.credentialId) env.credentialId = input.credentialId;
+    if (input.credentialRole) env.credentialRole = input.credentialRole;
+    if (input.username) env.username = input.username;
+    if (input.password) env.password = input.password;
+
     // --- Execute ---
     if (progressCallback) {
       await progressCallback({ progress: 2, total: 10, message: 'Queuing workflow execution...' });
     }
 
-    const executeResponse = await client.workflows!.executeWorkflow(cachedTemplateUuid, contextData);
+    const executeResponse = await client.workflows!.executeWorkflow(
+      cachedTemplateUuid,
+      contextData,
+      Object.keys(env).length > 0 ? env : undefined
+    );
     const executionUuid = executeResponse.executionUuid;
     ngrokKeyId = executeResponse.ngrokKeyId ?? undefined;
     logger.info(`Execution queued: ${executionUuid}`);
@@ -156,6 +168,12 @@ export async function testPageChangesHandler(
     }
     if (finalExecution.errorInfo?.failedNodeId) {
       responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
+    }
+    if (executeResponse.resolvedEnvironmentId) {
+      responsePayload.resolvedEnvironmentId = executeResponse.resolvedEnvironmentId;
+    }
+    if (executeResponse.resolvedCredentialId) {
+      responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
     }
     if (surferNode?.outputData) {
       responsePayload.surferOutput = surferNode.outputData;

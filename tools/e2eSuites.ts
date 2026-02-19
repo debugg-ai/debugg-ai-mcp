@@ -28,7 +28,7 @@ import {
 export const listTestsTool: Tool = {
   name: "list_tests",
   title: "List E2E Tests",
-  description: "View all end-to-end browser tests that have been run for your project. Shows test results, status, screenshots, and detailed execution logs.",
+  description: "List all browser tests run for your project with their status and results.",
   inputSchema: {
     type: "object",
     properties: {
@@ -69,7 +69,7 @@ export const listTestsTool: Tool = {
 export const listTestSuitesTool: Tool = {
   name: "list_test_suites",
   title: "List Test Suites",
-  description: "View organized collections of related tests for your project. Test suites group multiple browser tests together (e.g., 'User Authentication Suite' containing login, logout, and password reset tests).",
+  description: "List test suites for your project. A suite is a named group of related browser tests covering a feature or workflow.",
   inputSchema: {
     type: "object",
     properties: {
@@ -110,7 +110,7 @@ export const listTestSuitesTool: Tool = {
 export const createTestSuiteTool: Tool = {
   name: "create_test_suite",
   title: "Create Test Suite",
-  description: "Generate a comprehensive collection of browser tests for a specific feature or user workflow. AI creates multiple related tests that thoroughly validate functionality (e.g., create 'Shopping Cart Suite' with add item, remove item, checkout, and error handling tests).",
+  description: "Generate a suite of browser tests for a feature or user workflow. Describe what to test and the AI writes and queues the tests. Returns a suite UUID — use get_test_status to poll results.",
   inputSchema: {
     type: "object",
     properties: {
@@ -147,7 +147,7 @@ export const createTestSuiteTool: Tool = {
 export const createCommitSuiteTool: Tool = {
   name: "create_commit_suite",
   title: "Create Commit Test Suite",
-  description: "Automatically generate browser tests based on your recent code changes. AI analyzes your Git commits and creates relevant tests to verify that your new features and bug fixes work correctly in the browser.",
+  description: "Generate browser tests targeted at a specific code change or commit. Describe what changed and the AI creates tests to verify it works in the browser. Returns a suite UUID — use get_test_status to poll results.",
   inputSchema: {
     type: "object",
     properties: {
@@ -184,7 +184,7 @@ export const createCommitSuiteTool: Tool = {
 export const listCommitSuitesTool: Tool = {
   name: "list_commit_suites",
   title: "List Commit Test Suites",
-  description: "View all test suites that were automatically generated from your Git commits. These are collections of browser tests created to validate specific code changes.",
+  description: "List commit-based test suites generated from code changes.",
   inputSchema: {
     type: "object",
     properties: {
@@ -225,7 +225,7 @@ export const listCommitSuitesTool: Tool = {
 export const getTestStatusTool: Tool = {
   name: "get_test_status",
   title: "Get Test Suite Status",
-  description: "Check the progress and results of a running or completed test suite. Shows whether tests are still running, how many passed/failed, screenshots from test execution, and detailed error messages if any tests failed.",
+  description: "Get the status and results of a test suite by UUID. Returns pass/fail per test, screenshots, and error details. Poll this after create_test_suite or create_commit_suite.",
   inputSchema: {
     type: "object",
     properties: {

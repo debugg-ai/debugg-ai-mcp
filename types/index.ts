@@ -12,10 +12,12 @@ export const TestPageChangesInputSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   url: z.string().url('Must be a valid URL').optional(),
   localPort: z.number().int().min(1).max(65535).optional(),
-  filePath: z.string().optional(),
-  repoName: z.string().optional(),
-  branchName: z.string().optional(),
-  repoPath: z.string().optional(),
+  // Credential/environment resolution
+  environmentId: z.string().uuid().optional(),
+  credentialId: z.string().uuid().optional(),
+  credentialRole: z.string().optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
 });
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;

@@ -92,7 +92,7 @@ async function pollForCompletion(
 export const quickScreenshotTool: Tool = {
   name: 'quick_screenshot',
   title: 'Quick URL Screenshot',
-  description: 'Quickly capture a screenshot of any URL. Opens a new browser tab, navigates to the URL, takes a screenshot, and waits for completion. No session management required.',
+  description: 'Take a one-shot screenshot of any public URL. No session required, just point and shoot.',
   inputSchema: {
     type: 'object',
     properties: {

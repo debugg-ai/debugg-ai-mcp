@@ -13,7 +13,7 @@ import { testPageChangesHandler } from '../handlers/testPageChangesHandler.js';
 export const testPageChangesTool: Tool = {
   name: "check_app_in_browser",
   title: "Run E2E Browser Test",
-  description: "Run end-to-end browser tests using AI agents that interact with your web application like real users. Tests specific pages, features, or workflows by clicking buttons, filling forms, and validating behavior. Returns screenshots and detailed results.",
+  description: "Give an AI agent eyes on a live website or app. The agent browses it, interacts with it, and tells you whether a given task or check passed. Works on localhost or any URL. Use for visual QA, flow validation, regression checks, or anything that needs a real browser to verify.",
   inputSchema: {
     type: "object",
     properties: {
@@ -32,21 +32,25 @@ export const testPageChangesTool: Tool = {
         minimum: 1,
         maximum: 65535
       },
-      filePath: {
+      environmentId: {
         type: "string",
-        description: "Absolute path to the main file being tested (helps provide context to the AI)"
+        description: "UUID of a specific environment to use for this test"
       },
-      repoName: {
+      credentialId: {
         type: "string",
-        description: "Name of your Git repository (e.g., 'my-web-app')"
+        description: "UUID of a specific credential to use for login"
       },
-      branchName: {
+      credentialRole: {
         type: "string",
-        description: "Current Git branch name (e.g., 'main', 'feature/login')"
+        description: "Pick a credential by role (e.g. 'admin', 'guest') from the resolved environment"
       },
-      repoPath: {
+      username: {
         type: "string",
-        description: "Absolute path to your project's root directory"
+        description: "Username to log in with (creates or updates a credential idempotently)"
+      },
+      password: {
+        type: "string",
+        description: "Password to log in with (used together with username)"
       },
     },
     required: ["description"],
