@@ -48,8 +48,9 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         npm version patch --no-git-tag-version
+        NEW_VERSION=$(node -p "require('./package.json').version")
         git add package.json package-lock.json
-        git commit -m "chore: bump version to $(node -p \"require('./package.json').version\")"
+        git commit -m "chore: bump version to $NEW_VERSION"
         git push
 
     - name: Check if version already exists on NPM
