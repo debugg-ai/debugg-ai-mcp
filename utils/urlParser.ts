@@ -87,6 +87,28 @@ export function isLocalhostUrl(urlString: string): boolean {
 }
 
 /**
+ * Replace ngrok tunnel URLs with the original localhost origin in any string/object.
+ * Used to sanitize backend responses that contain internal tunnel URLs before
+ * returning them to callers who only know the original localhost address.
+ */
+export function replaceTunnelUrls(value: unknown, localhostOrigin: string): unknown {
+  if (typeof value === 'string') {
+    return value.replace(/https?:\/\/[^\s/"]+\.ngrok\.debugg\.ai/g, localhostOrigin.replace(/\/$/, ''));
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => replaceTunnelUrls(item, localhostOrigin));
+  }
+  if (value !== null && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result[k] = replaceTunnelUrls(v, localhostOrigin);
+    }
+    return result;
+  }
+  return value;
+}
+
+/**
  * Generate a tunneled URL for a localhost URL
  */
 export function generateTunnelUrl(originalUrl: string, tunnelId: string, tunnelDomain: string = 'ngrok.debugg.ai'): string {

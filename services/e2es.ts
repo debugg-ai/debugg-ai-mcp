@@ -248,17 +248,11 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
         description: string,
         params?: Record<string, any>
     ): Promise<E2eTestSuite | null> {
-        try {
-            const serverUrl = "api/v1/test-suites/generate_tests/";
-            const body = paramsToBody({...params, description});
-            const response = await tx.post<E2eTestSuite>(serverUrl, { ...body });
-            console.error("Raw API response:", response);
-            return response;
-        } catch (err) {
-            console.error("Error creating E2E test suite:", err);
-            return null;
-        }
-
+        const serverUrl = "api/v1/test-suites/generate_tests/";
+        const body = paramsToBody({...params, description});
+        const response = await tx.post<E2eTestSuite>(serverUrl, { ...body });
+        console.error("Raw API response:", response);
+        return response;
     },
     async listE2eTestSuites(params?: Record<string, any>): Promise<PaginatedResponse<E2eTestSuite> | null> {
         try {
@@ -303,16 +297,11 @@ export const createE2esService = (tx: AxiosTransport): E2esService => ({
         description: string,
         params?: Record<string, any>
     ): Promise<E2eTestCommitSuite | null> {
-        try {
-            const serverUrl = "api/v1/commit-suites/";
-            const body = paramsToBody({...params, description});    
-            const response = await tx.post<E2eTestCommitSuite>(serverUrl, { ...body });
-            console.error("Raw API response:", response);
-            return response;
-        } catch (err) {
-            console.error("Error creating E2E commit suite:", err);
-            return null;
-        }
+        const serverUrl = "api/v1/commit-suites/";
+        const body = paramsToBody({...params, description});
+        const response = await tx.post<E2eTestCommitSuite>(serverUrl, { ...body });
+        console.error("Raw API response:", response);
+        return response;
     },
 
     async runE2eCommitSuite(

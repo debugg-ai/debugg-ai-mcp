@@ -44,6 +44,7 @@ export interface TunnelResult {
 
 class TunnelManager {
   private activeTunnels = new Map<string, TunnelInfo>();
+  private pendingTunnels = new Map<number, Promise<TunnelInfo>>();
   private initialized = false;
   private readonly TUNNEL_TIMEOUT_MS = 60 * 55 * 1000; // 55 minutes (we get billed by the hour, so dont want to run 1 min past the hour)
 
@@ -126,16 +127,20 @@ class TunnelManager {
       throw new Error(`Could not extract port from localhost URL: ${url}`);
     }
 
-    // Check if we already have a tunnel for this port
+    // Check if we already have an active tunnel for this port
     const existingTunnel = this.findTunnelByPort(port);
     if (existingTunnel) {
       const publicUrl = generateTunnelUrl(url, existingTunnel.tunnelId);
       logger.info(`Reusing existing tunnel for port ${port}: ${publicUrl}`);
-      return {
-        url: publicUrl,
-        tunnelId: existingTunnel.tunnelId,
-        isLocalhost: true
-      };
+      return { url: publicUrl, tunnelId: existingTunnel.tunnelId, isLocalhost: true };
+    }
+
+    // If a tunnel creation is already in-flight for this port, wait for it
+    const pending = this.pendingTunnels.get(port);
+    if (pending) {
+      logger.info(`Waiting for in-flight tunnel creation for port ${port}`);
+      const tunnelInfo = await pending;
+      return { url: tunnelInfo.publicUrl, tunnelId: tunnelInfo.tunnelId, isLocalhost: true };
     }
 
     // Create new tunnel
@@ -144,8 +149,16 @@ class TunnelManager {
     }
 
     const tunnelId = specificTunnelId || uuidv4();
-    const tunnelInfo = await this.createTunnel(url, port, tunnelId, authToken);
-    
+    const creationPromise = this.createTunnel(url, port, tunnelId, authToken);
+    this.pendingTunnels.set(port, creationPromise);
+
+    let tunnelInfo: TunnelInfo;
+    try {
+      tunnelInfo = await creationPromise;
+    } finally {
+      this.pendingTunnels.delete(port);
+    }
+
     return {
       url: tunnelInfo.publicUrl,
       tunnelId: tunnelInfo.tunnelId,

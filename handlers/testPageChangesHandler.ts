@@ -13,9 +13,10 @@ import {
 import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
+import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
-import { extractLocalhostPort } from '../utils/urlParser.js';
+import { extractLocalhostPort, replaceTunnelUrls } from '../utils/urlParser.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
@@ -176,7 +177,10 @@ export async function testPageChangesHandler(
       responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
     }
     if (surferNode?.outputData) {
-      responsePayload.surferOutput = surferNode.outputData;
+      const surferOutput = isLocalhost
+        ? replaceTunnelUrls(surferNode.outputData, new URL(targetUrlRaw).origin) as Record<string, any>
+        : surferNode.outputData;
+      responsePayload.surferOutput = surferOutput;
     }
 
     logger.toolComplete('check_app_in_browser', duration);
@@ -185,12 +189,27 @@ export async function testPageChangesHandler(
       await progressCallback({ progress: 10, total: 10, message: `Complete: ${outcome}` });
     }
 
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(responsePayload, null, 2),
-      }],
-    };
+    const content: ToolResponse['content'] = [
+      { type: 'text', text: JSON.stringify(responsePayload, null, 2) },
+    ];
+
+    // Embed screenshot / GIF from the surfer node output when URLs are present
+    const outputData = surferNode?.outputData ?? {};
+    const screenshotUrl: string | null =
+      outputData.finalScreenshot ?? outputData.screenshot ?? outputData.screenshotUrl ?? null;
+    const gifUrl: string | null =
+      outputData.runGif ?? outputData.gifUrl ?? null;
+
+    if (screenshotUrl) {
+      const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
+      if (img) content.push(imageContentBlock(img.data, img.mimeType));
+    }
+    if (gifUrl) {
+      const gif = await fetchImageAsBase64(gifUrl).catch(() => null);
+      if (gif) content.push(imageContentBlock(gif.data, 'image/gif'));
+    }
+
+    return { content };
 
   } catch (error) {
     const duration = Date.now() - startTime;

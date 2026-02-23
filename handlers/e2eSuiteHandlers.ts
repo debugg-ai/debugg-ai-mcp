@@ -48,7 +48,14 @@ export async function createTestSuiteHandler(
       filePath: input.filePath ?? config.defaults.filePath,
     };
 
-    logger.info('Creating E2E test suite', { 
+    if (!params.repoName || !params.repoPath) {
+      throw new Error(
+        'repoName and repoPath are required to generate tests. ' +
+        'Pass them as tool arguments or set DEBUGGAI_LOCAL_REPO_NAME and DEBUGGAI_LOCAL_REPO_PATH.'
+      );
+    }
+
+    logger.info('Creating E2E test suite', {
       description: input.description,
       ...params
     });
@@ -137,7 +144,14 @@ export async function createCommitSuiteHandler(
       filePath: input.filePath ?? config.defaults.filePath,
     };
 
-    logger.info('Creating E2E commit suite', { 
+    if (!params.repoName || !params.repoPath) {
+      throw new Error(
+        'repoName and repoPath are required to generate commit tests. ' +
+        'Pass them as tool arguments or set DEBUGGAI_LOCAL_REPO_NAME and DEBUGGAI_LOCAL_REPO_PATH.'
+      );
+    }
+
+    logger.info('Creating E2E commit suite', {
       description: input.description,
       ...params
     });

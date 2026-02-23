@@ -7,6 +7,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { ValidatedTool, ToolContext, ProgressCallback } from '../types/index.js';
 import { Logger } from '../utils/logger.js';
+import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 import { createClientService } from '../services/index.js';
 import { QuickScreenshotParams, QuickScreenshotResponse, QuickScreenshotStatusResponse } from '../services/browserSessions.js';
 
@@ -202,6 +203,12 @@ async function quickScreenshotHandler(
       }
     }
 
+    // Fetch the image from the download URL so we can embed it directly
+    let imageBase64: { data: string; mimeType: string } | null = null;
+    if (downloadInfo?.downloadUrl) {
+      imageBase64 = await fetchImageAsBase64(downloadInfo.downloadUrl);
+    }
+
     // Report completion
     if (progressCallback) {
       await progressCallback({
@@ -211,55 +218,39 @@ async function quickScreenshotHandler(
       });
     }
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            success: true,
-            taskId: response.taskId,
-            sessionId: completedResponse.sessionId,
-            screenshotActionId: completedResponse.screenshotActionId,
-            url: completedResponse.url,
-            screenshotType: completedResponse.screenshotType,
-            status: completedResponse.status,
-            message: completedResponse.message,
-            downloadUrl: downloadInfo?.downloadUrl,
-            sessionInfo: {
-              sessionName: completedResponse.sessionInfo.sessionName,
-              status: completedResponse.sessionInfo.status,
-              vncUrl: completedResponse.sessionInfo.vncUrl,
-              createdAt: completedResponse.sessionInfo.createdAt
-            },
-            polling: {
-              statusUrl: response.polling.statusUrl,
-              downloadUrlAvailableWhenComplete: response.polling.downloadUrlAvailableWhenComplete,
-              pollIntervalSeconds: response.polling.pollIntervalSeconds
-            },
-            instructions: [
-              `Quick screenshot ${completedResponse.status} for ${completedResponse.url}`,
-              `Task ID: ${response.taskId}`,
-              `Session ID: ${completedResponse.sessionId}`,
-              `Screenshot type: ${completedResponse.screenshotType}`,
-              `Status: ${completedResponse.status}`,
-              '',
-              completedResponse.status === 'completed' ? 
-                'Screenshot capture completed successfully.' : 
-                `Screenshot capture failed: ${completedResponse.message}`,
-              '',
-              downloadInfo ? 
-                `Download URL: ${downloadInfo.downloadUrl}` : 
-                'Download URL not available',
-              downloadInfo?.expiresAt ? 
-                `Download expires: ${downloadInfo.expiresAt}` : '',
-              '',
-              `Browser session: ${completedResponse.sessionInfo.status}`,
-              `VNC URL: ${completedResponse.sessionInfo.vncUrl}`
-            ].filter(line => line !== '').join('\n')
-          }, null, 2)
-        }
-      ]
-    };
+    const content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> = [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          success: true,
+          taskId: response.taskId,
+          sessionId: completedResponse.sessionId,
+          screenshotActionId: completedResponse.screenshotActionId,
+          url: completedResponse.url,
+          screenshotType: completedResponse.screenshotType,
+          status: completedResponse.status,
+          message: completedResponse.message,
+          downloadUrl: downloadInfo?.downloadUrl,
+          sessionInfo: {
+            sessionName: completedResponse.sessionInfo.sessionName,
+            status: completedResponse.sessionInfo.status,
+            vncUrl: completedResponse.sessionInfo.vncUrl,
+            createdAt: completedResponse.sessionInfo.createdAt
+          },
+          polling: {
+            statusUrl: response.polling.statusUrl,
+            downloadUrlAvailableWhenComplete: response.polling.downloadUrlAvailableWhenComplete,
+            pollIntervalSeconds: response.polling.pollIntervalSeconds
+          },
+        }, null, 2)
+      }
+    ];
+
+    if (imageBase64) {
+      content.push(imageContentBlock(imageBase64.data, imageBase64.mimeType));
+    }
+
+    return { content };
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

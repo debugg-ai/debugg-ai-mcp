@@ -3,19 +3,20 @@
  * Handlers for managing live browser sessions with real-time monitoring
  */
 
-import { 
+import {
   StartLiveSessionInput,
   StopLiveSessionInput,
   GetLiveSessionStatusInput,
   GetLiveSessionLogsInput,
   GetLiveSessionScreenshotInput,
-  ToolResponse, 
+  ToolResponse,
   ToolContext,
   ProgressCallback
 } from '../types/index.js';
 import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
+import { imageContentBlock } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
@@ -451,20 +452,23 @@ export async function getLiveSessionScreenshotHandler(
     }
 
     const duration = Date.now() - startTime;
-    
-    const responseContent = {
-      success: true,
-      ...result
-    };
-
     logger.toolComplete('get_live_session_screenshot', duration);
-    
-    return {
-      content: [{
+
+    const content: ToolResponse['content'] = [
+      {
         type: 'text',
-        text: JSON.stringify(responseContent, null, 2)
-      }]
-    };
+        text: JSON.stringify({ success: true, ...result }, null, 2),
+      },
+    ];
+
+    // Embed the screenshot as an MCP image block when base64 data is available
+    const screenshot = result.screenshot as any;
+    if (screenshot?.data) {
+      const mimeType = screenshot.format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      content.push(imageContentBlock(screenshot.data, mimeType));
+    }
+
+    return { content };
 
   } catch (error) {
     const duration = Date.now() - startTime;

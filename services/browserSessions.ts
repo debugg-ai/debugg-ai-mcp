@@ -173,6 +173,18 @@ export interface BrowserSessionsService {
 
 
 /**
+ * Normalize a raw session object from the API.
+ * The API returns `id` as the session identifier; our types use `sessionId`.
+ */
+function normalizeSession(raw: any): BrowserSession {
+  if (!raw || typeof raw !== 'object') return raw;
+  return {
+    ...raw,
+    sessionId: raw.sessionId ?? raw.session_id ?? raw.id,
+  };
+}
+
+/**
  * Create Browser Sessions Service with AxiosTransport
  */
 export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSessionsService => ({
@@ -206,8 +218,7 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         throw new Error('Failed to start browser session - no response from service');
       }
 
-      // Return the backend response directly
-      return backendResponse;
+      return normalizeSession(backendResponse);
     } catch (err) {
       console.error("Error starting browser session:", err);
       throw new Error(`Failed to start browser session: ${(err as any).message}`);
@@ -228,8 +239,7 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         throw new Error('Failed to stop browser session - no response from service');
       }
 
-      // Return the backend response directly
-      return { session: backendResponse, summary: backendResponse.summary || {} };
+      return { session: normalizeSession(backendResponse), summary: backendResponse.summary || {} };
     } catch (err) {
       console.error("Error stopping browser session:", err);
       throw new Error(`Failed to stop browser session: ${(err as any).message}`);
@@ -249,8 +259,7 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         throw new Error('Failed to get session status - session not found or service error');
       }
 
-      // Return the backend response directly
-      return { session: backendResponse, stats: backendResponse.stats || {} };
+      return { session: normalizeSession(backendResponse), stats: backendResponse.stats || {} };
     } catch (err) {
       console.error("Error getting session status:", err);
       if ((err as any).response?.status === 404) {
@@ -336,9 +345,8 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
 
       const response = await tx.post<any>(serverUrl, requestBody);
 
-      // Return the backend response directly
       return {
-        session: response.session || { sessionId },
+        session: normalizeSession(response.session || { id: sessionId }),
         screenshot: response.screenshot || response
       };
     } catch (err) {
@@ -386,7 +394,7 @@ export const createBrowserSessionsService = (tx: AxiosTransport): BrowserSession
         count: response.count || 0,
         next: response.next || null,
         previous: response.previous || null,
-        results: response.results || []
+        results: (response.results || []).map(normalizeSession),
       };
     } catch (err) {
       console.error("Error listing sessions:", err);
