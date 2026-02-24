@@ -15,32 +15,18 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
-import { tunnelManager } from '../services/ngrok/tunnelManager.js';
-import { extractLocalhostPort, replaceTunnelUrls } from '../utils/urlParser.js';
+import {
+  resolveTargetUrl,
+  buildContext,
+  ensureTunnel,
+  releaseTunnel,
+  sanitizeResponseUrls,
+} from '../utils/tunnelContext.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
 // Cache the template UUID within a server session to avoid re-fetching
 let cachedTemplateUuid: string | null = null;
-
-function isLocalhostUrl(url: string): boolean {
-  return url.includes('localhost') || url.includes('127.0.0.1');
-}
-
-/**
- * Resolve the target URL from input.
- * - If `url` is provided, use it directly.
- * - If only `localPort` is provided, construct http://localhost:{port}.
- * - Otherwise error.
- */
-function resolveTargetUrl(input: TestPageChangesInput): string {
-  if (input.url) return input.url;
-  if (input.localPort) return `http://localhost:${input.localPort}`;
-  throw new Error(
-    'Provide a target URL via the "url" parameter (e.g. "https://example.com") ' +
-    'or a "localPort" for a local dev server.'
-  );
-}
 
 export async function testPageChangesHandler(
   input: TestPageChangesInput,
@@ -53,13 +39,11 @@ export async function testPageChangesHandler(
   const client = new DebuggAIServerClient(config.api.key);
   await client.init();
 
-  let tunnelId: string | undefined;
+  const originalUrl = resolveTargetUrl(input);
+  let ctx = buildContext(originalUrl);
   let ngrokKeyId: string | undefined;
 
   try {
-    const targetUrlRaw = resolveTargetUrl(input);
-    const isLocalhost = isLocalhostUrl(targetUrlRaw);
-
     // --- Find workflow template ---
     if (progressCallback) {
       await progressCallback({ progress: 1, total: 10, message: 'Locating evaluation workflow template...' });
@@ -79,7 +63,7 @@ export async function testPageChangesHandler(
 
     // --- Build context data ---
     const contextData: Record<string, any> = {
-      targetUrl: targetUrlRaw,
+      targetUrl: originalUrl,
       goal: input.description,
     };
 
@@ -105,24 +89,16 @@ export async function testPageChangesHandler(
     ngrokKeyId = executeResponse.ngrokKeyId ?? undefined;
     logger.info(`Execution queued: ${executionUuid}`);
 
-    // --- Localhost tunneling (after execute, using tunnel_key + executionUuid as subdomain) ---
-    if (isLocalhost) {
+    // --- Tunnel (after execute — backend returns tunnelKey, executionUuid is the subdomain) ---
+    if (ctx.isLocalhost) {
       if (progressCallback) {
         await progressCallback({ progress: 3, total: 10, message: 'Creating secure tunnel for localhost...' });
       }
-
-      const port = extractLocalhostPort(targetUrlRaw);
-      if (!port) {
-        throw new Error(`Could not extract port from localhost URL: ${targetUrlRaw}`);
-      }
-
       if (!executeResponse.tunnelKey) {
         throw new Error('Backend did not return a tunnel key for localhost execution');
       }
-
-      tunnelId = executionUuid;
-      const tunnelResult = await tunnelManager.processUrl(targetUrlRaw, executeResponse.tunnelKey, tunnelId);
-      logger.info(`Tunnel ready: ${tunnelResult.url}`);
+      ctx = await ensureTunnel(ctx, executeResponse.tunnelKey, executionUuid);
+      logger.info(`Tunnel ready for ${originalUrl} (id: ${executionUuid})`);
     }
 
     // --- Poll ---
@@ -156,31 +132,18 @@ export async function testPageChangesHandler(
       success: finalExecution.state?.success ?? false,
       status: finalExecution.status,
       stepsTaken: finalExecution.state?.stepsTaken ?? surferNode?.outputData?.stepsTaken ?? 0,
-      targetUrl: targetUrlRaw,
+      targetUrl: originalUrl,
       executionId: executionUuid,
       durationMs: finalExecution.durationMs ?? duration,
     };
 
-    if (finalExecution.state?.error) {
-      responsePayload.agentError = finalExecution.state.error;
-    }
-    if (finalExecution.errorMessage) {
-      responsePayload.errorMessage = finalExecution.errorMessage;
-    }
-    if (finalExecution.errorInfo?.failedNodeId) {
-      responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
-    }
-    if (executeResponse.resolvedEnvironmentId) {
-      responsePayload.resolvedEnvironmentId = executeResponse.resolvedEnvironmentId;
-    }
-    if (executeResponse.resolvedCredentialId) {
-      responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
-    }
+    if (finalExecution.state?.error) responsePayload.agentError = finalExecution.state.error;
+    if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
+    if (finalExecution.errorInfo?.failedNodeId) responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
+    if (executeResponse.resolvedEnvironmentId) responsePayload.resolvedEnvironmentId = executeResponse.resolvedEnvironmentId;
+    if (executeResponse.resolvedCredentialId) responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
     if (surferNode?.outputData) {
-      const surferOutput = isLocalhost
-        ? replaceTunnelUrls(surferNode.outputData, new URL(targetUrlRaw).origin) as Record<string, any>
-        : surferNode.outputData;
-      responsePayload.surferOutput = surferOutput;
+      responsePayload.surferOutput = sanitizeResponseUrls(surferNode.outputData, ctx);
     }
 
     logger.toolComplete('check_app_in_browser', duration);
@@ -197,8 +160,7 @@ export async function testPageChangesHandler(
     const outputData = surferNode?.outputData ?? {};
     const screenshotUrl: string | null =
       outputData.finalScreenshot ?? outputData.screenshot ?? outputData.screenshotUrl ?? null;
-    const gifUrl: string | null =
-      outputData.runGif ?? outputData.gifUrl ?? null;
+    const gifUrl: string | null = outputData.runGif ?? outputData.gifUrl ?? null;
 
     if (screenshotUrl) {
       const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
@@ -215,24 +177,19 @@ export async function testPageChangesHandler(
     const duration = Date.now() - startTime;
     logger.toolError('check_app_in_browser', error as Error, duration);
 
-    // Invalidate cached template UUID on auth/not-found errors
     if (error instanceof Error && (error.message.includes('not found') || error.message.includes('401'))) {
       cachedTemplateUuid = null;
     }
 
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
-    // Revoke the short-lived ngrok key
     if (ngrokKeyId) {
       client.revokeNgrokKey(ngrokKeyId).catch(err =>
         logger.warn(`Failed to revoke ngrok key ${ngrokKeyId}: ${err}`)
       );
     }
-    // Clean up tunnel if we created one
-    if (tunnelId) {
-      tunnelManager.stopTunnel(tunnelId).catch(err =>
-        logger.warn(`Failed to stop tunnel ${tunnelId}: ${err}`)
-      );
-    }
+    releaseTunnel(ctx).catch(err =>
+      logger.warn(`Failed to stop tunnel: ${err}`)
+    );
   }
 }

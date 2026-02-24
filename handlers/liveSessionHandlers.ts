@@ -19,11 +19,15 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { imageContentBlock } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
-import { extractLocalhostPort } from '../utils/urlParser.js';
+import {
+  resolveTargetUrl,
+  buildContext,
+  ensureTunnel,
+  sanitizeResponseUrls,
+} from '../utils/tunnelContext.js';
 
 const logger = new Logger({ module: 'liveSessionHandlers' });
 
-// Create service client for browser sessions
 let serviceClient: DebuggAIServerClient | null = null;
 
 async function getServiceClient(): Promise<DebuggAIServerClient> {
@@ -33,7 +37,6 @@ async function getServiceClient(): Promise<DebuggAIServerClient> {
   }
   return serviceClient;
 }
-
 
 /**
  * Handler for starting a live browser session
@@ -51,113 +54,73 @@ export async function startLiveSessionHandler(
       await progressCallback({ progress: 1, total: 4, message: 'Initializing live session...' });
     }
 
-    // Get the service client
     const client = await getServiceClient();
-    if (!client) {
-      throw new Error('Service client not available');
-    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
 
+    // Resolve and classify the target URL using the shared context
+    const originalUrl = resolveTargetUrl(input);
+    let ctx = buildContext(originalUrl);
+
     if (progressCallback) {
-      await progressCallback({ progress: 2, total: 4, message: 'Configuring browser monitoring...' });
+      await progressCallback({ progress: 2, total: 4, message: 'Starting browser session...' });
     }
 
-    // Process URL - detect if it needs tunneling or is already tunneled
-    if (progressCallback) {
-      await progressCallback({ progress: 2.5, total: 4, message: 'Processing URL for remote browser access...' });
-    }
-    
-    logger.info(`Processing URL for tunnel: ${input.url}, has API key: ${!!config.api.key}`);
-    
-    // Check if we need to create a tunnel (localhost URL)
-    const isLocalhost = input.url.includes('localhost') || input.url.includes('127.0.0.1');
-    let sessionUrl = input.url;
-    let tunnelId: string | undefined;
-    
-    if (isLocalhost) {
-      // Generate a UUID for the tunnel subdomain
-      const { v4: uuidv4 } = await import('uuid');
-      tunnelId = uuidv4();
-      
-      // Create the tunneled URL that we'll send to the backend
-      const port = extractLocalhostPort(input.url);
-      const url = new URL(input.url);
-      sessionUrl = `https://${tunnelId}.ngrok.debugg.ai${url.pathname}${url.search}${url.hash}`;
-      
-      logger.info(`Generated tunnel URL for backend: ${sessionUrl} (tunnelId: ${tunnelId})`);
-    }
-    
-    // Start the session with the tunneled URL (or original URL if not localhost)
+    // Send the original URL to the backend. For localhost sessions the backend
+    // returns a tunnelKey; we create the actual tunnel AFTER using the session ID
+    // as the ngrok subdomain (same pattern as the workflow handler, no race condition).
     const sessionParams = {
-      url: sessionUrl,
-      originalUrl: input.url,
-      localPort: input.localPort || extractLocalhostPort(input.url),
+      url: originalUrl,
       sessionName: input.sessionName || `Session ${new Date().toISOString()}`,
       monitorConsole: input.monitorConsole ?? true,
       monitorNetwork: input.monitorNetwork ?? true,
       takeScreenshots: input.takeScreenshots ?? false,
       screenshotInterval: input.screenshotInterval ?? 10,
-      isLocalhost: isLocalhost,
-      tunnelId: tunnelId
+      isLocalhost: ctx.isLocalhost,
+      localPort: input.localPort,
     };
 
-    // Start the session via API to get tunnelKey
     const session = await client.browserSessions.startSession(sessionParams);
-    
     if (!session) {
-      throw new Error('Failed to start browser session: No session returned');
+      throw new Error('Failed to start browser session: no session returned');
     }
 
-    // If we need a tunnel, create it now using the tunnel key from the session response
-    if (isLocalhost && tunnelId) {
+    // Create the tunnel after the backend responds with a tunnelKey.
+    // The session ID is used as the ngrok subdomain so the backend can infer
+    // the tunnel URL as https://{sessionId}.ngrok.debugg.ai.
+    if (ctx.isLocalhost) {
+      if (progressCallback) {
+        await progressCallback({ progress: 3, total: 4, message: 'Creating secure tunnel for localhost...' });
+      }
+
       if (!session.tunnelKey) {
         throw new Error('Backend did not return a tunnel key for localhost session');
       }
-      const tunnelAuthToken = session.tunnelKey;
 
-      logger.info(`Creating tunnel with backend-provided key for ${input.url} -> ${sessionUrl}`);
-      
-      // Create the tunnel using the original localhost URL and the generated tunnel ID
-      const port = extractLocalhostPort(input.url);
-      if (!port) {
-        throw new Error(`Could not extract port from localhost URL: ${input.url}`);
-      }
-      
-      // Use tunnel manager to create the tunnel with the specific tunnel ID
-      const tunnelResult = await tunnelManager.processUrl(input.url, tunnelAuthToken, tunnelId);
-      
-      logger.info(`Tunnel created: ${tunnelResult.url} (ID: ${tunnelResult.tunnelId})`);
-      
-      // Touch the tunnel to reset its timer
-      if (tunnelResult.tunnelId) {
-        tunnelManager.touchTunnel(tunnelResult.tunnelId);
+      try {
+        ctx = await ensureTunnel(ctx, session.tunnelKey, session.sessionId);
+        logger.info(`Tunnel ready for ${originalUrl} (id: ${ctx.tunnelId})`);
+      } catch (tunnelErr) {
+        // Tunnel creation failed — stop the backend session so it isn't stranded
+        client.browserSessions!.stopSession(session.sessionId).catch(() => {});
+        throw tunnelErr;
       }
     }
-    
-    logger.info(`Session created successfully: ${session.sessionId}`);
-    if (isLocalhost && tunnelId) {
-      logger.info(`Tunnel will be available at: https://${tunnelId}.ngrok.debugg.ai`);
-    }
+
+    logger.info(`Session created: ${session.sessionId}`);
 
     if (progressCallback) {
       await progressCallback({ progress: 4, total: 4, message: 'Live session started successfully' });
     }
 
     const duration = Date.now() - startTime;
-    
-    const responseContent = {
-      success: true,
-      session: session
-    };
-
     logger.toolComplete('start_live_session', duration);
-    
+
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify(responseContent, null, 2)
+        text: JSON.stringify({ success: true, session: sanitizeResponseUrls(session, ctx) }, null, 2)
       }]
     };
 
@@ -184,54 +147,37 @@ export async function stopLiveSessionHandler(
       await progressCallback({ progress: 1, total: 3, message: 'Stopping live session...' });
     }
 
-    // Get the service client
     const client = await getServiceClient();
-    if (!client) {
-      throw new Error('Service client not available');
-    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
 
-    // Use provided session ID or throw error if none provided
     if (!input.sessionId) {
-      throw new Error('No session ID provided and no current session active');
+      throw new Error('No session ID provided');
     }
 
     if (progressCallback) {
       await progressCallback({ progress: 2, total: 3, message: 'Cleaning up session resources...' });
     }
 
-    // Stop the session via API
     const result = await client.browserSessions.stopSession(input.sessionId);
-    
-    // Clean up any associated tunnels
-    if (result.session && 'tunnelId' in result.session && result.session.tunnelId) {
-      try {
-        await tunnelManager.stopTunnel(result.session.tunnelId as string);
-      } catch (error) {
-        logger.warn(`Failed to cleanup tunnel ${result.session.tunnelId}:`, error);
-      }
-    }
+
+    // Clean up the tunnel keyed on sessionId (if one was created for this session)
+    tunnelManager.stopTunnel(input.sessionId).catch(err =>
+      logger.warn(`Failed to cleanup tunnel for session ${input.sessionId}: ${err}`)
+    );
 
     if (progressCallback) {
       await progressCallback({ progress: 3, total: 3, message: 'Session stopped successfully' });
     }
 
     const duration = Date.now() - startTime;
-    
-    const responseContent = {
-      success: true,
-      session: result.session,
-      summary: result.summary
-    };
-
     logger.toolComplete('stop_live_session', duration);
-    
+
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify(responseContent, null, 2)
+        text: JSON.stringify({ success: true, session: result.session, summary: result.summary }, null, 2)
       }]
     };
 
@@ -258,11 +204,7 @@ export async function getLiveSessionStatusHandler(
       await progressCallback({ progress: 1, total: 2, message: 'Retrieving session status...' });
     }
 
-    // Get the service client
     const client = await getServiceClient();
-    if (!client) {
-      throw new Error('Service client not available');
-    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
@@ -270,27 +212,18 @@ export async function getLiveSessionStatusHandler(
     let responseContent;
 
     if (input.sessionId) {
-      // Get specific session status
       const result = await client.browserSessions.getSessionStatus(input.sessionId);
-      
-      // Reset tunnel timer if this session has an associated tunnel
-      if (result.session && 'tunnelId' in result.session && result.session.tunnelId) {
-        tunnelManager.touchTunnel(result.session.tunnelId as string);
-      }
-      
-      responseContent = {
-        success: true,
-        session: result.session,
-        stats: result.stats
-      };
+      tunnelManager.touchTunnel(input.sessionId);
+      responseContent = { success: true, session: result.session, stats: result.stats };
     } else {
-      // List active sessions
       const sessions = await client.browserSessions.listSessions({ status: 'active' });
       responseContent = {
         success: true,
         currentSession: sessions.results.length > 0 ? sessions.results[0] : null,
         activeSessions: sessions.results,
-        message: sessions.results.length === 0 ? 'No active sessions found' : `Found ${sessions.results.length} active session(s)`
+        message: sessions.results.length === 0
+          ? 'No active sessions found'
+          : `Found ${sessions.results.length} active session(s)`
       };
     }
 
@@ -300,12 +233,9 @@ export async function getLiveSessionStatusHandler(
 
     const duration = Date.now() - startTime;
     logger.toolComplete('get_live_session_status', duration);
-    
+
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(responseContent, null, 2)
-      }]
+      content: [{ type: 'text', text: JSON.stringify(responseContent, null, 2) }]
     };
 
   } catch (error) {
@@ -331,11 +261,7 @@ export async function getLiveSessionLogsHandler(
       await progressCallback({ progress: 1, total: 2, message: 'Retrieving session logs...' });
     }
 
-    // Get the service client
     const client = await getServiceClient();
-    if (!client) {
-      throw new Error('Service client not available');
-    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
@@ -344,39 +270,23 @@ export async function getLiveSessionLogsHandler(
       throw new Error('Session ID is required to retrieve logs');
     }
 
-    // Prepare log query parameters
-    const logParams = {
+    const result = await client.browserSessions.getSessionLogs(input.sessionId, {
       logType: input.logType || 'all',
       since: input.since,
       limit: input.limit || 100
-    };
+    });
 
-    // Get logs via API
-    const result = await client.browserSessions.getSessionLogs(input.sessionId, logParams);
-    
-    // Reset tunnel timer if this session has an associated tunnel
-    if (result && 'session' in result && result.session && 'tunnelId' in result.session && result.session.tunnelId) {
-      tunnelManager.touchTunnel(result.session.tunnelId as string);
-    }
+    tunnelManager.touchTunnel(input.sessionId);
 
     if (progressCallback) {
       await progressCallback({ progress: 2, total: 2, message: 'Logs retrieved successfully' });
     }
 
     const duration = Date.now() - startTime;
-    
-    const responseContent = {
-      success: true,
-      ...result
-    };
-
     logger.toolComplete('get_live_session_logs', duration);
-    
+
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(responseContent, null, 2)
-      }]
+      content: [{ type: 'text', text: JSON.stringify({ success: true, ...result }, null, 2) }]
     };
 
   } catch (error) {
@@ -402,11 +312,7 @@ export async function getLiveSessionScreenshotHandler(
       await progressCallback({ progress: 1, total: 3, message: 'Preparing screenshot capture...' });
     }
 
-    // Get the service client
     const client = await getServiceClient();
-    if (!client) {
-      throw new Error('Service client not available');
-    }
     if (!client.browserSessions) {
       throw new Error('Browser sessions service not available');
     }
@@ -415,37 +321,22 @@ export async function getLiveSessionScreenshotHandler(
       throw new Error('Session ID is required to capture screenshot');
     }
 
-    // First check if session is active
     const statusResult = await client.browserSessions.getSessionStatus(input.sessionId);
     if (statusResult.session.status.toLowerCase() !== 'active') {
-      throw new Error('Cannot take screenshot: session is stopped');
+      throw new Error('Cannot take screenshot: session is not active');
     }
 
     if (progressCallback) {
       await progressCallback({ progress: 2, total: 3, message: 'Capturing screenshot...' });
     }
 
-    // Prepare screenshot parameters
-    const screenshotParams = {
+    const result = await client.browserSessions.captureScreenshot(input.sessionId, {
       fullPage: input.fullPage ?? false,
       quality: input.quality ?? 90,
       format: input.format ?? 'png'
-    };
+    });
 
-    // Capture screenshot via API
-    const result = await client.browserSessions.captureScreenshot(input.sessionId, screenshotParams);
-    
-    // Reset tunnel timer if this session has an associated tunnel
-    // First get session info to check for tunnel
-    try {
-      const sessionStatus = await client.browserSessions.getSessionStatus(input.sessionId);
-      if (sessionStatus.session && 'tunnelId' in sessionStatus.session && sessionStatus.session.tunnelId) {
-        tunnelManager.touchTunnel(sessionStatus.session.tunnelId as string);
-      }
-    } catch (error) {
-      // Don't fail the screenshot if we can't get session info
-      logger.warn(`Could not get session info to reset tunnel timer: ${error}`);
-    }
+    tunnelManager.touchTunnel(input.sessionId);
 
     if (progressCallback) {
       await progressCallback({ progress: 3, total: 3, message: 'Screenshot captured successfully' });
@@ -455,13 +346,9 @@ export async function getLiveSessionScreenshotHandler(
     logger.toolComplete('get_live_session_screenshot', duration);
 
     const content: ToolResponse['content'] = [
-      {
-        type: 'text',
-        text: JSON.stringify({ success: true, ...result }, null, 2),
-      },
+      { type: 'text', text: JSON.stringify({ success: true, ...result }, null, 2) },
     ];
 
-    // Embed the screenshot as an MCP image block when base64 data is available
     const screenshot = result.screenshot as any;
     if (screenshot?.data) {
       const mimeType = screenshot.format === 'jpeg' ? 'image/jpeg' : 'image/png';

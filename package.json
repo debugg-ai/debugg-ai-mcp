@@ -18,6 +18,8 @@
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.js",
     "test:integration:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.js --watch",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e:skip-build": "node scripts/e2e.mjs --skip-build",
     "version:patch": "npm version patch --no-git-tag-version",
     "version:minor": "npm version minor --no-git-tag-version",
     "version:major": "npm version major --no-git-tag-version",
