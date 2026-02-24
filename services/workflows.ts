@@ -39,7 +39,7 @@ export interface WorkflowExecution {
     success: boolean;
     stepsTaken: number;
     error: string;
-  };
+  } | null;
   errorMessage: string;
   errorInfo: { message?: string; failedNodeId?: string } | null;
   nodeExecutions: NodeExecution[];

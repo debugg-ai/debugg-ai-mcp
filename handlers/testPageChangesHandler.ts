@@ -102,20 +102,27 @@ export async function testPageChangesHandler(
     }
 
     // --- Poll ---
-    let lastSteps = 0;
+    // nodeExecutions grows as each node completes: trigger → browser.setup → surfer.execute_task → browser.teardown
+    const NODE_PHASE_LABELS: Record<number, string> = {
+      0: 'Browser agent starting up...',
+      1: 'Browser ready, agent navigating...',
+      2: 'Agent evaluating app...',
+      3: 'Wrapping up...',
+    };
+    let lastNodeCount = 0;
     const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
-      const steps = exec.state?.stepsTaken ?? 0;
-      if (steps !== lastSteps || exec.status !== 'pending') {
-        lastSteps = steps;
-        logger.info(`Execution status: ${exec.status}, steps: ${steps}`);
+      const nodeCount = exec.nodeExecutions?.length ?? 0;
+      if (nodeCount !== lastNodeCount || exec.status !== 'pending') {
+        lastNodeCount = nodeCount;
+        logger.info(`Execution status: ${exec.status}, nodes completed: ${nodeCount}`);
       }
       if (progressCallback) {
-        const progress = Math.min(3 + steps, 9);
-        await progressCallback({
-          progress,
-          total: 10,
-          message: `${exec.status}: ${steps} step${steps !== 1 ? 's' : ''} taken`,
-        }).catch(() => {});
+        // Map 0-4 completed nodes to progress 3-9 (3 reserved for tunnel setup)
+        const progress = Math.min(3 + nodeCount * 2, 9);
+        const message = exec.status === 'running'
+          ? (NODE_PHASE_LABELS[nodeCount] ?? 'Agent working...')
+          : exec.status;
+        await progressCallback({ progress, total: 10, message });
       }
     });
 

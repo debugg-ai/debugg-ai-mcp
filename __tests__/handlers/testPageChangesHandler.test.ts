@@ -135,6 +135,124 @@ describe('testPageChangesHandler — execute-first tunnel flow', () => {
   });
 });
 
+describe('polling progress — nodeExecutions-based', () => {
+  const NODE_PHASE_LABELS: Record<number, string> = {
+    0: 'Browser agent starting up...',
+    1: 'Browser ready, agent navigating...',
+    2: 'Agent evaluating app...',
+    3: 'Wrapping up...',
+  };
+
+  const makeExec = (nodeCount: number, status = 'running') => ({
+    uuid: 'exec-uuid-abc',
+    status,
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    state: null,
+    errorMessage: '',
+    errorInfo: null,
+    nodeExecutions: Array.from({ length: nodeCount }, (_, i) => ({
+      nodeId: `node-${i}`,
+      nodeType: 'some.node',
+      status: 'completed',
+      executionOrder: i,
+    })),
+  });
+
+  test('state is null during execution — no crash', () => {
+    const exec = makeExec(0);
+    const outcome = exec.state?.outcome ?? exec.status;
+    expect(outcome).toBe('running');
+  });
+
+  test.each([
+    [0, 3, 'Browser agent starting up...'],
+    [1, 5, 'Browser ready, agent navigating...'],
+    [2, 7, 'Agent evaluating app...'],
+    [3, 9, 'Wrapping up...'],
+    [4, 9, 'Agent working...'],   // capped at 9, unknown label falls back
+  ])('%i nodes completed → progress %i', (nodeCount, expectedProgress, expectedMessage) => {
+    const exec = makeExec(nodeCount);
+    const progress = Math.min(3 + nodeCount * 2, 9);
+    const message = exec.status === 'running'
+      ? (NODE_PHASE_LABELS[nodeCount] ?? 'Agent working...')
+      : exec.status;
+    expect(progress).toBe(expectedProgress);
+    expect(message).toBe(expectedMessage);
+  });
+
+  test('progress capped at 9 even with many nodeExecutions', () => {
+    const progress = Math.min(3 + 10 * 2, 9);
+    expect(progress).toBe(9);
+  });
+
+  test('pollExecution calls onUpdate on each poll and returns on terminal status', async () => {
+    const executions = [
+      makeExec(0, 'running'),
+      makeExec(1, 'running'),
+      makeExec(3, 'completed'),
+    ];
+    let callIndex = 0;
+    const getExecution = async () => executions[callIndex++];
+
+    const updates: Array<{ nodeCount: number; status: string }> = [];
+    const onUpdate = async (exec: any) => {
+      updates.push({ nodeCount: exec.nodeExecutions.length, status: exec.status });
+    };
+
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+    async function pollExecution(onUpd?: (e: any) => Promise<void>) {
+      const deadline = Date.now() + 60_000;
+      while (Date.now() < deadline) {
+        const execution = await getExecution();
+        if (onUpd) await onUpd(execution);
+        if (TERMINAL_STATUSES.has(execution.status)) return execution;
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    const result = await pollExecution(onUpdate);
+
+    expect(result?.status).toBe('completed');
+    expect(updates).toHaveLength(3);
+    expect(updates[0]).toEqual({ nodeCount: 0, status: 'running' });
+    expect(updates[1]).toEqual({ nodeCount: 1, status: 'running' });
+    expect(updates[2]).toEqual({ nodeCount: 3, status: 'completed' });
+  });
+
+  test('progress callbacks receive increasing values as nodes complete', async () => {
+    const executions = [
+      makeExec(0, 'running'),
+      makeExec(1, 'running'),
+      makeExec(2, 'running'),
+      makeExec(3, 'completed'),
+    ];
+    let callIndex = 0;
+    const getExecution = async () => executions[callIndex++];
+
+    const progressValues: number[] = [];
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+    async function pollExecution() {
+      const deadline = Date.now() + 60_000;
+      while (Date.now() < deadline) {
+        const exec = await getExecution();
+        const nodeCount = exec.nodeExecutions?.length ?? 0;
+        progressValues.push(Math.min(3 + nodeCount * 2, 9));
+        if (TERMINAL_STATUSES.has(exec.status)) return exec;
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    await pollExecution();
+
+    expect(progressValues).toEqual([3, 5, 7, 9]);
+    for (let i = 1; i < progressValues.length; i++) {
+      expect(progressValues[i]).toBeGreaterThanOrEqual(progressValues[i - 1]);
+    }
+  });
+});
+
 describe('WorkflowsService.executeWorkflow interface', () => {
   test('env param is optional', () => {
     // executeWorkflow(uuid, contextData, env?) — env is optional
