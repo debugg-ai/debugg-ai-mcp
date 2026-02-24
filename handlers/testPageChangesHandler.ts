@@ -43,6 +43,10 @@ export async function testPageChangesHandler(
   let ctx = buildContext(originalUrl);
   let ngrokKeyId: string | undefined;
 
+  const abortController = new AbortController();
+  const onStdinClose = () => abortController.abort();
+  process.stdin.once('close', onStdinClose);
+
   try {
     // --- Find workflow template ---
     if (progressCallback) {
@@ -124,7 +128,7 @@ export async function testPageChangesHandler(
           : exec.status;
         await progressCallback({ progress, total: 10, message });
       }
-    });
+    }, abortController.signal);
 
     const duration = Date.now() - startTime;
 
@@ -190,6 +194,7 @@ export async function testPageChangesHandler(
 
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
+    process.stdin.removeListener('close', onStdinClose);
     if (ngrokKeyId) {
       client.revokeNgrokKey(ngrokKeyId).catch(err =>
         logger.warn(`Failed to revoke ngrok key ${ngrokKeyId}: ${err}`)

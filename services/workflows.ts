@@ -68,7 +68,8 @@ export interface WorkflowsService {
   getExecution(executionUuid: string): Promise<WorkflowExecution>;
   pollExecution(
     executionUuid: string,
-    onUpdate?: (execution: WorkflowExecution) => Promise<void>
+    onUpdate?: (execution: WorkflowExecution) => Promise<void>,
+    signal?: AbortSignal
   ): Promise<WorkflowExecution>;
 }
 
@@ -80,10 +81,19 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         { isTemplate: true }
       );
       const templates = response?.results ?? [];
+      if (templates.length === 0) return null;
+
       const evalTemplate = templates.find(t =>
         t.name.toLowerCase().includes('app evaluation')
       );
-      return evalTemplate ?? templates[0] ?? null;
+      if (!evalTemplate) {
+        throw new Error(
+          `No "App Evaluation" workflow template found. ` +
+          `Available templates: ${templates.map(t => `"${t.name}"`).join(', ')}. ` +
+          `Ensure the backend has a template with "App Evaluation" in its name.`
+        );
+      }
+      return evalTemplate;
     },
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {
@@ -127,10 +137,14 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
 
     async pollExecution(
       executionUuid: string,
-      onUpdate?: (execution: WorkflowExecution) => Promise<void>
+      onUpdate?: (execution: WorkflowExecution) => Promise<void>,
+      signal?: AbortSignal
     ): Promise<WorkflowExecution> {
       const deadline = Date.now() + EXECUTION_TIMEOUT_MS;
       while (Date.now() < deadline) {
+        if (signal?.aborted) {
+          throw new Error(`Polling cancelled for execution ${executionUuid}`);
+        }
         const execution = await service.getExecution(executionUuid);
         if (onUpdate) {
           await onUpdate(execution).catch(() => {});
@@ -138,7 +152,15 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         if (TERMINAL_STATUSES.has(execution.status)) {
           return execution;
         }
-        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, POLL_INTERVAL_MS);
+          if (signal) {
+            signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              reject(new Error(`Polling cancelled for execution ${executionUuid}`));
+            }, { once: true });
+          }
+        });
       }
       throw new Error(
         `Execution ${executionUuid} timed out after ${EXECUTION_TIMEOUT_MS / 1000}s`

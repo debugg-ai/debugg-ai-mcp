@@ -18,106 +18,12 @@ export const TestPageChangesInputSchema = z.object({
   credentialRole: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
-});
+}).refine(
+  (data) => data.url !== undefined || data.localPort !== undefined,
+  { message: 'Provide a target via "url" (e.g. "https://example.com") or "localPort" for a local dev server' }
+);
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
-
-/**
- * E2E Suite Tool Schemas
- */
-export const ListTestsInputSchema = z.object({
-  repoName: z.string().optional(),
-  branchName: z.string().optional(),
-  status: z.enum(['pending', 'running', 'completed', 'failed']).optional(),
-  page: z.number().int().positive().optional().default(1),
-  limit: z.number().int().min(1).max(100).optional().default(20),
-});
-
-export const ListTestSuitesInputSchema = z.object({
-  repoName: z.string().optional(),
-  branchName: z.string().optional(),
-  status: z.enum(['pending', 'running', 'completed', 'failed']).optional(),
-  page: z.number().int().positive().optional().default(1),
-  limit: z.number().int().min(1).max(100).optional().default(20),
-});
-
-export const CreateTestSuiteInputSchema = z.object({
-  description: z.string().min(1, 'Description is required'),
-  repoName: z.string().optional(),
-  branchName: z.string().optional(),
-  repoPath: z.string().optional(),
-  filePath: z.string().optional(),
-});
-
-export const CreateCommitSuiteInputSchema = z.object({
-  description: z.string().min(1, 'Description is required'),
-  repoName: z.string().optional(),
-  branchName: z.string().optional(),
-  repoPath: z.string().optional(),
-  filePath: z.string().optional(),
-});
-
-export const ListCommitSuitesInputSchema = z.object({
-  repoName: z.string().optional(),
-  branchName: z.string().optional(),
-  status: z.enum(['pending', 'running', 'completed', 'failed']).optional(),
-  page: z.number().int().positive().optional().default(1),
-  limit: z.number().int().min(1).max(100).optional().default(20),
-});
-
-export const GetTestStatusInputSchema = z.object({
-  suiteUuid: z.string().uuid('Invalid suite UUID'),
-  suiteType: z.enum(['test', 'commit']).optional().default('test'),
-});
-
-/**
- * Live Session Tool Schemas
- */
-export const StartLiveSessionInputSchema = z.object({
-  url: z.string().min(1, 'URL is required'),
-  localPort: z.number().int().min(1).max(65535).optional(),
-  sessionName: z.string().max(100).optional(),
-  monitorConsole: z.boolean().optional().default(true),
-  monitorNetwork: z.boolean().optional().default(true),
-  takeScreenshots: z.boolean().optional().default(false),
-  screenshotInterval: z.number().int().min(1).max(300).optional().default(10),
-});
-
-export const StopLiveSessionInputSchema = z.object({
-  sessionId: z.string().optional(),
-});
-
-export const GetLiveSessionStatusInputSchema = z.object({
-  sessionId: z.string().optional(),
-});
-
-export const GetLiveSessionLogsInputSchema = z.object({
-  sessionId: z.string().optional(),
-  logType: z.enum(['console', 'network', 'errors', 'all']).optional().default('all'),
-  since: z.string().datetime().optional(),
-  limit: z.number().int().min(1).max(1000).optional().default(100),
-});
-
-export const GetLiveSessionScreenshotInputSchema = z.object({
-  sessionId: z.string().optional(),
-  fullPage: z.boolean().optional().default(false),
-  quality: z.number().int().min(1).max(100).optional().default(90),
-  format: z.enum(['png', 'jpeg']).optional().default('png'),
-});
-
-
-// Input type inferences
-export type ListTestsInput = z.infer<typeof ListTestsInputSchema>;
-export type ListTestSuitesInput = z.infer<typeof ListTestSuitesInputSchema>;
-export type CreateTestSuiteInput = z.infer<typeof CreateTestSuiteInputSchema>;
-export type CreateCommitSuiteInput = z.infer<typeof CreateCommitSuiteInputSchema>;
-export type ListCommitSuitesInput = z.infer<typeof ListCommitSuitesInputSchema>;
-export type GetTestStatusInput = z.infer<typeof GetTestStatusInputSchema>;
-export type StartLiveSessionInput = z.infer<typeof StartLiveSessionInputSchema>;
-export type StopLiveSessionInput = z.infer<typeof StopLiveSessionInputSchema>;
-export type GetLiveSessionStatusInput = z.infer<typeof GetLiveSessionStatusInputSchema>;
-export type GetLiveSessionLogsInput = z.infer<typeof GetLiveSessionLogsInputSchema>;
-export type GetLiveSessionScreenshotInput = z.infer<typeof GetLiveSessionScreenshotInputSchema>;
 
 /**
  * Tool execution context
@@ -209,25 +115,6 @@ export interface ToolResponse {
     mimeType?: string;
   }>;
   isError?: boolean;
-}
-
-/**
- * E2E Test related types
- */
-export interface E2ETestResult {
-  testOutcome?: string;
-  testDetails?: string[];
-  finalScreenshot?: string;
-  runGif?: string;
-  conversations?: Array<{
-    messages: Array<{
-      jsonContent?: {
-        currentState?: {
-          nextGoal?: string;
-        };
-      };
-    }>;
-  }>;
 }
 
 /**

@@ -3,7 +3,7 @@
  * Verifies execute-first tunnel flow and ngrok key revocation
  */
 
-import { ToolContext } from '../../types/index.js';
+import { ToolContext, TestPageChangesInputSchema } from '../../types/index.js';
 
 const mockContext: ToolContext = {
   requestId: 'test-req-123',
@@ -250,6 +250,118 @@ describe('polling progress — nodeExecutions-based', () => {
     for (let i = 1; i < progressValues.length; i++) {
       expect(progressValues[i]).toBeGreaterThanOrEqual(progressValues[i - 1]);
     }
+  });
+});
+
+describe('TestPageChangesInputSchema — url/localPort validation', () => {
+  test('accepts input with url only', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'test login flow',
+      url: 'https://example.com',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('accepts input with localPort only', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'test login flow',
+      localPort: 3000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('rejects input with neither url nor localPort', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'test login flow',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.errors[0].message).toContain('"url"');
+    }
+  });
+
+  test('accepts input with both url and localPort', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'test login flow',
+      url: 'https://example.com',
+      localPort: 3000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('rejects invalid url format', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'test',
+      url: 'not-a-url',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects empty description', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: '',
+      url: 'https://example.com',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('pollExecution — AbortSignal cancellation', () => {
+  const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+  async function pollWithSignal(
+    getExecution: () => Promise<any>,
+    signal?: AbortSignal
+  ): Promise<any> {
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      if (signal?.aborted) {
+        throw new Error('Polling cancelled');
+      }
+      const execution = await getExecution();
+      if (TERMINAL_STATUSES.has(execution.status)) return execution;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 0);
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new Error('Polling cancelled'));
+          }, { once: true });
+        }
+      });
+    }
+  }
+
+  test('aborts mid-poll when signal fires', async () => {
+    const controller = new AbortController();
+    let callCount = 0;
+    const getExecution = async () => {
+      callCount++;
+      if (callCount === 2) controller.abort();
+      return { status: 'running', nodeExecutions: [] };
+    };
+
+    await expect(pollWithSignal(getExecution, controller.signal)).rejects.toThrow('Polling cancelled');
+  });
+
+  test('completes normally when signal never fires', async () => {
+    const controller = new AbortController();
+    let callCount = 0;
+    const statuses = ['running', 'running', 'completed'];
+    const getExecution = async () => {
+      return { status: statuses[callCount++] ?? 'completed', nodeExecutions: [] };
+    };
+
+    const result = await pollWithSignal(getExecution, controller.signal);
+    expect(result.status).toBe('completed');
+  });
+
+  test('aborts if signal is already aborted before polling starts', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const getExecution = async () => ({ status: 'running', nodeExecutions: [] });
+
+    await expect(pollWithSignal(getExecution, controller.signal)).rejects.toThrow('Polling cancelled');
   });
 });
 
