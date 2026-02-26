@@ -28,12 +28,14 @@ import {
 
 import { config } from "./config/index.js";
 import { tools, getTool } from "./tools/index.js";
-import { 
-  Logger, 
-  validateInput, 
-  createErrorResponse, 
+import {
+  Logger,
+  validateInput,
+  createErrorResponse,
   toMCPError,
-  handleConfigurationError
+  handleConfigurationError,
+  Telemetry,
+  TelemetryEvents,
 } from "./utils/index.js";
 import { 
   TypedCallToolRequest,
@@ -143,9 +145,12 @@ server.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise
 
     // Execute tool handler with progress callback
     requestLogger.info(`Executing tool: ${name}`);
+    const toolStart = Date.now();
     const result = await tool.handler(validatedInput, context, progressCallback);
 
+    const toolDuration = Date.now() - toolStart;
     requestLogger.info(`Tool execution completed: ${name}`);
+    Telemetry.capture(TelemetryEvents.TOOL_EXECUTED, { toolName: name, durationMs: toolDuration, success: true });
     return result;
 
   } catch (error) {
@@ -157,6 +162,7 @@ server.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise
       message: mcpError.message,
       data: mcpError.data
     });
+    Telemetry.capture(TelemetryEvents.TOOL_FAILED, { toolName: name, errorCode: mcpError.code });
 
     return createErrorResponse(mcpError, typedReq.params.name);
   }
@@ -192,6 +198,16 @@ async function main(): Promise<void> {
       );
     }
 
+    // Initialize telemetry (PostHog when key is set, Noop otherwise)
+    Telemetry.setDistinctId(config.api.key);
+    if (config.telemetry.posthogApiKey) {
+      const { PostHogProvider } = await import('./services/posthogProvider.js');
+      Telemetry.configure(new PostHogProvider(config.telemetry.posthogApiKey, {
+        host: config.telemetry.posthogHost,
+      }));
+      logger.info('Telemetry enabled (PostHog)');
+    }
+
     // Create and connect transport
     const transport = new StdioServerTransport();
     await server.connect(transport);
@@ -213,13 +229,15 @@ async function main(): Promise<void> {
 /**
  * Handle graceful shutdown
  */
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   logger.info('Received SIGINT, shutting down gracefully');
+  await Telemetry.shutdown();
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('Received SIGTERM, shutting down gracefully');
+  await Telemetry.shutdown();
   process.exit(0);
 });
 

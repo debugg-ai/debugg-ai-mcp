@@ -44,6 +44,10 @@ const configSchema = z.object({
     level: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
     format: z.enum(['json', 'simple']).default('simple'),
   }),
+  telemetry: z.object({
+    posthogApiKey: z.string().optional(),
+    posthogHost: z.string().optional(),
+  }),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -71,6 +75,10 @@ export function loadConfig(): Config {
       level: (process.env.LOG_LEVEL as any) || 'info',
       format: (process.env.LOG_FORMAT as any) || 'simple',
     },
+    telemetry: {
+      posthogApiKey: process.env.POSTHOG_API_KEY || undefined,
+      posthogHost: process.env.POSTHOG_HOST || undefined,
+    },
   };
 
   try {
@@ -92,7 +100,8 @@ export const config = {
   get server() { return getConfig().server; },
   get api() { return getConfig().api; },
   get defaults() { return getConfig().defaults; },
-  get logging() { return getConfig().logging; }
+  get logging() { return getConfig().logging; },
+  get telemetry() { return getConfig().telemetry; },
 };
 
 function getConfig(): Config {

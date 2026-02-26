@@ -4,6 +4,7 @@
  */
 
 import { AxiosTransport } from '../utils/axiosTransport.js';
+import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const POLL_INTERVAL_MS = 3000;
@@ -132,15 +133,26 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       signal?: AbortSignal
     ): Promise<WorkflowExecution> {
       const deadline = Date.now() + EXECUTION_TIMEOUT_MS;
+      const pollStart = Date.now();
+      let pollCount = 0;
       while (Date.now() < deadline) {
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
         }
         const execution = await service.getExecution(executionUuid);
+        pollCount++;
         if (onUpdate) {
           await onUpdate(execution).catch(() => {});
         }
         if (TERMINAL_STATUSES.has(execution.status)) {
+          Telemetry.capture(TelemetryEvents.WORKFLOW_EXECUTED, {
+            status: execution.status,
+            success: execution.state?.success ?? false,
+            outcome: execution.state?.outcome ?? null,
+            stepsTaken: execution.state?.stepsTaken ?? 0,
+            durationMs: Date.now() - pollStart,
+            pollCount,
+          });
           return execution;
         }
         await new Promise<void>((resolve, reject) => {

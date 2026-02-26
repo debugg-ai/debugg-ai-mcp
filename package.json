@@ -25,8 +25,8 @@
     "version:major": "npm version major --no-git-tag-version",
     "publish:check": "npm pack --dry-run",
     "prepublishOnly": "npm test && npm run build",
-    "mcp:local": "npm run build && claude mcp remove debugg-ai 2>/dev/null; claude mcp add debugg-ai -s user -e DEBUGGAI_API_KEY=KrvXlzVFXVZO82UErXye5N7CtnmBTu1GKULrJnwXRRU -- node /Users/qosha/Repos/debugg-ai/debugg-ai-mcp/dist/index.js",
-    "mcp:npm": "claude mcp remove debugg-ai 2>/dev/null; claude mcp add debugg-ai -s user -e DEBUGGAI_API_KEY=KrvXlzVFXVZO82UErXye5N7CtnmBTu1GKULrJnwXRRU -- npx -y @debugg-ai/debugg-ai-mcp"
+    "mcp:local": "npm run build && claude mcp remove debugg-ai 2>/dev/null; claude mcp add debugg-ai -s user -e DEBUGGAI_API_KEY=KrvXlzVFXVZO82UErXye5N7CtnmBTu1GKULrJnwXRRU -e POSTHOG_API_KEY=phc_4h2Yov2P0Vc9UMqfKf3dYKSQ6THOs7N6LZR0VKYopZN -- node /Users/qosha/Repos/debugg-ai/debugg-ai-mcp/dist/index.js",
+    "mcp:npm": "claude mcp remove debugg-ai 2>/dev/null; claude mcp add debugg-ai -s user -e DEBUGGAI_API_KEY=KrvXlzVFXVZO82UErXye5N7CtnmBTu1GKULrJnwXRRU -e POSTHOG_API_KEY=phc_4h2Yov2P0Vc9UMqfKf3dYKSQ6THOs7N6LZR0VKYopZN -- npx -y @debugg-ai/debugg-ai-mcp"
   },
   "keywords": [
     "debugg",
@@ -49,6 +49,7 @@
     "axios": "^1.9.0",
     "mkdirp": "^3.0.1",
     "ngrok": "^5.0.0-beta.2",
+    "posthog-node": "^5.26.0",
     "uuid": "^11.1.0",
     "winston": "^3.15.0",
     "zod": "^3.25.32"

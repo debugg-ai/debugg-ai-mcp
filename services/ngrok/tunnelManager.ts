@@ -18,6 +18,7 @@
  */
 
 import { Logger } from '../../utils/logger.js';
+import { Telemetry, TelemetryEvents } from '../../utils/telemetry.js';
 import { isLocalhostUrl, extractLocalhostPort, generateTunnelUrl } from '../../utils/urlParser.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -181,6 +182,7 @@ class TunnelManager {
     if (!tunnelInfo.isOwned) {
       // Borrowed — just drop the local reference; owner manages the real tunnel
       logger.info(`Released borrowed tunnel reference: ${tunnelInfo.publicUrl}`);
+      Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { port: tunnelInfo.port, reason: 'released', isOwned: false });
       return;
     }
 
@@ -261,6 +263,7 @@ class TunnelManager {
     const existing = this.getTunnelForPort(port);
     if (existing) {
       logger.info(`Reusing existing tunnel for port ${port}: ${existing.publicUrl}`);
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'reused' });
       return { url: existing.publicUrl, tunnelId: existing.tunnelId, isLocalhost: true };
     }
 
@@ -292,6 +295,7 @@ class TunnelManager {
       regEntry.lastAccessedAt = now;
       this.reg.write(registry);
       this.resetTunnelTimer(borrowed);
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'borrowed' });
       return { url: regEntry.publicUrl, tunnelId: regEntry.tunnelId, isLocalhost: true };
     }
 
@@ -388,6 +392,7 @@ class TunnelManager {
       this.resetTunnelTimer(tunnelInfo);
 
       logger.info(`Tunnel created: ${publicUrl} → localhost:${port}`);
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'created' });
       return tunnelInfo;
 
     } catch (error) {
@@ -432,6 +437,7 @@ class TunnelManager {
         }
       }
       logger.info(`Auto-shutting down tunnel ${tunnelInfo.tunnelId} after inactivity`);
+      Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { port: tunnelInfo.port, reason: 'auto-shutoff', isOwned: tunnelInfo.isOwned });
       await this.stopTunnel(tunnelInfo.tunnelId).catch((err) =>
         logger.error(`Failed to auto-shutdown tunnel ${tunnelInfo.tunnelId}:`, err)
       );
