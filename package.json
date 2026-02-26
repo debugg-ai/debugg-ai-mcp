@@ -24,7 +24,9 @@
     "version:minor": "npm version minor --no-git-tag-version",
     "version:major": "npm version major --no-git-tag-version",
     "publish:check": "npm pack --dry-run",
-    "prepublishOnly": "npm test && npm run build"
+    "prepublishOnly": "npm test && npm run build",
+    "mcp:local": "npm run build && claude mcp remove debugg-ai 2>/dev/null; claude mcp add debugg-ai -s user -e DEBUGGAI_API_KEY=KrvXlzVFXVZO82UErXye5N7CtnmBTu1GKULrJnwXRRU -- node /Users/qosha/Repos/debugg-ai/debugg-ai-mcp/dist/index.js",
+    "mcp:npm": "claude mcp remove debugg-ai 2>/dev/null; claude mcp add debugg-ai -s user -e DEBUGGAI_API_KEY=KrvXlzVFXVZO82UErXye5N7CtnmBTu1GKULrJnwXRRU -- npx -y @debugg-ai/debugg-ai-mcp"
   },
   "keywords": [
     "debugg",

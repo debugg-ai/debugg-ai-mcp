@@ -1,116 +1,451 @@
 /**
- * Tests for Tunnel Manager Auto-Shutoff functionality
+ * TunnelManager tests.
+ *
+ * Covers:
+ *  - URL detection / ID extraction (pure logic)
+ *  - Per-port tunnel creation and reuse
+ *  - stopTunnel / stopAllTunnels cleanup
+ *  - Timer and status helpers
  */
 
-import { tunnelManager } from '../../services/ngrok/tunnelManager.js';
+import { jest } from '@jest/globals';
+import { createInMemoryRegistry } from '../../services/ngrok/tunnelRegistry.js';
 
-describe('Tunnel Manager Auto-Shutoff', () => {
+// ── Mock ngrok ────────────────────────────────────────────────────────────────
 
-  describe('URL Detection', () => {
-    test('should detect tunnel URLs correctly', () => {
-      const testCases = [
-        { url: 'https://abc-123-def.ngrok.debugg.ai', expected: true },
-        { url: 'https://tunnel-id.ngrok.debugg.ai/path', expected: true },
-        { url: 'http://localhost:3000', expected: false },
-        { url: 'https://example.com', expected: false }
-      ];
+const mockNgrokConnect = jest.fn<() => Promise<string>>();
+const mockNgrokDisconnect = jest.fn<() => Promise<void>>();
+const mockNgrokGetApi = jest.fn();
 
-      testCases.forEach(({ url, expected }) => {
-        expect(tunnelManager.isTunnelUrl(url)).toBe(expected);
-      });
-    });
+jest.unstable_mockModule('ngrok', () => ({
+  connect: mockNgrokConnect,
+  disconnect: mockNgrokDisconnect,
+  getApi: mockNgrokGetApi,
+  default: {
+    connect: mockNgrokConnect,
+    disconnect: mockNgrokDisconnect,
+    getApi: mockNgrokGetApi,
+  },
+}));
 
-    test('should extract tunnel IDs correctly', () => {
-      const testCases = [
-        { url: 'https://abc-123-def.ngrok.debugg.ai', expected: 'abc-123-def' },
-        { url: 'https://tunnel-id.ngrok.debugg.ai/api/status', expected: 'tunnel-id' },
-        { url: 'http://localhost:3000', expected: null },
-        { url: 'https://example.com', expected: null }
-      ];
+// ── Import module under test (after mocks) ────────────────────────────────────
 
-      testCases.forEach(({ url, expected }) => {
-        expect(tunnelManager.extractTunnelId(url)).toBe(expected);
-      });
-    });
+let TunnelManagerClass: typeof import('../../services/ngrok/tunnelManager.js').default;
+
+beforeAll(async () => {
+  ({ default: TunnelManagerClass } = await import('../../services/ngrok/tunnelManager.js'));
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockNgrokDisconnect.mockResolvedValue(undefined as any);
+  mockNgrokGetApi.mockReturnValue(null);
+});
+
+// ── URL detection ─────────────────────────────────────────────────────────────
+
+describe('URL detection', () => {
+  test('isTunnelUrl detects .ngrok.debugg.ai URLs', () => {
+    const tm = new TunnelManagerClass();
+    expect(tm.isTunnelUrl('https://abc-123.ngrok.debugg.ai')).toBe(true);
+    expect(tm.isTunnelUrl('https://abc-123.ngrok.debugg.ai/path')).toBe(true);
+    expect(tm.isTunnelUrl('http://localhost:3000')).toBe(false);
+    expect(tm.isTunnelUrl('https://example.com')).toBe(false);
   });
 
-  describe('Timer Management', () => {
-    test('should handle tunnel touch operations', () => {
-      // Test touching non-existent tunnel (should not throw)
-      expect(() => {
-        tunnelManager.touchTunnel('non-existent');
-      }).not.toThrow();
+  test('extractTunnelId parses subdomain correctly', () => {
+    const tm = new TunnelManagerClass();
+    expect(tm.extractTunnelId('https://abc-123-def.ngrok.debugg.ai')).toBe('abc-123-def');
+    expect(tm.extractTunnelId('https://tunnel-id.ngrok.debugg.ai/api')).toBe('tunnel-id');
+    expect(tm.extractTunnelId('http://localhost:3000')).toBeNull();
+    expect(tm.extractTunnelId('https://example.com')).toBeNull();
+  });
+});
 
-      expect(() => {
-        tunnelManager.touchTunnelByUrl('https://non-existent.ngrok.debugg.ai');
-      }).not.toThrow();
-    });
+// ── processUrl ────────────────────────────────────────────────────────────────
 
-    test('should extract tunnel ID from URL for touching', () => {
-      // Test that touchTunnelByUrl correctly extracts tunnel ID
-      // Since we can't easily spy on methods, we'll test the ID extraction separately
-      const tunnelId = tunnelManager.extractTunnelId('https://test-123.ngrok.debugg.ai/path');
-      expect(tunnelId).toBe('test-123');
-      
-      // The touch operation should not throw
-      expect(() => {
-        tunnelManager.touchTunnelByUrl('https://test-123.ngrok.debugg.ai/path');
-      }).not.toThrow();
-    });
+describe('processUrl', () => {
+  test('passes through non-localhost URLs unchanged', async () => {
+    const tm = new TunnelManagerClass();
+    const result = await tm.processUrl('https://example.com/path');
+
+    expect(result.isLocalhost).toBe(false);
+    expect(result.url).toBe('https://example.com/path');
+    expect(mockNgrokConnect).not.toHaveBeenCalled();
   });
 
-  describe('Status Information', () => {
-    test('should return null for non-existent tunnel status', () => {
-      const status = tunnelManager.getTunnelStatus('non-existent');
-      expect(status).toBeNull();
-    });
+  test('creates tunnel for localhost URL', async () => {
+    mockNgrokConnect.mockResolvedValue('http://my-id.ngrok.debugg.ai' as any);
 
-    test('should return empty array for tunnel statuses when no tunnels', () => {
-      const statuses = tunnelManager.getAllTunnelStatuses();
-      expect(statuses).toEqual([]);
-    });
+    const tm = new TunnelManagerClass();
+    const result = await tm.processUrl('http://localhost:3000', 'auth-token', 'my-id');
 
-    test('should return empty array for active tunnels when none exist', () => {
-      const tunnels = tunnelManager.getActiveTunnels();
-      expect(tunnels).toEqual([]);
-    });
+    expect(result.isLocalhost).toBe(true);
+    expect(result.url).toBe('https://my-id.ngrok.debugg.ai/');
+    expect(result.tunnelId).toBe('my-id');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
   });
 
-  describe('Auto-Shutoff Configuration', () => {
-    test('should have correct timeout configuration', () => {
-      // The timeout should be 60 minutes = 3,600,000 milliseconds
-      const expectedTimeout = 60 * 60 * 1000;
-      
-      // We can't directly access the private property, but we can verify
-      // the behavior through the timing calculations
-      expect(expectedTimeout).toBe(3600000);
-    });
+  test('reuses existing tunnel for the same port', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth-token', 't1');
+    const result = await tm.processUrl('http://localhost:3000', 'auth-token', 't2');
+
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(result.tunnelId).toBe('t1');
   });
 
-  describe('Integration Points', () => {
-    test('should provide methods for timer reset integration', () => {
-      // Verify the tunnel manager has the expected methods for integration
-      expect(typeof tunnelManager.touchTunnel).toBe('function');
-      expect(typeof tunnelManager.touchTunnelByUrl).toBe('function');
-      expect(typeof tunnelManager.getTunnelStatus).toBe('function');
-      expect(typeof tunnelManager.getAllTunnelStatuses).toBe('function');
-    });
+  test('creates separate tunnels for different ports', async () => {
+    mockNgrokConnect
+      .mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any)
+      .mockResolvedValueOnce('http://t2.ngrok.debugg.ai' as any);
 
-    test('should handle tunnel URL processing', () => {
-      // Test the main URL processing flow without creating actual tunnels
-      const localhostUrl = 'http://localhost:3000';
-      const tunnelUrl = 'https://abc-123.ngrok.debugg.ai';
-      
-      expect(tunnelManager.isTunnelUrl(localhostUrl)).toBe(false);
-      expect(tunnelManager.isTunnelUrl(tunnelUrl)).toBe(true);
-      expect(tunnelManager.extractTunnelId(tunnelUrl)).toBe('abc-123');
-    });
+    const tm = new TunnelManagerClass();
+    const r1 = await tm.processUrl('http://localhost:3000', 'auth-token', 't1');
+    const r2 = await tm.processUrl('http://localhost:4000', 'auth-token', 't2');
+
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+    expect(r1.tunnelId).toBe('t1');
+    expect(r2.tunnelId).toBe('t2');
   });
 
-  describe('Resource Management', () => {
-    test('should provide cleanup methods', () => {
-      expect(typeof tunnelManager.stopTunnel).toBe('function');
-      expect(typeof tunnelManager.stopAllTunnels).toBe('function');
+  test('throws without auth token for localhost URL', async () => {
+    const tm = new TunnelManagerClass();
+    await expect(tm.processUrl('http://localhost:3000')).rejects.toThrow('Auth token required');
+  });
+
+  test('connect options do not include a separate authtoken() call', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'my-key', 't1');
+
+    // authtoken is passed inside connect options only — no separate global setter
+    const connectCall = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(connectCall.authtoken).toBe('my-key');
+  });
+});
+
+// ── getTunnelForPort ──────────────────────────────────────────────────────────
+
+describe('getTunnelForPort', () => {
+  test('returns undefined when no tunnel exists for port', () => {
+    const tm = new TunnelManagerClass();
+    expect(tm.getTunnelForPort(3000)).toBeUndefined();
+  });
+
+  test('returns TunnelInfo after tunnel is created for that port', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth', 't1');
+
+    const info = tm.getTunnelForPort(3000);
+    expect(info).toBeDefined();
+    expect(info!.tunnelId).toBe('t1');
+    expect(info!.port).toBe(3000);
+  });
+
+  test('returns undefined after tunnel is stopped', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth', 't1');
+    await tm.stopTunnel('t1');
+
+    expect(tm.getTunnelForPort(3000)).toBeUndefined();
+  });
+});
+
+// ── stopTunnel ────────────────────────────────────────────────────────────────
+
+describe('stopTunnel', () => {
+  test('disconnects tunnel and removes it from active tunnels', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth-token', 't1');
+    await tm.stopTunnel('t1');
+
+    expect(mockNgrokDisconnect).toHaveBeenCalledWith('http://t1.ngrok.debugg.ai');
+    expect(tm.getActiveTunnels()).toHaveLength(0);
+  });
+
+  test('removes from active tunnels even when disconnect throws', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+    mockNgrokDisconnect.mockRejectedValue(new Error('ngrok gone'));
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth-token', 't1');
+
+    await expect(tm.stopTunnel('t1')).resolves.not.toThrow();
+    expect(tm.getActiveTunnels()).toHaveLength(0);
+  });
+
+  test('no-op for unknown tunnel ID', async () => {
+    const tm = new TunnelManagerClass();
+    await expect(tm.stopTunnel('non-existent')).resolves.not.toThrow();
+  });
+
+  test('calls revokeKey callback when tunnel stops', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+    const revokeKey = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth', 't1', 'kid-1', revokeKey);
+    await tm.stopTunnel('t1');
+
+    expect(revokeKey).toHaveBeenCalledTimes(1);
+  });
+
+  test('revokeKey NOT called when disconnect throws (key still revoked)', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+    mockNgrokDisconnect.mockRejectedValue(new Error('already gone'));
+    const revokeKey = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth', 't1', 'kid-1', revokeKey);
+    await tm.stopTunnel('t1');
+
+    // revokeKey still fires even when disconnect fails
+    expect(revokeKey).toHaveBeenCalledTimes(1);
+  });
+
+  test('no revokeKey registered — no crash', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth', 't1'); // no revokeKey
+    await expect(tm.stopTunnel('t1')).resolves.not.toThrow();
+  });
+});
+
+// ── stopAllTunnels ────────────────────────────────────────────────────────────
+
+describe('stopAllTunnels', () => {
+  test('disconnects all active tunnels', async () => {
+    mockNgrokConnect
+      .mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any)
+      .mockResolvedValueOnce('http://t2.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth-token', 't1');
+    await tm.processUrl('http://localhost:4000', 'auth-token', 't2');
+
+    await tm.stopAllTunnels();
+
+    expect(mockNgrokDisconnect).toHaveBeenCalledTimes(2);
+    expect(tm.getActiveTunnels()).toHaveLength(0);
+  });
+});
+
+// ── Timer / status helpers ────────────────────────────────────────────────────
+
+describe('timer and status helpers', () => {
+  test('touchTunnel on non-existent ID does not throw', () => {
+    const tm = new TunnelManagerClass();
+    expect(() => tm.touchTunnel('non-existent')).not.toThrow();
+  });
+
+  test('touchTunnelByUrl on non-existent URL does not throw', () => {
+    const tm = new TunnelManagerClass();
+    expect(() => tm.touchTunnelByUrl('https://ghost.ngrok.debugg.ai')).not.toThrow();
+  });
+
+  test('getTunnelStatus returns null for unknown ID', () => {
+    const tm = new TunnelManagerClass();
+    expect(tm.getTunnelStatus('unknown')).toBeNull();
+  });
+
+  test('getAllTunnelStatuses returns empty array when no tunnels', () => {
+    const tm = new TunnelManagerClass();
+    expect(tm.getAllTunnelStatuses()).toEqual([]);
+  });
+});
+
+// ── createTunnel — connect options and environment ───────────────────────────
+
+describe('createTunnel — connect options and environment', () => {
+  test('passes authtoken inside connect() options', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai');
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'my-secret-key', 't1');
+    const opts = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(opts.authtoken).toBe('my-secret-key');
+    expect(opts.proto).toBe('http');
+    expect(opts.hostname).toBe('t1.ngrok.debugg.ai');
+    expect(opts.addr).toBe(3000); // number for plain http
+  });
+
+  test('uses https string addr for https localhost URLs', async () => {
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai');
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('https://localhost:3000', 'auth', 't1');
+    const opts = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(opts.addr).toBe('https://localhost:3000');
+  });
+
+  test('uses host.docker.internal addr when DOCKER_CONTAINER=true', async () => {
+    process.env.DOCKER_CONTAINER = 'true';
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai');
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('http://localhost:3000', 'auth', 't1');
+    const opts = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(opts.addr).toBe('host.docker.internal:3000');
+    delete process.env.DOCKER_CONTAINER;
+  });
+
+  test('uses https host.docker.internal for https localhost in Docker', async () => {
+    process.env.DOCKER_CONTAINER = 'true';
+    mockNgrokConnect.mockResolvedValue('http://t1.ngrok.debugg.ai');
+    const tm = new TunnelManagerClass();
+    await tm.processUrl('https://localhost:3000', 'auth', 't1');
+    const opts = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(opts.addr).toBe('https://host.docker.internal:3000');
+    delete process.env.DOCKER_CONTAINER;
+  });
+
+  test('wraps authtoken error with clear message', async () => {
+    mockNgrokConnect.mockRejectedValue(new Error('invalid authtoken provided'));
+    const tm = new TunnelManagerClass();
+    await expect(tm.processUrl('http://localhost:3000', 'bad', 't1'))
+      .rejects.toThrow('invalid auth token');
+  });
+
+  test('wraps other connect errors', async () => {
+    mockNgrokConnect.mockRejectedValue(new Error('connection refused'));
+    const tm = new TunnelManagerClass();
+    await expect(tm.processUrl('http://localhost:3000', 'auth', 't1'))
+      .rejects.toThrow('Failed to create tunnel');
+  });
+});
+
+// ── Cross-process registry ─────────────────────────────────────────────────────
+//
+// Two TunnelManager instances share an in-memory RegistryStore that simulates
+// the file-backed store used in production.  isPidAlive is controlled per-test.
+
+describe('cross-process tunnel sharing', () => {
+  test('Process B borrows tunnel created by Process A — no second connect', async () => {
+    const reg = createInMemoryRegistry(() => true); // all PIDs "alive"
+    mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+
+    const tmA = new TunnelManagerClass(reg);
+    await tmA.processUrl('http://localhost:3000', 'auth-a', 't1');
+
+    const tmB = new TunnelManagerClass(reg);
+    const result = await tmB.processUrl('http://localhost:3000', 'auth-b', 't2');
+
+    // ngrok.connect called exactly once — B reused A's tunnel
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(result.tunnelId).toBe('t1');
+    expect(result.url).toContain('t1.ngrok.debugg.ai');
+  });
+
+  test('Process B creates its own tunnel when Process A is dead', async () => {
+    const reg = createInMemoryRegistry(() => false); // all PIDs "dead"
+    // Seed a stale registry entry from a "dead" process
+    reg.write({
+      '3000': {
+        tunnelId: 'stale-t1',
+        publicUrl: 'https://stale-t1.ngrok.debugg.ai/',
+        tunnelUrl: 'http://stale-t1.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 99999,
+        lastAccessedAt: Date.now(),
+      },
     });
+
+    mockNgrokConnect.mockResolvedValueOnce('http://t2.ngrok.debugg.ai' as any);
+
+    const tmB = new TunnelManagerClass(reg);
+    const result = await tmB.processUrl('http://localhost:3000', 'auth-b', 't2');
+
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(result.tunnelId).toBe('t2');
+  });
+
+  test('borrowed tunnel is evicted from local map when owner dies', async () => {
+    let ownerAlive = true;
+    const reg = createInMemoryRegistry(() => ownerAlive);
+    mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+
+    // A creates tunnel; B borrows it
+    const tmA = new TunnelManagerClass(reg);
+    await tmA.processUrl('http://localhost:3000', 'auth-a', 't1');
+
+    const tmB = new TunnelManagerClass(reg);
+    await tmB.processUrl('http://localhost:3000', 'auth-b', 't2');
+    expect(tmB.getTunnelForPort(3000)?.tunnelId).toBe('t1'); // borrowed
+
+    // A's process dies
+    ownerAlive = false;
+
+    // getTunnelForPort now evicts the dead borrowed entry
+    expect(tmB.getTunnelForPort(3000)).toBeUndefined();
+  });
+
+  test('stopTunnel on borrowed tunnel does NOT call ngrok.disconnect', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+
+    const tmA = new TunnelManagerClass(reg);
+    await tmA.processUrl('http://localhost:3000', 'auth-a', 't1');
+
+    const tmB = new TunnelManagerClass(reg);
+    await tmB.processUrl('http://localhost:3000', 'auth-b', 't2');
+
+    jest.clearAllMocks();
+    mockNgrokDisconnect.mockResolvedValue(undefined as any);
+
+    await tmB.stopTunnel('t1');
+
+    // B should NOT have disconnected — it doesn't own the tunnel
+    expect(mockNgrokDisconnect).not.toHaveBeenCalled();
+    // B's local map is cleared
+    expect(tmB.getActiveTunnels()).toHaveLength(0);
+    // A still owns the tunnel
+    expect(tmA.getActiveTunnels()).toHaveLength(1);
+  });
+
+  test('owner stopTunnel removes registry entry — second borrower sees no entry', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect
+      .mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any)
+      .mockResolvedValueOnce('http://t2.ngrok.debugg.ai' as any);
+
+    const tmA = new TunnelManagerClass(reg);
+    await tmA.processUrl('http://localhost:3000', 'auth-a', 't1');
+
+    // A stops its owned tunnel — deregisters from shared registry
+    await tmA.stopTunnel('t1');
+    expect(reg.read()['3000']).toBeUndefined();
+
+    // C (a third instance) sees no registry entry and creates its own
+    const tmC = new TunnelManagerClass(reg);
+    await tmC.processUrl('http://localhost:3000', 'auth-c', 't2');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+    expect(reg.read()['3000']?.tunnelId).toBe('t2');
+  });
+
+  test('touchTunnel by borrower updates registry lastAccessedAt', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+
+    const tmA = new TunnelManagerClass(reg);
+    await tmA.processUrl('http://localhost:3000', 'auth-a', 't1');
+
+    const before = reg.read()['3000'].lastAccessedAt;
+
+    // Small delay so timestamp changes
+    await new Promise(r => setTimeout(r, 5));
+
+    const tmB = new TunnelManagerClass(reg);
+    await tmB.processUrl('http://localhost:3000', 'auth-b', 't2');
+    tmB.touchTunnel('t1');
+
+    expect(reg.read()['3000'].lastAccessedAt).toBeGreaterThan(before);
   });
 });

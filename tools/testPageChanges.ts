@@ -24,13 +24,7 @@ export const testPageChangesTool: Tool = {
       },
       url: {
         type: "string",
-        description: "Target URL for the browser agent to navigate to (e.g., 'https://example.com' or 'http://localhost:3000'). Use this for external URLs. For local dev servers, use localPort instead."
-      },
-      localPort: {
-        type: "number",
-        description: "Port of your local dev server (e.g. 3000, 8080). A secure tunnel is created automatically so the remote browser can reach it.",
-        minimum: 1,
-        maximum: 65535
+        description: "URL to navigate to. Accepts any URL including localhost (e.g. 'http://localhost:3000', 'https://example.com'). Localhost URLs are automatically tunneled so the remote browser can reach them."
       },
       environmentId: {
         type: "string",
@@ -53,7 +47,7 @@ export const testPageChangesTool: Tool = {
         description: "Password to log in with (used together with username)"
       },
     },
-    required: ["description"],
+    required: ["description", "url"],
     additionalProperties: false
   },
 };

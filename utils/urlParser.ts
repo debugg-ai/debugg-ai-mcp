@@ -18,19 +18,37 @@ export interface ParsedUrl {
 }
 
 /**
- * Check if a hostname represents localhost
+ * Normalize a user-supplied URL string before validation.
+ * Handles bare hostnames without a scheme (e.g. "localhost:3000" → "http://localhost:3000").
+ */
+export function normalizeUrl(input: unknown): unknown {
+  if (typeof input !== 'string') return input;
+  if (/^https?:\/\//i.test(input)) return input;
+  // Bare local hostname (no scheme) — prepend http://
+  if (/^(localhost\.?|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|\[::1\])(:\d+)?(\/.*)?$/i.test(input)) {
+    return `http://${input}`;
+  }
+  return input;
+}
+
+/**
+ * Check if a hostname represents a local/tunnelable address.
  */
 function isLocalhostHostname(hostname: string): boolean {
-  const lowercaseHostname = hostname.toLowerCase();
+  // Strip IPv6 brackets: new URL('http://[::1]:3000').hostname === '[::1]' in WHATWG spec
+  const h = hostname.replace(/^\[|\]$/g, '').toLowerCase();
   return (
-    lowercaseHostname === 'localhost' ||
-    lowercaseHostname === '127.0.0.1' ||
-    lowercaseHostname === '::1' ||
-    lowercaseHostname.startsWith('192.168.') ||
-    lowercaseHostname.startsWith('10.') ||
-    (lowercaseHostname.startsWith('172.') && 
-     parseInt(lowercaseHostname.split('.')[1], 10) >= 16 && 
-     parseInt(lowercaseHostname.split('.')[1], 10) <= 31)
+    h === 'localhost' ||
+    h === 'localhost.' ||       // trailing-dot FQDN notation
+    h === '127.0.0.1' ||
+    h === '::1' ||
+    h === '0.0.0.0' ||
+    h === 'host.docker.internal' ||
+    h.startsWith('192.168.') ||
+    h.startsWith('10.') ||
+    (h.startsWith('172.') &&
+     parseInt(h.split('.')[1], 10) >= 16 &&
+     parseInt(h.split('.')[1], 10) <= 31)
   );
 }
 

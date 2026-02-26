@@ -18,8 +18,8 @@ import { DebuggAIServerClient } from '../services/index.js';
 import {
   resolveTargetUrl,
   buildContext,
+  findExistingTunnel,
   ensureTunnel,
-  releaseTunnel,
   sanitizeResponseUrls,
 } from '../utils/tunnelContext.js';
 
@@ -41,16 +41,41 @@ export async function testPageChangesHandler(
 
   const originalUrl = resolveTargetUrl(input);
   let ctx = buildContext(originalUrl);
-  let ngrokKeyId: string | undefined;
+  let keyId: string | undefined;
 
   const abortController = new AbortController();
   const onStdinClose = () => abortController.abort();
   process.stdin.once('close', onStdinClose);
 
   try {
+    // --- Tunnel: reuse existing or provision a fresh one ---
+    if (ctx.isLocalhost) {
+      if (progressCallback) {
+        await progressCallback({ progress: 1, total: 10, message: 'Provisioning secure tunnel for localhost...' });
+      }
+
+      const reused = findExistingTunnel(ctx);
+      if (reused) {
+        ctx = reused;
+        logger.info(`Reusing tunnel: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
+      } else {
+        const tunnel = await client.tunnels!.provision();
+        keyId = tunnel.keyId;
+        // revokeKey is stored on the TunnelInfo and fires when the tunnel auto-stops.
+        ctx = await ensureTunnel(
+          ctx,
+          tunnel.tunnelKey,
+          tunnel.tunnelId,
+          tunnel.keyId,
+          () => client.revokeNgrokKey(tunnel.keyId),
+        );
+        logger.info(`Tunnel ready: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
+      }
+    }
+
     // --- Find workflow template ---
     if (progressCallback) {
-      await progressCallback({ progress: 1, total: 10, message: 'Locating evaluation workflow template...' });
+      await progressCallback({ progress: 2, total: 10, message: 'Locating evaluation workflow template...' });
     }
 
     if (!cachedTemplateUuid) {
@@ -65,9 +90,9 @@ export async function testPageChangesHandler(
       logger.info(`Using workflow template: ${template.name} (${template.uuid})`);
     }
 
-    // --- Build context data ---
+    // --- Build context data (targetUrl is the tunnel URL for localhost, original URL otherwise) ---
     const contextData: Record<string, any> = {
-      targetUrl: originalUrl,
+      targetUrl: ctx.targetUrl ?? originalUrl,
       goal: input.description,
     };
 
@@ -81,7 +106,7 @@ export async function testPageChangesHandler(
 
     // --- Execute ---
     if (progressCallback) {
-      await progressCallback({ progress: 2, total: 10, message: 'Queuing workflow execution...' });
+      await progressCallback({ progress: 3, total: 10, message: 'Queuing workflow execution...' });
     }
 
     const executeResponse = await client.workflows!.executeWorkflow(
@@ -90,20 +115,7 @@ export async function testPageChangesHandler(
       Object.keys(env).length > 0 ? env : undefined
     );
     const executionUuid = executeResponse.executionUuid;
-    ngrokKeyId = executeResponse.ngrokKeyId ?? undefined;
     logger.info(`Execution queued: ${executionUuid}`);
-
-    // --- Tunnel (after execute — backend returns tunnelKey, executionUuid is the subdomain) ---
-    if (ctx.isLocalhost) {
-      if (progressCallback) {
-        await progressCallback({ progress: 3, total: 10, message: 'Creating secure tunnel for localhost...' });
-      }
-      if (!executeResponse.tunnelKey) {
-        throw new Error('Backend did not return a tunnel key for localhost execution');
-      }
-      ctx = await ensureTunnel(ctx, executeResponse.tunnelKey, executionUuid);
-      logger.info(`Tunnel ready for ${originalUrl} (id: ${executionUuid})`);
-    }
 
     // --- Poll ---
     // nodeExecutions grows as each node completes: trigger → browser.setup → surfer.execute_task → browser.teardown
@@ -138,6 +150,18 @@ export async function testPageChangesHandler(
       n => n.nodeType === 'surfer.execute_task'
     );
 
+    // Log all node executions to diagnose what the backend returns
+    logger.info('Node executions raw data', {
+      nodeCount: finalExecution.nodeExecutions?.length ?? 0,
+      nodes: finalExecution.nodeExecutions?.map(n => ({
+        nodeId: n.nodeId,
+        nodeType: n.nodeType,
+        status: n.status,
+        outputKeys: n.outputData ? Object.keys(n.outputData) : [],
+        outputData: n.outputData,
+      })),
+    });
+
     const responsePayload: Record<string, any> = {
       outcome,
       success: finalExecution.state?.success ?? false,
@@ -167,17 +191,41 @@ export async function testPageChangesHandler(
       { type: 'text', text: JSON.stringify(responsePayload, null, 2) },
     ];
 
-    // Embed screenshot / GIF from the surfer node output when URLs are present
-    const outputData = surferNode?.outputData ?? {};
-    const screenshotUrl: string | null =
-      outputData.finalScreenshot ?? outputData.screenshot ?? outputData.screenshotUrl ?? null;
-    const gifUrl: string | null = outputData.runGif ?? outputData.gifUrl ?? null;
+    // Search all node outputs for screenshot/gif URLs — not just the surfer node
+    const SCREENSHOT_KEYS = ['finalScreenshot', 'screenshot', 'screenshotUrl', 'screenshotUri'];
+    const GIF_KEYS = ['runGif', 'gifUrl', 'gif', 'videoUrl', 'recordingUrl'];
+
+    let screenshotUrl: string | null = null;
+    let gifUrl: string | null = null;
+
+    for (const node of finalExecution.nodeExecutions ?? []) {
+      const data = node.outputData ?? {};
+      if (!screenshotUrl) {
+        for (const key of SCREENSHOT_KEYS) {
+          if (typeof data[key] === 'string' && data[key]) {
+            screenshotUrl = data[key] as string;
+            break;
+          }
+        }
+      }
+      if (!gifUrl) {
+        for (const key of GIF_KEYS) {
+          if (typeof data[key] === 'string' && data[key]) {
+            gifUrl = data[key] as string;
+            break;
+          }
+        }
+      }
+      if (screenshotUrl && gifUrl) break;
+    }
 
     if (screenshotUrl) {
+      logger.info(`Embedding screenshot: ${screenshotUrl}`);
       const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
       if (img) content.push(imageContentBlock(img.data, img.mimeType));
     }
     if (gifUrl) {
+      logger.info(`Embedding GIF/video: ${gifUrl}`);
       const gif = await fetchImageAsBase64(gifUrl).catch(() => null);
       if (gif) content.push(imageContentBlock(gif.data, 'image/gif'));
     }
@@ -195,13 +243,15 @@ export async function testPageChangesHandler(
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
     process.stdin.removeListener('close', onStdinClose);
-    if (ngrokKeyId) {
-      client.revokeNgrokKey(ngrokKeyId).catch(err =>
-        logger.warn(`Failed to revoke ngrok key ${ngrokKeyId}: ${err}`)
+    // Tunnels stay alive for reuse — the 55-min auto-shutoff on TunnelManager
+    // fires revokeKey when the tunnel actually stops.
+    //
+    // Only revoke explicitly when we provisioned a key but tunnel creation failed
+    // (keyId set, ctx.tunnelId not set → key was never attached to a tunnel).
+    if (keyId && !ctx.tunnelId) {
+      client.revokeNgrokKey(keyId).catch(err =>
+        logger.warn(`Failed to revoke unused ngrok key ${keyId}: ${err}`)
       );
     }
-    releaseTunnel(ctx).catch(err =>
-      logger.warn(`Failed to stop tunnel: ${err}`)
-    );
   }
 }

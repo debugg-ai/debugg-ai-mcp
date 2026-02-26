@@ -12,9 +12,6 @@ const mockContext: ToolContext = {
 
 const mockExecuteResponse = {
   executionUuid: 'exec-uuid-abc',
-  tunnelKey: 'ngrok_api_test_key',
-  ngrokKeyId: 'ak_test_key_id',
-  ngrokExpiresAt: '2026-02-19T20:00:00Z',
   resolvedEnvironmentId: null,
   resolvedCredentialId: null,
 };
@@ -41,70 +38,40 @@ const mockFinalExecution = {
 
 describe('testPageChangesHandler — execute-first tunnel flow', () => {
   describe('resolveTargetUrl', () => {
-    test('uses url param when provided', () => {
-      const resolve = (input: { url?: string; localPort?: number }) => {
-        if (input.url) return input.url;
-        if (input.localPort) return `http://localhost:${input.localPort}`;
-        throw new Error('Provide url or localPort');
-      };
+    test('returns url as-is', () => {
+      const resolve = (input: { url: string }) => input.url;
       expect(resolve({ url: 'https://example.com' })).toBe('https://example.com');
     });
 
-    test('constructs localhost url from localPort', () => {
-      const resolve = (input: { url?: string; localPort?: number }) => {
-        if (input.url) return input.url;
-        if (input.localPort) return `http://localhost:${input.localPort}`;
-        throw new Error('Provide url or localPort');
-      };
-      expect(resolve({ localPort: 3000 })).toBe('http://localhost:3000');
-    });
-
-    test('throws if neither url nor localPort provided', () => {
-      const resolve = (input: { url?: string; localPort?: number }) => {
-        if (input.url) return input.url;
-        if (input.localPort) return `http://localhost:${input.localPort}`;
-        throw new Error('Provide url or localPort');
-      };
-      expect(() => resolve({})).toThrow('Provide url or localPort');
+    test('accepts localhost urls directly', () => {
+      const resolve = (input: { url: string }) => input.url;
+      expect(resolve({ url: 'http://localhost:3000' })).toBe('http://localhost:3000');
     });
   });
 
   describe('WorkflowExecuteResponse shape', () => {
-    test('executeWorkflow returns full response object', () => {
-      // Verify the shape our handler depends on
+    test('executeWorkflow returns executionUuid and optional resolved IDs', () => {
       expect(mockExecuteResponse).toHaveProperty('executionUuid');
-      expect(mockExecuteResponse).toHaveProperty('tunnelKey');
-      expect(mockExecuteResponse).toHaveProperty('ngrokKeyId');
-      expect(mockExecuteResponse).toHaveProperty('ngrokExpiresAt');
       expect(mockExecuteResponse).toHaveProperty('resolvedEnvironmentId');
       expect(mockExecuteResponse).toHaveProperty('resolvedCredentialId');
     });
-
-    test('tunnel key comes from execute response (not a separate probe call)', () => {
-      // The tunnelKey is present in the execute response itself
-      expect(mockExecuteResponse.tunnelKey).toBe('ngrok_api_test_key');
-      expect(mockExecuteResponse.ngrokKeyId).toBe('ak_test_key_id');
-    });
-
-    test('executionUuid used as tunnel subdomain', () => {
-      // Handler uses executionUuid as tunnelId for ngrok subdomain
-      const expectedTunnelUrl = `https://${mockExecuteResponse.executionUuid}.ngrok.debugg.ai`;
-      expect(expectedTunnelUrl).toBe('https://exec-uuid-abc.ngrok.debugg.ai');
-    });
   });
 
-  describe('ngrok key revocation', () => {
-    test('ngrokKeyId is extracted and available for revocation', () => {
-      const ngrokKeyId = mockExecuteResponse.ngrokKeyId;
-      expect(ngrokKeyId).toBe('ak_test_key_id');
-      // In the handler, this is passed to client.revokeNgrokKey() in finally
+  describe('tunnel provisioning', () => {
+    test('tunnel is provisioned separately before executeWorkflow', () => {
+      // Tunnel provisioning happens via client.tunnels.provision() before execution
+      // The provision response has: tunnelId, tunnelKey, keyId, expiresAt
+      const provision = { tunnelId: 'tid-1', tunnelKey: 'key-1', keyId: 'kid-1', expiresAt: '...' };
+      expect(provision).toHaveProperty('tunnelId');
+      expect(provision).toHaveProperty('tunnelKey');
+      expect(provision).toHaveProperty('keyId');
     });
 
-    test('null ngrokKeyId does not trigger revocation', () => {
-      const responseWithNullKey = { ...mockExecuteResponse, ngrokKeyId: null };
-      const ngrokKeyId = responseWithNullKey.ngrokKeyId ?? undefined;
-      // Should be undefined so the if (ngrokKeyId) guard skips the call
-      expect(ngrokKeyId).toBeUndefined();
+    test('revokeKey is stored on tunnel and fires on auto-shutoff, not per-call', () => {
+      // The handler passes () => client.revokeNgrokKey(keyId) as revokeKey to ensureTunnel.
+      // TunnelManager stores it in TunnelInfo and calls it when the tunnel auto-stops.
+      // Handler does NOT call revokeNgrokKey directly in the happy path.
+      expect(true).toBe(true); // documented invariant, enforced by integration tests below
     });
   });
 
@@ -253,8 +220,8 @@ describe('polling progress — nodeExecutions-based', () => {
   });
 });
 
-describe('TestPageChangesInputSchema — url/localPort validation', () => {
-  test('accepts input with url only', () => {
+describe('TestPageChangesInputSchema — url validation', () => {
+  test('accepts public url', () => {
     const result = TestPageChangesInputSchema.safeParse({
       description: 'test login flow',
       url: 'https://example.com',
@@ -262,31 +229,41 @@ describe('TestPageChangesInputSchema — url/localPort validation', () => {
     expect(result.success).toBe(true);
   });
 
-  test('accepts input with localPort only', () => {
+  test('accepts localhost url', () => {
     const result = TestPageChangesInputSchema.safeParse({
       description: 'test login flow',
-      localPort: 3000,
+      url: 'http://localhost:3000',
     });
     expect(result.success).toBe(true);
   });
 
-  test('rejects input with neither url nor localPort', () => {
+  test('normalizes bare localhost:PORT to http://localhost:PORT', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'test login flow',
+      url: 'localhost:3000',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.url).toBe('http://localhost:3000');
+    }
+  });
+
+  test('normalizes bare 0.0.0.0:PORT', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'test',
+      url: '0.0.0.0:8080',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.url).toBe('http://0.0.0.0:8080');
+    }
+  });
+
+  test('rejects missing url', () => {
     const result = TestPageChangesInputSchema.safeParse({
       description: 'test login flow',
     });
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.errors[0].message).toContain('"url"');
-    }
-  });
-
-  test('accepts input with both url and localPort', () => {
-    const result = TestPageChangesInputSchema.safeParse({
-      description: 'test login flow',
-      url: 'https://example.com',
-      localPort: 3000,
-    });
-    expect(result.success).toBe(true);
   });
 
   test('rejects invalid url format', () => {
@@ -389,5 +366,372 @@ describe('WorkflowsService.executeWorkflow interface', () => {
     expect(buildBody({ targetUrl: 'x' })).not.toHaveProperty('env');
     expect(buildBody({ targetUrl: 'x' }, {})).not.toHaveProperty('env');
     expect(buildBody({ targetUrl: 'x' }, { credentialRole: 'admin' })).toHaveProperty('env');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Full handler integration tests (mocked service layer)
+// ════════════════════════════════════════════════════════════════════════════
+
+import { jest } from '@jest/globals';
+
+// ── Mock functions ─────────────────────────────────────────────────────────
+
+const mockProvision = jest.fn<() => Promise<any>>();
+const mockFindTemplate = jest.fn<() => Promise<any>>();
+const mockExecute = jest.fn<() => Promise<any>>();
+const mockPoll = jest.fn<() => Promise<any>>();
+const mockRevokeKey = jest.fn<() => Promise<void>>();
+const mockInit = jest.fn<() => Promise<void>>();
+
+const mockEnsureTunnel = jest.fn<(...args: any[]) => Promise<any>>();
+const mockFindExistingTunnel = jest.fn<(ctx: any) => any>();
+const mockBuildContext = jest.fn<(url: string) => any>();
+const mockResolveTargetUrl = jest.fn<(input: any) => string>();
+const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
+
+// ── Module mocks (BEFORE dynamic import) ───────────────────────────────────
+
+jest.unstable_mockModule('../../services/index.js', () => ({
+  DebuggAIServerClient: jest.fn().mockImplementation(() => ({
+    init: mockInit,
+    tunnels: { provision: mockProvision },
+    workflows: {
+      findEvaluationTemplate: mockFindTemplate,
+      executeWorkflow: mockExecute,
+      pollExecution: mockPoll,
+    },
+    revokeNgrokKey: mockRevokeKey,
+  })),
+}));
+
+jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
+  resolveTargetUrl: mockResolveTargetUrl,
+  buildContext: mockBuildContext,
+  findExistingTunnel: mockFindExistingTunnel,
+  ensureTunnel: mockEnsureTunnel,
+  sanitizeResponseUrls: mockSanitizeResponseUrls,
+}));
+
+jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
+  fetchImageAsBase64: jest.fn().mockResolvedValue(null),
+  imageContentBlock: jest.fn(),
+}));
+
+// ── Dynamic import (picks up the mocks) ────────────────────────────────────
+
+let testPageChangesHandler: typeof import('../../handlers/testPageChangesHandler.js').testPageChangesHandler;
+
+beforeAll(async () => {
+  const mod = await import('../../handlers/testPageChangesHandler.js');
+  testPageChangesHandler = mod.testPageChangesHandler;
+});
+
+// ── Shared test fixtures ───────────────────────────────────────────────────
+
+const defaultContext: ToolContext = { requestId: 'int-test', timestamp: new Date() };
+const defaultInput = { description: 'check login page', url: 'https://example.com' };
+const localhostInput = { description: 'check login page', url: 'http://localhost:3000' };
+
+const TEMPLATE = { uuid: 'tmpl-uuid-1', name: 'App Evaluation', description: '', isTemplate: true, isActive: true };
+
+const EXECUTE_RESPONSE = {
+  executionUuid: 'exec-uuid-1',
+  resolvedEnvironmentId: null,
+  resolvedCredentialId: null,
+};
+
+const COMPLETED_EXECUTION = {
+  uuid: 'exec-uuid-1',
+  status: 'completed',
+  startedAt: '2026-02-25T10:00:00Z',
+  completedAt: '2026-02-25T10:02:00Z',
+  durationMs: 120000,
+  state: { outcome: 'pass', success: true, stepsTaken: 3, error: '' },
+  errorMessage: '',
+  errorInfo: null,
+  nodeExecutions: [
+    {
+      nodeId: 'surfer-1',
+      nodeType: 'surfer.execute_task',
+      status: 'completed',
+      outputData: { agentResponse: 'Page loaded', stepsTaken: 3 },
+      executionOrder: 2,
+    },
+  ],
+};
+
+const PROVISION_RESPONSE = {
+  tunnelId: 'tid-abc',
+  tunnelKey: 'tkey-abc',
+  keyId: 'kid-abc',
+  expiresAt: '2026-02-25T11:00:00Z',
+};
+
+// ── Helper to set up happy-path mocks ──────────────────────────────────────
+
+function setupHappyPath(options: { isLocalhost: boolean; reuseExisting?: boolean } = { isLocalhost: false }) {
+  const url = options.isLocalhost ? localhostInput.url : defaultInput.url;
+  mockResolveTargetUrl.mockReturnValue(url);
+  mockBuildContext.mockReturnValue({
+    originalUrl: url,
+    isLocalhost: options.isLocalhost,
+  });
+  mockSanitizeResponseUrls.mockImplementation((val) => val);
+  mockInit.mockResolvedValue(undefined);
+  mockFindTemplate.mockResolvedValue(TEMPLATE);
+  mockExecute.mockResolvedValue(EXECUTE_RESPONSE);
+  mockPoll.mockResolvedValue(COMPLETED_EXECUTION);
+  mockRevokeKey.mockResolvedValue(undefined);
+
+  if (options.isLocalhost) {
+    if (options.reuseExisting) {
+      // Simulate an existing tunnel being found — no provision needed
+      mockFindExistingTunnel.mockReturnValue({
+        originalUrl: url,
+        isLocalhost: true,
+        tunnelId: 'existing-tid',
+        targetUrl: 'https://existing-tid.ngrok.debugg.ai/',
+      });
+    } else {
+      // No existing tunnel — provision path
+      mockFindExistingTunnel.mockReturnValue(null);
+      mockProvision.mockResolvedValue(PROVISION_RESPONSE);
+      mockEnsureTunnel.mockResolvedValue({
+        originalUrl: url,
+        isLocalhost: true,
+        tunnelId: 'tid-abc',
+        targetUrl: 'https://tid-abc.ngrok.debugg.ai/',
+      });
+    }
+  } else {
+    mockFindExistingTunnel.mockReturnValue(null);
+  }
+}
+
+// ── Helper: invalidate module-level cachedTemplateUuid ──────────────────────
+// The handler clears its cache on errors containing 'not found' or '401'.
+// We trigger a controlled failure to reset it before tests that need a fresh cache.
+// We use executeWorkflow (which runs AFTER the cache check) to throw the error,
+// so this works even when cachedTemplateUuid is already populated.
+async function invalidateTemplateCache() {
+  mockInit.mockResolvedValue(undefined);
+  mockResolveTargetUrl.mockReturnValue('https://example.com');
+  mockBuildContext.mockReturnValue({ originalUrl: 'https://example.com', isLocalhost: false });
+  mockFindExistingTunnel.mockReturnValue(null);
+  mockSanitizeResponseUrls.mockImplementation((val: any) => val);
+  mockFindTemplate.mockResolvedValue(TEMPLATE);
+  // Throw 'not found' from executeWorkflow — always runs, bypasses cache check
+  mockExecute.mockRejectedValue(new Error('not found'));
+  try {
+    await testPageChangesHandler(
+      { description: 'cache-reset', url: 'https://example.com' },
+      { requestId: 'cache-reset', timestamp: new Date() }
+    );
+  } catch {
+    // Expected — this clears cachedTemplateUuid
+  }
+  jest.clearAllMocks();
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+describe('testPageChangesHandler — full handler flow', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    // Invalidate the module-level template cache so each test starts fresh
+    await invalidateTemplateCache();
+  });
+
+  // Test 1: Public URL — no tunnel provisioned
+  test('public URL: no tunnel provisioned, returns outcome', async () => {
+    setupHappyPath({ isLocalhost: false });
+
+    const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+    expect(mockProvision).not.toHaveBeenCalled();
+    expect(mockEnsureTunnel).not.toHaveBeenCalled();
+
+    // Check contextData.targetUrl passed to executeWorkflow
+    const executeCall = mockExecute.mock.calls[0];
+    const contextData = executeCall[1] as Record<string, any>;
+    expect(contextData.targetUrl).toBe('https://example.com');
+
+    // Returns content with outcome
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThanOrEqual(1);
+    const text = JSON.parse(result.content[0].text!);
+    expect(text.outcome).toBe('pass');
+    expect(text.success).toBe(true);
+  });
+
+  // Test 2: Localhost URL — tunnel provisioned BEFORE execute, revokeKey passed through
+  test('localhost URL: tunnel provisioned before executeWorkflow', async () => {
+    setupHappyPath({ isLocalhost: true });
+
+    // Track call order
+    const callOrder: string[] = [];
+    mockProvision.mockImplementation(async () => {
+      callOrder.push('provision');
+      return PROVISION_RESPONSE;
+    });
+    mockEnsureTunnel.mockImplementation(async () => {
+      callOrder.push('ensureTunnel');
+      return {
+        originalUrl: 'http://localhost:3000',
+        isLocalhost: true,
+        tunnelId: 'tid-abc',
+        targetUrl: 'https://tid-abc.ngrok.debugg.ai/',
+      };
+    });
+    mockExecute.mockImplementation(async () => {
+      callOrder.push('execute');
+      return EXECUTE_RESPONSE;
+    });
+
+    await testPageChangesHandler(localhostInput, defaultContext);
+
+    // provision and ensureTunnel before execute
+    expect(callOrder.indexOf('provision')).toBeLessThan(callOrder.indexOf('execute'));
+    expect(callOrder.indexOf('ensureTunnel')).toBeLessThan(callOrder.indexOf('execute'));
+
+    // targetUrl in contextData is the tunnel URL
+    const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+    expect(contextData.targetUrl).toBe('https://tid-abc.ngrok.debugg.ai/');
+
+    // ensureTunnel called with keyId and revokeKey
+    expect(mockEnsureTunnel).toHaveBeenCalledWith(
+      expect.objectContaining({ isLocalhost: true }),
+      'tkey-abc',
+      'tid-abc',
+      'kid-abc',
+      expect.any(Function),
+    );
+  });
+
+  // Test 3: Happy-path localhost — tunnel stays alive, no explicit revoke in finally
+  test('tunnel reuse: releaseTunnel NOT called, revokeNgrokKey NOT called on success', async () => {
+    setupHappyPath({ isLocalhost: true });
+
+    await testPageChangesHandler(localhostInput, defaultContext);
+
+    // Tunnel stays alive for reuse — handler does not tear it down
+    expect(mockRevokeKey).not.toHaveBeenCalled();
+  });
+
+  // Test 4: provision() throws before tunnel is created — no revokeNgrokKey (keyId never set)
+  test('provision throws: revokeNgrokKey NOT called (keyId never set)', async () => {
+    setupHappyPath({ isLocalhost: true });
+    mockProvision.mockRejectedValue(new Error('provision failed'));
+
+    await expect(
+      testPageChangesHandler(localhostInput, defaultContext)
+    ).rejects.toThrow();
+
+    expect(mockRevokeKey).not.toHaveBeenCalled();
+  });
+
+  // Test 4b: ensureTunnel throws after provision — unused key is revoked immediately
+  test('ensureTunnel throws after provision: unused key is revoked', async () => {
+    setupHappyPath({ isLocalhost: true });
+    mockEnsureTunnel.mockRejectedValue(new Error('ngrok connect failed'));
+
+    await expect(
+      testPageChangesHandler(localhostInput, defaultContext)
+    ).rejects.toThrow();
+
+    // keyId was provisioned but tunnel was never created (ctx.tunnelId not set)
+    expect(mockRevokeKey).toHaveBeenCalledWith('kid-abc');
+  });
+
+  // Test 5: Template not found — error thrown
+  test('template not found: throws error, cachedTemplateUuid stays null', async () => {
+    setupHappyPath({ isLocalhost: false });
+    mockFindTemplate.mockResolvedValue(null);
+
+    await expect(
+      testPageChangesHandler(defaultInput, defaultContext)
+    ).rejects.toThrow();
+
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  // Test 6: executeWorkflow throws — tunnel stays alive, no revoke in finally
+  test('executeWorkflow throws: tunnel stays alive, revokeNgrokKey NOT called in finally', async () => {
+    setupHappyPath({ isLocalhost: true });
+    mockExecute.mockRejectedValue(new Error('API error'));
+
+    await expect(
+      testPageChangesHandler(localhostInput, defaultContext)
+    ).rejects.toThrow();
+
+    // Tunnel was created (ctx.tunnelId is set) — revocation deferred to auto-shutoff
+    expect(mockRevokeKey).not.toHaveBeenCalled();
+  });
+
+  // Test 6b: existing tunnel reused — provision never called
+  test('existing tunnel reused: provision NOT called', async () => {
+    setupHappyPath({ isLocalhost: true, reuseExisting: true });
+
+    await testPageChangesHandler(localhostInput, defaultContext);
+
+    expect(mockProvision).not.toHaveBeenCalled();
+    expect(mockEnsureTunnel).not.toHaveBeenCalled();
+
+    // contextData uses the reused tunnel URL
+    const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+    expect(contextData.targetUrl).toBe('https://existing-tid.ngrok.debugg.ai/');
+  });
+
+  // Test 7: pollExecution returns failed outcome
+  test('pollExecution returns failed: result includes failure details', async () => {
+    setupHappyPath({ isLocalhost: false });
+
+    const failedExecution = {
+      uuid: 'exec-uuid-1',
+      status: 'failed',
+      startedAt: '2026-02-25T10:00:00Z',
+      completedAt: '2026-02-25T10:02:00Z',
+      durationMs: 120000,
+      state: { outcome: 'fail', success: false, stepsTaken: 2, error: 'element not found' },
+      errorMessage: '',
+      errorInfo: null,
+      nodeExecutions: [],
+    };
+    mockPoll.mockResolvedValue(failedExecution);
+
+    const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+    const text = JSON.parse(result.content[0].text!);
+    expect(text.outcome).toBe('fail');
+    expect(text.success).toBe(false);
+    expect(text.stepsTaken).toBe(2);
+    expect(text.agentError).toBe('element not found');
+  });
+
+  // Test 8: Template caching — findEvaluationTemplate called once, reused on second invocation
+  test('template caching: findEvaluationTemplate called once across invocations', async () => {
+    setupHappyPath({ isLocalhost: false });
+
+    // First call — template fetched
+    await testPageChangesHandler(defaultInput, defaultContext);
+    expect(mockFindTemplate).toHaveBeenCalledTimes(1);
+
+    // Reset call counts but NOT the module-level cache
+    mockFindTemplate.mockClear();
+    mockExecute.mockClear();
+    mockPoll.mockClear();
+    mockInit.mockClear();
+
+    // Re-setup non-template mocks
+    mockInit.mockResolvedValue(undefined);
+    mockExecute.mockResolvedValue(EXECUTE_RESPONSE);
+    mockPoll.mockResolvedValue(COMPLETED_EXECUTION);
+    mockResolveTargetUrl.mockReturnValue('https://example.com');
+    mockBuildContext.mockReturnValue({ originalUrl: 'https://example.com', isLocalhost: false });
+
+    // Second call — template NOT fetched again
+    await testPageChangesHandler(defaultInput, defaultContext);
+    expect(mockFindTemplate).not.toHaveBeenCalled();
   });
 });

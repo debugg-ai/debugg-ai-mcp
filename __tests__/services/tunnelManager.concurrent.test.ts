@@ -16,6 +16,7 @@ function makeFakeInfo(tunnelId: string, port: number, url: string): TunnelInfo {
     port,
     createdAt: Date.now(),
     lastAccessedAt: Date.now(),
+    isOwned: true,
   };
 }
 

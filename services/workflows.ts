@@ -55,9 +55,6 @@ export interface WorkflowEnv {
 
 export interface WorkflowExecuteResponse {
   executionUuid: string;
-  tunnelKey: string | null;
-  ngrokKeyId: string | null;
-  ngrokExpiresAt: string | null;
   resolvedEnvironmentId: string | null;
   resolvedCredentialId: string | null;
 }
@@ -103,9 +100,6 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       }
       const response = await tx.post<{
         resourceUuid: string;
-        tunnelKey?: string;
-        ngrokKeyId?: string;
-        ngrokExpiresAt?: string;
         resolvedEnvironmentId?: string;
         resolvedCredentialId?: string;
       }>(
@@ -117,9 +111,6 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       }
       return {
         executionUuid: response.resourceUuid,
-        tunnelKey: response.tunnelKey ?? null,
-        ngrokKeyId: response.ngrokKeyId ?? null,
-        ngrokExpiresAt: response.ngrokExpiresAt ?? null,
         resolvedEnvironmentId: response.resolvedEnvironmentId ?? null,
         resolvedCredentialId: response.resolvedCredentialId ?? null,
       };

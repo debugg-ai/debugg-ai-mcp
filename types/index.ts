@@ -4,24 +4,24 @@
 
 import { z } from 'zod';
 import { CallToolRequest, Tool } from '@modelcontextprotocol/sdk/types.js';
+import { normalizeUrl } from '../utils/urlParser.js';
 
 /**
  * Tool input validation schemas
  */
 export const TestPageChangesInputSchema = z.object({
   description: z.string().min(1, 'Description is required'),
-  url: z.string().url('Must be a valid URL').optional(),
-  localPort: z.number().int().min(1).max(65535).optional(),
+  url: z.preprocess(
+    normalizeUrl,
+    z.string().url('Must be a valid URL — accepts localhost (e.g. "http://localhost:3000") or any public URL')
+  ),
   // Credential/environment resolution
   environmentId: z.string().uuid().optional(),
   credentialId: z.string().uuid().optional(),
   credentialRole: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
-}).refine(
-  (data) => data.url !== undefined || data.localPort !== undefined,
-  { message: 'Provide a target via "url" (e.g. "https://example.com") or "localPort" for a local dev server' }
-);
+});
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
 

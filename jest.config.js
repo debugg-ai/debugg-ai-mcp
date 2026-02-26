@@ -15,5 +15,6 @@ export default {
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1'
   },
-  setupFiles: ['<rootDir>/__tests__/setup.ts']
+  setupFiles: ['<rootDir>/__tests__/setup.ts'],
+  forceExit: true
 };

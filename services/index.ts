@@ -1,4 +1,5 @@
 import { createWorkflowsService, WorkflowsService } from "./workflows.js";
+import { createTunnelsService, TunnelsService } from "./tunnels.js";
 import { AxiosTransport, AxiosTransportOptions } from "../utils/axiosTransport.js";
 import { config } from "../config/index.js";
 
@@ -35,6 +36,7 @@ export class DebuggAIServerClient  {
   url: URL | undefined;
 
   workflows: WorkflowsService | undefined;
+  tunnels: TunnelsService | undefined;
 
   constructor(
     public userApiKey: string,
@@ -47,6 +49,7 @@ export class DebuggAIServerClient  {
     this.url = new URL(serverUrl);
     this.tx = new DebuggTransport({ baseUrl: serverUrl, apiKey: this.userApiKey, tokenType: config.api.tokenType });
     this.workflows = createWorkflowsService(this.tx);
+    this.tunnels = createTunnelsService(this.tx);
   }
 
   /**

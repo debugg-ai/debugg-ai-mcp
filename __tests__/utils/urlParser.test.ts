@@ -1,4 +1,4 @@
-import { replaceTunnelUrls, generateTunnelUrl, isLocalhostUrl, extractLocalhostPort } from '../../utils/urlParser.js';
+import { replaceTunnelUrls, generateTunnelUrl, isLocalhostUrl, extractLocalhostPort, normalizeUrl } from '../../utils/urlParser.js';
 
 describe('replaceTunnelUrls', () => {
   const origin = 'http://localhost:4001';
@@ -60,20 +60,132 @@ describe('replaceTunnelUrls', () => {
   });
 });
 
-describe('generateTunnelUrl / isLocalhostUrl / extractLocalhostPort (existing)', () => {
+describe('normalizeUrl', () => {
+  test('passes through already-schemed URLs unchanged', () => {
+    expect(normalizeUrl('http://localhost:3000')).toBe('http://localhost:3000');
+    expect(normalizeUrl('https://localhost:3000')).toBe('https://localhost:3000');
+    expect(normalizeUrl('https://example.com')).toBe('https://example.com');
+  });
+
+  test('normalizes bare localhost:PORT', () => {
+    expect(normalizeUrl('localhost:3000')).toBe('http://localhost:3000');
+    expect(normalizeUrl('localhost:3000/path')).toBe('http://localhost:3000/path');
+  });
+
+  test('normalizes bare 127.0.0.1:PORT', () => {
+    expect(normalizeUrl('127.0.0.1:1233')).toBe('http://127.0.0.1:1233');
+  });
+
+  test('normalizes bare 0.0.0.0:PORT', () => {
+    expect(normalizeUrl('0.0.0.0:3000')).toBe('http://0.0.0.0:3000');
+  });
+
+  test('normalizes bare host.docker.internal:PORT', () => {
+    expect(normalizeUrl('host.docker.internal:3000')).toBe('http://host.docker.internal:3000');
+  });
+
+  test('normalizes bare [::1]:PORT', () => {
+    expect(normalizeUrl('[::1]:3000')).toBe('http://[::1]:3000');
+  });
+
+  test('passes through non-local bare strings unchanged', () => {
+    expect(normalizeUrl('example.com')).toBe('example.com');
+  });
+
+  test('passes through non-string values unchanged', () => {
+    expect(normalizeUrl(42)).toBe(42);
+    expect(normalizeUrl(null)).toBeNull();
+  });
+});
+
+describe('isLocalhostUrl — edge cases', () => {
+  test('detects standard localhost', () => {
+    expect(isLocalhostUrl('http://localhost:3000')).toBe(true);
+    expect(isLocalhostUrl('https://localhost:3013')).toBe(true);
+  });
+
+  test('detects 127.0.0.1', () => {
+    expect(isLocalhostUrl('http://127.0.0.1:1233')).toBe(true);
+  });
+
+  test('detects 0.0.0.0', () => {
+    expect(isLocalhostUrl('http://0.0.0.0:3000')).toBe(true);
+  });
+
+  test('detects IPv6 localhost with brackets', () => {
+    expect(isLocalhostUrl('http://[::1]:3000')).toBe(true);
+  });
+
+  test('detects host.docker.internal', () => {
+    expect(isLocalhostUrl('http://host.docker.internal:3000')).toBe(true);
+  });
+
+  test('detects localhost with trailing dot', () => {
+    expect(isLocalhostUrl('http://localhost.:3000')).toBe(true);
+  });
+
+  test('does not flag public URLs', () => {
+    expect(isLocalhostUrl('https://example.com')).toBe(false);
+    expect(isLocalhostUrl('https://my-app.vercel.app')).toBe(false);
+  });
+});
+
+describe('generateTunnelUrl / extractLocalhostPort', () => {
   test('generateTunnelUrl produces correct URL', () => {
     expect(generateTunnelUrl('http://localhost:3000/app', 'my-tunnel-id'))
       .toBe('https://my-tunnel-id.ngrok.debugg.ai/app');
   });
 
-  test('isLocalhostUrl detects localhost correctly', () => {
-    expect(isLocalhostUrl('http://localhost:3000')).toBe(true);
-    expect(isLocalhostUrl('http://127.0.0.1:3000')).toBe(true);
-    expect(isLocalhostUrl('https://example.com')).toBe(false);
+  test('generateTunnelUrl works for 0.0.0.0', () => {
+    expect(generateTunnelUrl('http://0.0.0.0:3000/app', 'my-tunnel-id'))
+      .toBe('https://my-tunnel-id.ngrok.debugg.ai/app');
   });
 
   test('extractLocalhostPort extracts port', () => {
     expect(extractLocalhostPort('http://localhost:4001')).toBe(4001);
+    expect(extractLocalhostPort('http://0.0.0.0:8080')).toBe(8080);
+    expect(extractLocalhostPort('http://[::1]:3000')).toBe(3000);
     expect(extractLocalhostPort('https://example.com')).toBeUndefined();
+  });
+
+  test('extractLocalhostPort falls back to protocol default when no port', () => {
+    expect(extractLocalhostPort('http://localhost')).toBe(80);
+    expect(extractLocalhostPort('https://localhost')).toBe(443);
+  });
+});
+
+describe('private IP ranges', () => {
+  test.each([
+    ['http://192.168.1.1:3000', true],
+    ['http://192.168.0.1', true],
+    ['http://10.0.0.1:8080', true],
+    ['http://10.255.255.255', true],
+    ['http://172.16.0.1', true],
+    ['http://172.31.255.255', true],
+    ['http://172.32.0.1', false],  // outside range
+    ['http://8.8.8.8', false],
+  ])('%s isLocalhost=%s', (url, expected) => {
+    expect(isLocalhostUrl(url)).toBe(expected);
+  });
+});
+
+describe('generateTunnelUrl edge cases', () => {
+  test('returns original URL unchanged when URL fails to parse', () => {
+    const badUrl = 'not-a-valid-url';
+    expect(generateTunnelUrl(badUrl, 'tunnel-id')).toBe(badUrl);
+  });
+
+  test('returns original URL unchanged when URL is not localhost', () => {
+    expect(generateTunnelUrl('https://example.com/path', 'tunnel-id')).toBe('https://example.com/path');
+  });
+});
+
+describe('extractLocalhostPort defaults', () => {
+  test('http://localhost (no port) returns 80', () => {
+    expect(extractLocalhostPort('http://localhost')).toBe(80);
+  });
+
+  test('https://localhost (no port) returns 443', () => {
+    expect(extractLocalhostPort('https://localhost')).toBe(443);
   });
 });
