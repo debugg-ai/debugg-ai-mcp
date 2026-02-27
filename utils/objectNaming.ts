@@ -1,11 +1,12 @@
 // Function to handle converting a string to camelCase
 export function stringToCamelCase(str: string): string {
+    if (!str.includes("_")) return str;
     return str
-        .toLowerCase()
         .split("_")
-        .map((s, i) =>
-            i === 0 ? s : s.slice(0, 1).toUpperCase() + s.slice(1, s.length)
-        )
+        .map((s, i) => {
+            const lower = s.toLowerCase();
+            return i === 0 ? lower : lower.slice(0, 1).toUpperCase() + lower.slice(1);
+        })
         .join("");
 }
 
