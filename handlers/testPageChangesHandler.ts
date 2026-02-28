@@ -59,16 +59,36 @@ export async function testPageChangesHandler(
         ctx = reused;
         logger.info(`Reusing tunnel: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
       } else {
-        const tunnel = await client.tunnels!.provision();
+        let tunnel;
+        try {
+          tunnel = await client.tunnels!.provision();
+        } catch (provisionError) {
+          const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
+          throw new Error(
+            `Failed to provision tunnel for ${ctx.originalUrl}. ` +
+            `The remote browser needs a secure tunnel to reach your local dev server. ` +
+            `Make sure your dev server is running on the specified port and try again. ` +
+            `(Detail: ${msg})`
+          );
+        }
         keyId = tunnel.keyId;
-        // revokeKey is stored on the TunnelInfo and fires when the tunnel auto-stops.
-        ctx = await ensureTunnel(
-          ctx,
-          tunnel.tunnelKey,
-          tunnel.tunnelId,
-          tunnel.keyId,
-          () => client.revokeNgrokKey(tunnel.keyId),
-        );
+        try {
+          ctx = await ensureTunnel(
+            ctx,
+            tunnel.tunnelKey,
+            tunnel.tunnelId,
+            tunnel.keyId,
+            () => client.revokeNgrokKey(tunnel.keyId),
+          );
+        } catch (tunnelError) {
+          const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
+          throw new Error(
+            `Tunnel creation failed for ${ctx.originalUrl}. ` +
+            `Could not establish a secure connection between the remote browser and your local port. ` +
+            `Verify your dev server is running and the port is accessible. ` +
+            `(Detail: ${msg})`
+          );
+        }
         logger.info(`Tunnel ready: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
       }
     }

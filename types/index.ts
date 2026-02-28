@@ -13,7 +13,7 @@ export const TestPageChangesInputSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   url: z.preprocess(
     normalizeUrl,
-    z.string().url('Must be a valid URL — accepts localhost (e.g. "http://localhost:3000") or any public URL')
+    z.string().url('Invalid URL. Pass a full URL like "http://localhost:3000" or "https://example.com". Localhost URLs are auto-tunneled to the remote browser — no extra setup needed.')
   ),
   // Credential/environment resolution
   environmentId: z.string().uuid().optional(),
