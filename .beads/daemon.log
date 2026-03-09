@@ -1,0 +1,1470 @@
+time=2026-02-17T15:58:18.902-08:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-02-17T15:58:18.907-08:00 level=INFO msg="using database" path=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/beads.db
+time=2026-02-17T15:58:18.944-08:00 level=INFO msg="database opened" path=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/beads.db backend=sqlite freshness_checking=true
+time=2026-02-17T15:58:18.944-08:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-02-17T15:58:18.944-08:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-02-17T15:58:18.952-08:00 level=INFO msg="Repository fingerprint validated: %s" !BADKEY=1b6a9628
+time=2026-02-17T15:58:18.952-08:00 level=INFO msg="starting RPC server" socket=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/bd.sock
+time=2026-02-17T15:58:18.953-08:00 level=INFO msg="RPC server ready (socket listening)"
+time=2026-02-17T15:58:18.961-08:00 level=INFO msg="registered in global registry"
+time=2026-02-17T15:58:18.961-08:00 level=INFO msg="Starting %s..." !BADKEY="sync cycle"
+time=2026-02-17T15:58:18.962-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-17T15:58:19.543-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-17T15:58:19.561-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-17T15:58:19.577-08:00 level=INFO msg="Sync cycle complete"
+time=2026-02-17T15:58:19.577-08:00 level=INFO msg="monitoring parent process" pid=0
+time=2026-02-17T15:58:19.577-08:00 level=INFO msg="using event-driven mode"
+time=2026-02-17T15:58:19.578-08:00 level=INFO msg="Auto-pull disabled: use 'git pull' manually to sync remote changes"
+time=2026-02-17T15:58:19.578-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-6hk
+time=2026-02-17T15:58:20.079-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T15:58:20.079-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T15:58:20.082-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T15:58:26.523-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-n9b
+time=2026-02-17T15:58:26.616-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-irs
+time=2026-02-17T15:58:27.116-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T15:58:27.116-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T15:58:27.119-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T15:58:35.947-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-pmr
+time=2026-02-17T15:58:36.056-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-foc
+time=2026-02-17T15:58:36.160-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-2us
+time=2026-02-17T15:58:36.660-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T15:58:36.660-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T15:58:36.661-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T15:58:42.725-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-a1n
+time=2026-02-17T15:58:42.809-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-cyk
+time=2026-02-17T15:58:43.310-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T15:58:43.310-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T15:58:43.311-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T15:58:49.173-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-m4x
+time=2026-02-17T15:58:49.272-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-xcs
+time=2026-02-17T15:58:49.774-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T15:58:49.774-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T15:58:49.775-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T15:58:56.419-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-irs
+time=2026-02-17T15:58:56.482-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-pmr
+time=2026-02-17T15:58:56.546-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-foc
+time=2026-02-17T15:58:56.612-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-2us
+time=2026-02-17T15:58:56.684-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-a1n
+time=2026-02-17T15:58:56.745-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-cyk
+time=2026-02-17T15:58:56.818-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-m4x
+time=2026-02-17T15:58:56.883-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-m4x
+time=2026-02-17T15:58:56.947-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-xcs
+time=2026-02-17T15:58:57.012-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-n9b
+time=2026-02-17T15:58:57.072-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-xcs
+time=2026-02-17T15:58:57.573-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T15:58:57.573-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T15:58:57.573-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T16:00:15.280-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-2zm
+time=2026-02-17T16:00:15.782-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T16:00:15.782-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T16:00:15.784-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T16:00:25.530-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-fqu
+time=2026-02-17T16:00:25.620-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-8vd
+time=2026-02-17T16:00:26.121-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T16:00:26.121-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T16:00:26.123-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T16:00:40.093-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-2na
+time=2026-02-17T16:00:40.180-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-koh
+time=2026-02-17T16:00:40.277-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-8dv
+time=2026-02-17T16:00:40.778-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T16:00:40.778-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T16:00:40.779-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T16:00:49.910-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-e3y
+time=2026-02-17T16:00:50.000-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-h3r
+time=2026-02-17T16:00:50.087-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-1lk
+time=2026-02-17T16:00:50.588-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T16:00:50.588-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T16:00:50.589-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T16:00:58.261-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-fqu
+time=2026-02-17T16:00:58.329-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-8vd
+time=2026-02-17T16:00:58.420-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-2na
+time=2026-02-17T16:00:58.499-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-koh
+time=2026-02-17T16:00:58.582-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-8dv
+time=2026-02-17T16:00:58.643-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-koh
+time=2026-02-17T16:00:58.712-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-e3y
+time=2026-02-17T16:00:58.779-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-e3y
+time=2026-02-17T16:00:58.846-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-e3y
+time=2026-02-17T16:00:58.925-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-h3r
+time=2026-02-17T16:00:59.019-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-1lk
+time=2026-02-17T16:00:59.097-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-1lk
+time=2026-02-17T16:00:59.598-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T16:00:59.598-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T16:00:59.600-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T16:10:38.026-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-n9b
+time=2026-02-17T16:10:38.028-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-irs
+time=2026-02-17T16:10:38.029-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-pmr
+time=2026-02-17T16:10:38.031-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-foc
+time=2026-02-17T16:10:38.033-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-2us
+time=2026-02-17T16:10:38.035-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-a1n
+time=2026-02-17T16:10:38.036-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-cyk
+time=2026-02-17T16:10:38.537-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T16:10:38.537-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T16:10:38.539-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T16:10:41.031-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:10:41.082-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:10:41.082-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:10:42.084-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:10:42.085-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:10:42.085-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-17T16:10:42.120-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:10:42.120-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-17T16:10:42.120-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-17T16:10:42.706-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-17T16:10:42.727-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-17T16:10:42.728-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-17T16:35:08.845-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:35:09.871-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:35:09.901-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:35:09.965-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-17T16:35:10.201-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:35:10.203-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-17T16:35:10.203-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-17T16:35:11.287-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-17T16:35:11.388-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-17T16:35:11.391-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-17T16:35:28.935-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:35:29.959-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:35:29.961-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:35:29.970-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-17T16:35:29.995-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:35:29.995-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-17T16:35:29.995-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-17T16:35:30.489-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-17T16:35:30.493-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-17T16:35:30.494-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-17T16:35:34.252-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:35:34.302-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:35:34.302-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:35:34.696-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:35:35.699-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:35:35.699-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:35:35.720-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:35:38.041-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:35:38.092-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:35:38.092-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:35:39.102-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:35:39.106-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:35:39.122-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:38:19.413-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:38:19.465-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:38:19.465-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:38:20.468-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:38:20.478-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:38:20.482-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:39:20.243-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:39:21.274-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:39:21.275-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:39:21.275-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:39:34.001-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:39:34.053-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:39:34.053-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:39:34.064-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:39:34.904-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:39:34.955-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:39:34.956-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:39:35.066-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:39:35.066-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:39:35.071-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:39:35.959-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:39:35.959-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:39:35.960-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:39:39.634-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:39:39.674-08:00 level=INFO msg="Git HEAD change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.git/HEAD
+time=2026-02-17T16:39:40.676-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:39:40.677-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:39:40.678-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:39:49.257-08:00 level=INFO msg="Git HEAD change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.git/HEAD
+time=2026-02-17T16:39:50.093-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:39:50.145-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:39:50.145-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:39:50.259-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:39:50.259-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:39:50.265-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:39:51.151-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:39:51.152-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:39:51.152-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:42:16.598-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:42:16.651-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:42:16.651-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:42:17.418-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:42:17.469-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:42:17.469-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:42:17.653-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:42:17.654-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:42:17.659-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:42:18.471-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:42:18.471-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:42:18.472-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:59:06.219-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:59:06.273-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:59:06.278-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:59:06.279-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:59:07.282-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:59:07.285-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:59:07.305-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T16:59:08.773-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T16:59:08.825-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T16:59:08.825-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T16:59:09.827-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T16:59:09.830-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T16:59:09.846-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T17:06:46.971-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T17:06:47.026-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T17:06:47.027-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:06:48.037-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T17:06:48.040-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T17:06:48.069-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T17:06:48.318-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T17:06:48.369-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T17:06:48.369-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:06:49.371-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T17:06:49.373-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T17:06:49.387-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T17:08:37.178-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-zdx
+time=2026-02-17T17:08:37.680-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T17:08:37.680-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T17:08:37.687-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-17T17:08:37.687-08:00 level=INFO msg="Export complete"
+time=2026-02-17T17:08:37.688-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T17:08:37.739-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T17:08:37.739-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:08:38.742-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T17:08:38.743-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T17:08:38.743-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-17T17:08:38.760-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:08:38.760-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-17T17:08:38.760-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-17T17:08:39.345-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-17T17:08:39.353-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-17T17:08:39.353-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-17T17:08:57.432-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-zdx
+time=2026-02-17T17:08:57.933-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-17T17:08:57.933-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-17T17:08:57.934-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-17T17:09:59.066-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:10:00.070-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T17:10:00.074-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T17:10:00.088-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-17T17:10:00.103-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:10:00.103-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-17T17:10:00.103-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-17T17:10:00.595-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-17T17:10:00.599-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-17T17:10:00.600-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-17T17:10:12.430-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T17:10:12.484-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T17:10:12.484-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:10:12.491-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:10:13.493-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T17:10:13.494-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T17:10:13.515-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-17T17:10:13.911-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-17T17:10:13.962-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-17T17:10:13.962-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-17T17:10:14.965-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-17T17:10:14.973-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-17T17:10:14.982-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T06:12:26.913-08:00 level=INFO msg="Daemon started (interval: %v, auto-commit: %v, auto-push: %v)" !BADKEY=5s !BADKEY=false !BADKEY=false
+time=2026-02-19T06:12:26.914-08:00 level=INFO msg="using database" path=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/beads.db
+time=2026-02-19T06:12:26.950-08:00 level=INFO msg="database opened" path=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/beads.db backend=sqlite freshness_checking=true
+time=2026-02-19T06:12:26.950-08:00 level=INFO msg="upgrading .beads/.gitignore"
+time=2026-02-19T06:12:26.950-08:00 level=WARN msg="failed to upgrade .gitignore" error="open .beads/.gitignore: no such file or directory"
+time=2026-02-19T06:12:26.957-08:00 level=INFO msg="Repository fingerprint validated: %s" !BADKEY=1b6a9628
+time=2026-02-19T06:12:26.958-08:00 level=INFO msg="starting RPC server" socket=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/bd.sock
+time=2026-02-19T06:12:26.958-08:00 level=INFO msg="RPC server ready (socket listening)"
+time=2026-02-19T06:12:26.966-08:00 level=INFO msg="registered in global registry"
+time=2026-02-19T06:12:26.966-08:00 level=INFO msg="Starting %s..." !BADKEY="sync cycle"
+time=2026-02-19T06:12:26.971-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-19T06:12:27.436-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T06:12:27.458-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T06:12:27.475-08:00 level=INFO msg="Sync cycle complete"
+time=2026-02-19T06:12:27.475-08:00 level=INFO msg="monitoring parent process" pid=0
+time=2026-02-19T06:12:27.475-08:00 level=INFO msg="using event-driven mode"
+time=2026-02-19T06:12:27.476-08:00 level=INFO msg="Auto-pull disabled: use 'git pull' manually to sync remote changes"
+time=2026-02-19T06:13:10.776-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-58t
+time=2026-02-19T06:13:11.277-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:13:11.278-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:13:11.287-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-19T06:13:11.287-08:00 level=INFO msg="Export complete"
+time=2026-02-19T06:13:11.287-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T06:13:11.340-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T06:13:11.341-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T06:13:12.343-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T06:13:12.345-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T06:13:12.346-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T06:13:12.381-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T06:13:12.381-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T06:13:12.381-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T06:13:12.836-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T06:13:12.840-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T06:13:12.841-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T06:13:17.641-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-6a3
+time=2026-02-19T06:13:18.142-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:13:18.143-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:13:18.146-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T06:13:24.995-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-u44
+time=2026-02-19T06:13:25.496-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:13:25.497-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:13:25.499-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T06:13:29.721-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-u44
+time=2026-02-19T06:13:30.223-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:13:30.223-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:13:30.230-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T06:13:32.095-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-4l5
+time=2026-02-19T06:13:32.596-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:13:32.596-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:13:32.598-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T06:13:37.238-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-4l5
+time=2026-02-19T06:13:37.740-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:13:37.740-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:13:37.743-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T06:15:28.585-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-4l5
+time=2026-02-19T06:15:29.086-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:15:29.086-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:15:29.087-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T06:16:57.024-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-4l5
+time=2026-02-19T06:16:57.108-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-6a3
+time=2026-02-19T06:16:57.609-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T06:16:57.609-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T06:16:57.611-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T06:45:50.267-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T06:45:51.270-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T06:45:51.273-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T06:45:51.275-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T06:45:51.318-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T06:45:51.318-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T06:45:51.318-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T06:45:51.808-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T06:45:51.813-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T06:45:51.814-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T07:18:34.335-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T07:18:35.338-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T07:18:35.339-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T07:18:35.341-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T07:18:35.379-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T07:18:35.379-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T07:18:35.379-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T07:18:35.814-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T07:18:35.818-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T07:18:35.818-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T07:51:18.115-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T07:51:19.119-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T07:51:19.120-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T07:51:19.121-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T07:51:19.133-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T07:51:19.133-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T07:51:19.133-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T07:51:19.563-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T07:51:19.566-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T07:51:19.567-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T08:14:14.416-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:14:15.418-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T08:14:15.419-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T08:14:15.420-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T08:14:15.444-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:14:15.444-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T08:14:15.444-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T08:14:15.923-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T08:14:15.928-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T08:14:15.929-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T08:56:58.639-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:56:59.367-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:56:59.641-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T08:56:59.641-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T08:56:59.642-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T08:56:59.650-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:56:59.650-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T08:56:59.650-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T08:57:00.076-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T08:57:00.082-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T08:57:00.083-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T08:57:00.369-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T08:57:00.371-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T08:57:00.372-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T08:57:00.400-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:57:00.400-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T08:57:00.400-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T08:57:00.865-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T08:57:00.869-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T08:57:00.870-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T08:57:54.008-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T08:57:54.060-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T08:57:54.060-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:57:54.073-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:57:55.075-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T08:57:55.075-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T08:57:55.082-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T08:57:55.862-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T08:57:55.913-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T08:57:55.913-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T08:57:56.915-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T08:57:56.915-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T08:57:56.919-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T12:24:57.821-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-fqu
+time=2026-02-19T12:24:57.881-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-8vd
+time=2026-02-19T12:24:57.943-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-koh
+time=2026-02-19T12:24:58.004-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-h3r
+time=2026-02-19T12:24:58.063-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-u44
+time=2026-02-19T12:24:58.123-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-2na
+time=2026-02-19T12:24:58.180-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-8dv
+time=2026-02-19T12:24:58.682-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:24:58.682-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:24:58.695-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-19T12:24:58.695-08:00 level=INFO msg="Export complete"
+time=2026-02-19T12:24:58.695-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T12:24:58.746-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T12:24:58.746-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:24:59.748-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T12:24:59.748-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T12:24:59.750-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T12:24:59.767-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:24:59.767-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T12:24:59.767-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T12:25:00.228-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T12:25:00.231-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T12:25:00.231-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T12:25:05.474-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-uvy
+time=2026-02-19T12:25:05.975-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:25:05.975-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:25:05.975-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T12:25:11.843-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-2pf
+time=2026-02-19T12:25:12.344-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:25:12.344-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:25:12.344-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T12:25:18.039-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-nyw
+time=2026-02-19T12:25:18.540-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:25:18.540-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:25:18.541-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T12:25:23.559-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-5ga
+time=2026-02-19T12:25:24.060-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:25:24.061-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:25:24.061-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T12:25:33.128-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-5uk
+time=2026-02-19T12:25:33.214-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-pdx
+time=2026-02-19T12:25:33.715-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:25:33.715-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:25:33.716-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T12:25:38.661-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-2pf
+time=2026-02-19T12:25:38.746-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-nyw
+time=2026-02-19T12:25:38.843-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-5ga
+time=2026-02-19T12:25:38.944-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-5uk
+time=2026-02-19T12:25:39.043-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-pdx
+time=2026-02-19T12:25:39.139-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-pdx
+time=2026-02-19T12:25:39.236-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-pdx
+time=2026-02-19T12:25:39.333-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-pdx
+time=2026-02-19T12:25:39.424-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-e3y
+time=2026-02-19T12:25:39.510-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-1lk
+time=2026-02-19T12:25:40.011-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:25:40.012-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:25:40.012-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T12:25:42.591-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T12:25:42.642-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T12:25:42.642-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:25:43.644-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T12:25:43.644-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T12:25:43.645-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T12:25:43.655-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:25:43.655-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T12:25:43.655-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T12:25:44.113-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T12:25:44.116-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T12:25:44.117-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T12:29:57.992-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-uvy
+time=2026-02-19T12:29:58.086-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-2pf
+time=2026-02-19T12:29:58.178-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-nyw
+time=2026-02-19T12:29:58.268-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-5ga
+time=2026-02-19T12:29:58.356-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-pdx
+time=2026-02-19T12:29:58.440-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-58t
+time=2026-02-19T12:29:58.537-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T12:29:58.588-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T12:29:58.588-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:29:58.940-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-19T12:29:58.940-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-19T12:29:58.941-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-19T12:29:59.590-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T12:29:59.590-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T12:29:59.590-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T12:29:59.599-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:29:59.599-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T12:29:59.599-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T12:30:00.049-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T12:30:00.052-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T12:30:00.052-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T12:37:42.997-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:37:43.999-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T12:37:44.000-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T12:37:44.000-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-19T12:37:44.011-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:37:44.011-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-19T12:37:44.011-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-19T12:37:44.460-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-19T12:37:44.464-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-19T12:37:44.464-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-19T12:37:54.592-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T12:37:54.643-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T12:37:54.643-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:37:54.656-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:37:55.658-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T12:37:55.659-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T12:37:55.663-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T12:37:56.153-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T12:37:56.204-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T12:37:56.204-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T12:37:57.206-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T12:37:57.206-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T12:37:57.210-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T14:24:33.123-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T14:24:33.175-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T14:24:33.176-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T14:24:34.180-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T14:24:34.181-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T14:24:34.189-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T14:24:35.224-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T14:24:35.275-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T14:24:35.275-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T14:24:36.277-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T14:24:36.277-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T14:24:36.279-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T14:53:00.515-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T14:53:00.567-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T14:53:00.567-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T14:53:01.570-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T14:53:01.571-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T14:53:01.580-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T14:53:02.477-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T14:53:02.529-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T14:53:02.529-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T14:53:03.532-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T14:53:03.533-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T14:53:03.543-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-19T14:53:10.007-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-19T14:53:10.059-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-19T14:53:10.059-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-19T14:53:11.062-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-19T14:53:11.063-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-19T14:53:11.066-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T12:01:36.813-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-e6q
+time=2026-02-23T12:01:37.315-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T12:01:37.315-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T12:01:37.327-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-23T12:01:37.327-08:00 level=INFO msg="Export complete"
+time=2026-02-23T12:01:37.327-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T12:01:37.378-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T12:01:37.378-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T12:01:37.819-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-g3e
+time=2026-02-23T12:01:38.320-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T12:01:38.320-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T12:01:38.321-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T12:01:38.380-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T12:01:38.382-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T12:01:38.383-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T12:01:38.397-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T12:01:38.397-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T12:01:38.397-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T12:01:38.932-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T12:01:38.940-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T12:01:38.941-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T12:01:39.020-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-7tk
+time=2026-02-23T12:01:39.521-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T12:01:39.521-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T12:01:39.523-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T12:01:40.351-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-cza
+time=2026-02-23T12:01:40.852-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T12:01:40.852-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T12:01:40.853-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T12:01:41.731-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-3t8
+time=2026-02-23T12:01:42.233-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T12:01:42.234-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T12:01:42.237-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T12:01:43.352-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-eem
+time=2026-02-23T12:01:43.853-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T12:01:43.853-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T12:01:43.855-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T14:39:05.620-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-e6q
+time=2026-02-23T14:39:05.721-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-eem
+time=2026-02-23T14:39:06.222-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T14:39:06.222-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T14:39:06.224-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T15:11:37.131-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:37.999-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:38.209-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T15:11:38.211-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T15:11:38.213-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T15:11:38.236-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:38.237-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T15:11:38.237-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T15:11:38.705-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T15:11:38.718-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T15:11:38.720-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T15:11:39.002-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T15:11:39.002-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T15:11:39.003-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T15:11:39.025-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:39.026-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T15:11:39.026-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T15:11:39.547-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T15:11:39.556-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T15:11:39.557-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T15:11:44.410-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T15:11:44.460-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T15:11:44.460-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:44.476-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:45.512-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T15:11:45.514-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T15:11:45.524-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T15:11:46.032-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T15:11:46.083-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T15:11:46.083-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:47.084-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T15:11:47.084-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T15:11:47.087-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T15:11:47.310-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:11:48.312-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T15:11:48.312-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T15:11:48.312-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T15:34:45.195-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:34:46.198-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T15:34:46.200-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T15:34:46.202-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T15:34:49.955-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T15:34:50.957-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T15:34:50.958-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T15:34:50.958-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T16:07:37.307-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:07:38.310-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T16:07:38.314-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T16:07:38.316-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T16:35:53.715-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-7ov
+time=2026-02-23T16:35:54.219-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T16:35:54.221-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T16:35:54.318-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-23T16:35:54.318-08:00 level=INFO msg="Export complete"
+time=2026-02-23T16:35:54.318-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T16:35:54.369-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T16:35:54.369-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:35:55.374-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T16:35:55.375-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T16:35:55.378-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T16:35:55.437-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:35:55.437-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T16:35:55.437-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T16:35:56.336-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T16:35:56.345-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T16:35:56.345-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T16:36:09.159-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-5t5
+time=2026-02-23T16:36:09.166-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-ho1
+time=2026-02-23T16:36:09.171-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-1s7
+time=2026-02-23T16:36:09.671-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T16:36:09.671-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T16:36:09.687-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-23T16:36:09.687-08:00 level=INFO msg="Export complete"
+time=2026-02-23T16:36:09.687-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T16:36:09.738-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T16:36:09.738-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:36:10.741-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T16:36:10.741-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T16:36:10.742-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T16:36:10.758-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:36:10.758-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T16:36:10.758-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T16:36:11.261-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T16:36:11.270-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T16:36:11.270-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T16:36:15.234-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-owj
+time=2026-02-23T16:36:15.736-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T16:36:15.736-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T16:36:15.737-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T16:36:19.647-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-owj
+time=2026-02-23T16:36:19.738-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-5t5
+time=2026-02-23T16:36:19.835-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-7ov
+time=2026-02-23T16:36:19.921-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-7ov
+time=2026-02-23T16:36:20.007-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-7ov
+time=2026-02-23T16:36:20.509-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T16:36:20.509-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T16:36:20.510-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T16:38:10.894-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-1s7
+time=2026-02-23T16:38:10.985-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-ho1
+time=2026-02-23T16:38:11.485-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T16:38:11.486-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T16:38:11.486-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T16:40:25.039-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-1s7
+time=2026-02-23T16:40:25.106-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-ho1
+time=2026-02-23T16:40:25.146-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-owj
+time=2026-02-23T16:40:25.192-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-5t5
+time=2026-02-23T16:40:25.256-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-7ov
+time=2026-02-23T16:40:25.757-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T16:40:25.758-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T16:40:25.760-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T16:53:51.875-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:53:52.877-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T16:53:52.879-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T16:53:52.883-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T16:53:52.898-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:53:52.898-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T16:53:52.898-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T16:53:53.425-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T16:53:53.430-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T16:53:53.431-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T16:53:54.116-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:53:55.118-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T16:53:55.118-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T16:53:55.118-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T16:53:55.127-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T16:53:55.127-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T16:53:55.127-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T16:53:55.581-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T16:53:55.586-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T16:53:55.587-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T17:04:14.262-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:04:15.265-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:04:15.266-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:04:15.269-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T17:04:15.286-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:04:15.286-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T17:04:15.286-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T17:04:15.755-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T17:04:15.761-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T17:04:15.762-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T17:04:27.589-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:04:27.793-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T17:04:27.845-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T17:04:27.845-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:04:28.907-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:04:28.908-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:04:28.921-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:04:29.665-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T17:04:29.715-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T17:04:29.715-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:04:30.717-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:04:30.717-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:04:30.720-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:04:31.740-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:04:32.746-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:04:32.746-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:04:32.747-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:05:05.339-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:05:06.341-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:05:06.342-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:05:06.343-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:14:45.793-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:14:46.800-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:14:46.813-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:14:46.853-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:14:48.551-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:14:49.553-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:14:49.557-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:14:49.580-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:15:02.468-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:15:03.469-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:15:03.470-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:15:03.471-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:15:03.584-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:15:04.586-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:15:04.586-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:15:04.594-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-23T17:51:45.177-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-3sw
+time=2026-02-23T17:51:45.679-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:51:45.679-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:51:45.691-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-23T17:51:45.691-08:00 level=INFO msg="Export complete"
+time=2026-02-23T17:51:45.691-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-23T17:51:45.742-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-23T17:51:45.742-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:51:46.283-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-vtw
+time=2026-02-23T17:51:46.746-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-23T17:51:46.746-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-23T17:51:46.748-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-23T17:51:46.765-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-23T17:51:46.765-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-23T17:51:46.765-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-23T17:51:46.783-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:51:46.783-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:51:46.784-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:51:47.253-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-23T17:51:47.260-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-23T17:51:47.262-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-23T17:51:47.352-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-zas
+time=2026-02-23T17:51:47.540-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-psb
+time=2026-02-23T17:51:47.681-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-ocd
+time=2026-02-23T17:51:47.837-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-50q
+time=2026-02-23T17:51:47.932-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-hx5
+time=2026-02-23T17:51:48.433-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:51:48.433-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:51:48.434-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:51:49.630-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-2hi
+time=2026-02-23T17:51:49.664-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-l3b
+time=2026-02-23T17:51:50.165-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:51:50.165-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:51:50.167-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:51:51.418-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-myh
+time=2026-02-23T17:51:51.920-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:51:51.920-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:51:51.920-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:52:02.560-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-psb
+time=2026-02-23T17:52:03.061-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:52:03.061-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:52:03.062-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:52:04.391-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-ocd
+time=2026-02-23T17:52:04.892-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:52:04.892-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:52:04.893-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:52:08.000-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-vtw
+time=2026-02-23T17:52:08.088-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-hx5
+time=2026-02-23T17:52:08.173-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-l3b
+time=2026-02-23T17:52:08.676-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:52:08.676-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:52:08.676-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:52:10.424-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-50q
+time=2026-02-23T17:52:10.514-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-50q
+time=2026-02-23T17:52:10.603-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-50q
+time=2026-02-23T17:52:11.103-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:52:11.103-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:52:11.104-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:52:13.397-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-2hi
+time=2026-02-23T17:52:13.898-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:52:13.899-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:52:13.899-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:52:15.124-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-myh
+time=2026-02-23T17:52:15.625-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:52:15.625-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:52:15.627-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:55:51.772-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-zas
+time=2026-02-23T17:55:52.273-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:55:52.273-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:55:52.274-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:57:12.429-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-zas
+time=2026-02-23T17:57:12.524-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-psb
+time=2026-02-23T17:57:13.026-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:57:13.027-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:57:13.031-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T17:57:35.922-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-psb
+time=2026-02-23T17:57:35.941-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-ocd
+time=2026-02-23T17:57:35.966-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-vtw
+time=2026-02-23T17:57:35.985-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-hx5
+time=2026-02-23T17:57:36.004-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-l3b
+time=2026-02-23T17:57:36.514-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T17:57:36.515-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T17:57:36.516-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T18:01:27.801-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-50q
+time=2026-02-23T18:01:28.301-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T18:01:28.301-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T18:01:28.302-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-23T18:02:55.132-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-50q
+time=2026-02-23T18:02:55.152-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-2hi
+time=2026-02-23T18:02:55.171-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-myh
+time=2026-02-23T18:02:55.190-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-3sw
+time=2026-02-23T18:02:55.692-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-23T18:02:55.692-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-23T18:02:55.693-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T13:54:01.130-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T13:54:01.319-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-24T13:54:01.370-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-24T13:54:01.370-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T13:54:02.481-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T13:54:02.482-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T13:54:02.502-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T13:54:03.310-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-24T13:54:03.361-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-24T13:54:03.361-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T13:54:04.362-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T13:54:04.362-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T13:54:04.368-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T13:54:04.667-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T13:54:05.669-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T13:54:05.669-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T13:54:05.670-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:02:38.062-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:02:39.064-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:02:39.066-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:02:39.067-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:04:19.363-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:04:20.366-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:04:20.366-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:04:20.367-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:04:58.986-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:04:59.989-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:04:59.990-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:04:59.993-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:05:01.295-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:05:02.296-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:05:02.297-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:05:02.297-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:05:02.357-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:05:03.359-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:05:03.362-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:05:03.364-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:15:20.849-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-3t8
+time=2026-02-24T14:15:20.852-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-7tk
+time=2026-02-24T14:15:20.854-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-g3e
+time=2026-02-24T14:15:20.856-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-cza
+time=2026-02-24T14:15:21.356-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:15:21.356-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:15:21.373-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-24T14:15:21.373-08:00 level=INFO msg="Export complete"
+time=2026-02-24T14:15:21.373-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-24T14:15:21.424-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-24T14:15:21.424-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:15:21.871-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-5uk
+time=2026-02-24T14:15:22.372-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:15:22.372-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:15:22.375-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:15:22.427-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:15:22.427-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:15:22.429-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-24T14:15:22.452-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:15:22.452-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-24T14:15:22.452-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-24T14:15:22.951-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-24T14:15:22.958-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-24T14:15:22.959-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-24T14:15:30.458-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-2zm
+time=2026-02-24T14:15:30.550-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-1lk
+time=2026-02-24T14:15:30.801-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-m4x
+time=2026-02-24T14:15:30.902-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-xcs
+time=2026-02-24T14:15:31.403-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:15:31.403-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:15:31.403-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:15:39.770-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-6hk
+time=2026-02-24T14:15:40.271-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:15:40.271-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:15:40.271-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:15:43.760-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-e3y
+time=2026-02-24T14:15:44.261-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:15:44.261-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:15:44.262-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:15:50.208-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-zmu
+time=2026-02-24T14:15:50.709-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:15:50.709-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:15:50.711-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:15:54.713-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-8ri
+time=2026-02-24T14:15:55.213-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:15:55.215-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:15:55.216-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:16:00.297-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-8vg
+time=2026-02-24T14:16:00.798-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:16:00.798-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:16:00.800-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:16:03.622-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-lmm
+time=2026-02-24T14:16:04.122-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:16:04.122-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:16:04.123-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:16:09.300-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-mfn
+time=2026-02-24T14:16:09.801-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:16:09.801-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:16:09.802-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:24:45.716-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-8ri
+time=2026-02-24T14:24:45.808-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-8vg
+time=2026-02-24T14:24:45.905-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-lmm
+time=2026-02-24T14:24:45.995-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-mfn
+time=2026-02-24T14:24:46.081-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-zmu
+time=2026-02-24T14:24:46.583-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-24T14:24:46.583-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-24T14:24:46.584-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-24T14:26:44.850-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:26:45.864-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:26:45.869-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:26:45.872-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-24T14:26:45.913-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:26:45.913-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-24T14:26:45.913-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-24T14:26:46.455-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-24T14:26:46.469-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-24T14:26:46.470-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-24T14:26:47.567-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:26:48.568-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:26:48.568-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:26:48.569-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-24T14:26:48.579-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:26:48.579-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-24T14:26:48.579-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-24T14:26:49.074-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-24T14:26:49.079-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-24T14:26:49.080-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-24T14:30:10.580-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:11.584-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:30:11.585-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:11.588-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:11.599-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:11.599-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-24T14:30:11.599-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-24T14:30:12.157-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-24T14:30:12.165-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-24T14:30:12.165-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-24T14:30:14.072-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:15.075-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:30:15.089-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:15.092-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:15.117-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:15.117-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-24T14:30:15.117-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-24T14:30:15.664-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-24T14:30:15.670-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-24T14:30:15.671-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-24T14:30:18.445-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:19.452-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:30:19.452-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:19.454-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:19.465-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:19.465-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-24T14:30:19.465-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-24T14:30:19.955-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-24T14:30:19.960-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-24T14:30:19.962-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-24T14:30:29.540-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:29.921-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-24T14:30:29.973-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-24T14:30:29.973-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:30.073-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:31.199-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:30:31.200-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:31.212-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:30:31.589-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-24T14:30:31.640-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-24T14:30:31.640-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:32.641-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:30:32.642-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:32.645-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:30:32.867-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:30:33.870-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:30:33.870-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:30:33.870-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T14:50:36.183-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T14:50:37.185-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T14:50:37.186-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T14:50:37.186-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T15:05:23.253-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T15:05:24.260-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T15:05:24.272-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T15:05:24.277-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T15:36:07.000-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T15:36:08.003-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T15:36:08.004-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T15:36:08.006-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T15:49:15.073-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T15:49:16.076-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T15:49:16.081-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T15:49:16.086-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T15:49:17.457-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T15:49:18.069-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T15:49:18.460-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T15:49:18.461-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T15:49:18.462-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T15:49:19.002-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-24T15:49:19.073-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T15:49:19.073-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T15:49:19.074-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-24T15:49:20.005-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-24T15:49:20.008-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-24T15:49:20.030-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-25T12:25:18.532-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-vv3
+time=2026-02-25T12:25:19.034-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T12:25:19.035-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T12:25:19.047-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-25T12:25:19.047-08:00 level=INFO msg="Export complete"
+time=2026-02-25T12:25:19.047-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-25T12:25:19.099-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-25T12:25:19.099-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T12:25:20.101-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-25T12:25:20.102-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-25T12:25:20.102-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-25T12:25:20.140-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T12:25:20.140-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-25T12:25:20.140-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-25T12:25:20.706-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-25T12:25:20.720-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-25T12:25:20.723-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-25T12:25:23.411-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-vv3
+time=2026-02-25T12:25:23.912-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T12:25:23.912-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T12:25:23.913-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T12:25:36.166-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-p6y
+time=2026-02-25T12:25:36.673-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T12:25:36.673-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T12:25:36.676-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T13:29:21.001-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-ai0
+time=2026-02-25T13:29:21.088-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-5vj
+time=2026-02-25T13:29:21.205-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-lb8
+time=2026-02-25T13:29:21.299-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-brl
+time=2026-02-25T13:29:21.800-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T13:29:21.800-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T13:29:21.801-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T13:29:25.227-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-5vj
+time=2026-02-25T13:29:25.317-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-brl
+time=2026-02-25T13:29:25.406-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-5vj
+time=2026-02-25T13:29:25.907-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T13:29:25.907-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T13:29:25.909-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T13:39:00.539-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-lb8
+time=2026-02-25T13:39:01.040-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T13:39:01.041-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T13:39:01.043-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T13:57:55.009-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-brl
+time=2026-02-25T13:57:55.510-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T13:57:55.510-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T13:57:55.515-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T14:13:04.412-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-p6y
+time=2026-02-25T14:13:04.913-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T14:13:04.914-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T14:13:04.916-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T14:13:13.645-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-5vj
+time=2026-02-25T14:13:14.147-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T14:13:14.147-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T14:13:14.151-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T14:13:22.348-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-0df
+time=2026-02-25T14:13:22.849-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T14:13:22.849-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T14:13:22.853-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T14:13:29.326-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-vp9
+time=2026-02-25T14:13:29.827-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T14:13:29.827-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T14:13:29.835-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:09:47.912-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-6kd
+time=2026-02-25T15:09:48.413-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:09:48.413-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:09:48.416-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:09:56.672-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-x5e
+time=2026-02-25T15:09:57.172-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:09:57.172-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:09:57.174-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:10:05.231-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-eha
+time=2026-02-25T15:10:05.735-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:10:05.735-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:10:05.738-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:10:13.829-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-8id
+time=2026-02-25T15:10:14.330-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:10:14.331-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:10:14.339-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:10:24.831-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-7bi
+time=2026-02-25T15:10:25.332-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:10:25.332-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:10:25.342-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:10:29.635-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-x5e
+time=2026-02-25T15:10:29.735-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-eha
+time=2026-02-25T15:10:29.838-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-8id
+time=2026-02-25T15:10:29.932-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-7bi
+time=2026-02-25T15:10:30.433-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:10:30.433-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:10:30.434-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:44:17.983-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-ai0
+time=2026-02-25T15:44:18.102-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-ai0
+time=2026-02-25T15:44:18.603-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:44:18.603-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:44:18.606-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:46:00.758-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-5vj
+time=2026-02-25T15:46:01.259-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:46:01.259-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:46:01.260-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:46:06.184-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-6kd
+time=2026-02-25T15:46:06.303-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-x5e
+time=2026-02-25T15:46:06.324-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-eha
+time=2026-02-25T15:46:06.345-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-8id
+time=2026-02-25T15:46:06.846-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:46:06.846-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:46:06.847-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T15:59:49.554-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-vp9
+time=2026-02-25T15:59:50.055-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T15:59:50.055-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T15:59:50.056-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:04:31.596-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-e87
+time=2026-02-25T16:04:32.097-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:04:32.097-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:04:32.099-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:04:36.723-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-kk3
+time=2026-02-25T16:04:37.225-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:04:37.225-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:04:37.226-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:04:45.543-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-99z
+time=2026-02-25T16:04:46.044-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:04:46.044-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:04:46.044-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:05:35.752-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-2ay
+time=2026-02-25T16:05:36.253-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:05:36.253-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:05:36.254-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:05:40.043-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-yqo
+time=2026-02-25T16:05:40.544-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:05:40.544-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:05:40.545-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:05:49.474-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-xzo
+time=2026-02-25T16:05:49.976-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:05:49.976-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:05:49.978-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:05:55.226-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-g1i
+time=2026-02-25T16:05:55.727-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:05:55.727-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:05:55.728-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:06:02.901-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-3ef
+time=2026-02-25T16:06:03.401-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:06:03.401-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:06:03.403-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:06:28.195-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-ay0
+time=2026-02-25T16:06:28.695-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:06:28.695-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:06:28.696-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:06:33.672-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-69a
+time=2026-02-25T16:06:34.173-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:06:34.173-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:06:34.174-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:06:37.991-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-t0y
+time=2026-02-25T16:06:38.492-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:06:38.492-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:06:38.494-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:06:51.417-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-0df
+time=2026-02-25T16:06:51.918-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:06:51.918-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:06:51.918-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:14:08.362-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-e87
+time=2026-02-25T16:14:08.381-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-99z
+time=2026-02-25T16:14:08.882-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:14:08.882-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:14:08.884-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:14:51.043-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-2ay
+time=2026-02-25T16:14:51.066-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-yqo
+time=2026-02-25T16:14:51.567-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:14:51.567-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:14:51.570-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:15:27.089-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-3ef
+time=2026-02-25T16:15:27.111-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-69a
+time=2026-02-25T16:15:27.132-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-t0y
+time=2026-02-25T16:15:27.633-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:15:27.633-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:15:27.634-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:15:37.307-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-xzo
+time=2026-02-25T16:15:37.327-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-g1i
+time=2026-02-25T16:15:37.350-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-ay0
+time=2026-02-25T16:15:37.851-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:15:37.851-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:15:37.853-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T16:15:51.733-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-kk3
+time=2026-02-25T16:15:52.234-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T16:15:52.234-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T16:15:52.235-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T17:25:58.013-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-7bi
+time=2026-02-25T17:25:58.514-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-25T17:25:58.514-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-25T17:25:58.516-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-25T18:45:47.343-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T18:45:47.601-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-25T18:45:47.654-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-25T18:45:47.655-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T18:45:48.716-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-25T18:45:48.721-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-25T18:45:48.737-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-25T18:45:50.626-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-25T18:45:50.677-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-25T18:45:50.677-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T18:45:51.680-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-25T18:45:51.680-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-25T18:45:51.695-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-25T18:45:51.988-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T18:45:52.990-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-25T18:45:52.991-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-25T18:45:52.993-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-25T19:27:12.063-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T19:27:13.070-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-25T19:27:13.073-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-25T19:27:13.084-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-25T19:27:20.453-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T19:27:21.456-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-25T19:27:21.457-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-25T19:27:21.459-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-25T19:27:22.037-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-25T19:27:23.039-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-25T19:27:23.039-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-25T19:27:23.048-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T08:36:52.413-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-07n
+time=2026-02-26T08:36:52.415-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-7k8
+time=2026-02-26T08:36:52.417-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-frz
+time=2026-02-26T08:36:52.418-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-1y1
+time=2026-02-26T08:36:52.514-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-g1j
+time=2026-02-26T08:36:52.515-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-437
+time=2026-02-26T08:36:52.517-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-6wc
+time=2026-02-26T08:36:52.518-08:00 level=INFO msg="Mutation detected: %s %s" create=debugg-ai-mcp-ij3
+time=2026-02-26T08:36:53.019-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-26T08:36:53.019-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-26T08:36:53.034-08:00 level=INFO msg="Exported to JSONL"
+time=2026-02-26T08:36:53.034-08:00 level=INFO msg="Export complete"
+time=2026-02-26T08:36:53.034-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-26T08:36:53.085-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-26T08:36:53.085-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T08:36:54.184-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T08:36:54.185-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T08:36:54.185-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-26T08:36:54.212-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T08:36:54.212-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-26T08:36:54.212-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-26T08:36:54.778-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-26T08:36:54.787-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-26T08:36:54.788-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-26T08:36:58.135-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-g1j
+time=2026-02-26T08:36:58.137-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-07n
+time=2026-02-26T08:36:58.140-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-07n
+time=2026-02-26T08:36:58.143-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-ij3
+time=2026-02-26T08:36:58.162-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-6wc
+time=2026-02-26T08:36:58.663-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-26T08:36:58.663-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-26T08:36:58.663-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-26T08:37:00.671-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-07n
+time=2026-02-26T08:37:00.764-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-437
+time=2026-02-26T08:37:00.859-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-6wc
+time=2026-02-26T08:37:00.943-08:00 level=INFO msg="Mutation detected: %s %s" update=debugg-ai-mcp-6wc
+time=2026-02-26T08:37:01.444-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-26T08:37:01.444-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-26T08:37:01.444-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-26T08:40:48.725-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-1y1
+time=2026-02-26T08:40:48.747-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-7k8
+time=2026-02-26T08:40:48.774-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-frz
+time=2026-02-26T08:40:48.800-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-07n
+time=2026-02-26T08:40:48.831-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-g1j
+time=2026-02-26T08:40:48.870-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-437
+time=2026-02-26T08:40:48.895-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-ij3
+time=2026-02-26T08:40:48.922-08:00 level=INFO msg="Mutation detected: %s %s" status=debugg-ai-mcp-6wc
+time=2026-02-26T08:40:49.425-08:00 level=INFO msg="Export triggered by mutation events"
+time=2026-02-26T08:40:49.425-08:00 level=INFO msg="Starting %s..." !BADKEY=export
+time=2026-02-26T08:40:49.427-08:00 level=INFO msg="Pre-export validation failed: %v" !BADKEY="refusing to export: JSONL content has changed since last import (import first to avoid data loss)"
+time=2026-02-26T09:11:05.526-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:11:06.533-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T09:11:06.547-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T09:11:06.554-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-26T09:11:06.572-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:11:06.572-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-26T09:11:06.572-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-26T09:11:07.118-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-26T09:11:07.137-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-26T09:11:07.140-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-26T09:41:44.687-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:41:45.699-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T09:41:45.704-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T09:41:45.708-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-26T09:41:45.739-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:41:45.739-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-26T09:41:45.739-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-26T09:41:46.279-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-26T09:41:46.294-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-26T09:41:46.295-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-26T09:58:40.158-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:58:41.160-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T09:58:41.163-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T09:58:41.167-08:00 level=INFO msg="JSONL content changed, proceeding with %s..." !BADKEY=auto-import
+time=2026-02-26T09:58:41.200-08:00 level=INFO msg="⚠️  WARNING: Uncommitted local changes detected in %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:58:41.201-08:00 level=INFO msg="   Pulling from remote may overwrite local unpushed changes."
+time=2026-02-26T09:58:41.201-08:00 level=INFO msg="   Consider running 'bd sync' to commit and push your changes first."
+time=2026-02-26T09:58:41.773-08:00 level=INFO msg="Pulled from remote"
+time=2026-02-26T09:58:41.789-08:00 level=INFO msg="Imported from JSONL"
+time=2026-02-26T09:58:41.792-08:00 level=INFO msg="Auto-import complete"
+time=2026-02-26T09:58:46.233-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:58:46.530-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-26T09:58:46.581-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-26T09:58:46.581-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:58:47.644-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T09:58:47.645-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T09:58:47.676-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T09:58:48.771-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-26T09:58:48.822-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-26T09:58:48.822-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:58:49.824-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T09:58:49.825-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T09:58:49.836-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T09:58:50.658-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T09:58:51.661-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T09:58:51.661-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T09:58:51.661-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T10:00:16.126-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T10:00:17.128-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T10:00:17.128-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T10:00:17.130-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T10:32:51.055-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T10:32:52.059-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T10:32:52.060-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T10:32:52.062-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T11:03:30.806-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T11:03:31.808-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T11:03:31.814-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T11:03:31.816-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T11:08:45.650-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T11:08:46.652-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T11:08:46.654-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T11:08:46.658-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-26T11:08:47.742-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-26T11:08:48.744-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-26T11:08:48.745-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-26T11:08:48.760-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-27T11:55:46.657-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-27T11:55:46.711-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-27T11:55:46.712-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-27T11:55:46.726-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-27T11:55:47.772-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-27T11:55:47.774-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-27T11:55:47.797-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-27T11:55:50.238-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-27T11:55:50.289-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-27T11:55:50.289-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-27T11:55:51.294-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-27T11:55:51.295-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-27T11:55:51.303-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-27T11:55:52.306-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-27T11:55:53.308-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-27T11:55:53.309-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-27T11:55:53.309-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-27T12:28:26.613-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-27T12:28:27.615-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-27T12:28:27.618-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-27T12:28:27.622-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-27T12:46:18.726-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-27T12:46:19.730-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-27T12:46:19.732-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-27T12:46:19.735-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-27T12:46:20.648-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-27T12:46:21.654-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-27T12:46:21.656-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-27T12:46:21.681-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T09:04:05.764-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-28T09:04:05.816-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-28T09:04:05.817-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T09:04:05.840-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T09:04:06.887-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T09:04:06.887-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T09:04:06.888-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T09:04:07.400-08:00 level=INFO msg="JSONL removed/renamed, re-establishing watch"
+time=2026-02-28T09:04:07.451-08:00 level=INFO msg="Successfully re-established JSONL watch after %v" !BADKEY=50ms
+time=2026-02-28T09:04:07.451-08:00 level=INFO msg="JSONL file created: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T09:04:08.452-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T09:04:08.452-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T09:04:08.454-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T09:04:08.716-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T09:04:09.718-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T09:04:09.719-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T09:04:09.732-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T09:04:17.406-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T09:04:18.408-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T09:04:18.409-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T09:04:18.413-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T09:04:55.737-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T09:04:56.742-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T09:04:56.742-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T09:04:56.744-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T09:34:30.337-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T09:34:31.340-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T09:34:31.340-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T09:34:31.341-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T10:05:09.857-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T10:05:10.859-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T10:05:10.860-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T10:05:10.862-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T10:35:52.958-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T10:35:53.963-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T10:35:53.968-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T10:35:53.970-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T11:06:40.771-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T11:06:41.836-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T11:06:41.890-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T11:06:41.964-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T11:14:10.619-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T11:14:11.625-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T11:14:11.628-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T11:14:11.637-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T11:14:12.365-08:00 level=INFO msg="File change detected: %s" !BADKEY=/Users/qosha/Repos/debugg-ai/debugg-ai-mcp/.beads/issues.jsonl
+time=2026-02-28T11:14:13.368-08:00 level=INFO msg="Import triggered by file change"
+time=2026-02-28T11:14:13.391-08:00 level=INFO msg="Starting %s..." !BADKEY=auto-import
+time=2026-02-28T11:14:13.393-08:00 level=INFO msg="Skipping %s: JSONL content unchanged" !BADKEY=auto-import
+time=2026-02-28T15:50:33.061-08:00 level=INFO msg="Received signal %v, shutting down..." !BADKEY=terminated
