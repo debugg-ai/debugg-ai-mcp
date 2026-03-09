@@ -21,6 +21,7 @@ import {
   findExistingTunnel,
   ensureTunnel,
   sanitizeResponseUrls,
+  touchTunnelById,
 } from '../utils/tunnelContext.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
@@ -147,6 +148,9 @@ export async function testPageChangesHandler(
     };
     let lastNodeCount = 0;
     const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
+      // Keep the tunnel alive while the workflow is actively running
+      if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
+
       const nodeCount = exec.nodeExecutions?.length ?? 0;
       if (nodeCount !== lastNodeCount || exec.status !== 'pending') {
         lastNodeCount = nodeCount;

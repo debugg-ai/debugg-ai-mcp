@@ -39,6 +39,14 @@ async function getNgrok() {
   return ngrokModule;
 }
 
+/**
+ * Reset the cached ngrok module so the next connect() bootstraps a fresh agent.
+ * Called when the last owned tunnel is disconnected and the agent process may have died.
+ */
+function resetNgrokModule(): void {
+  ngrokModule = null;
+}
+
 const logger = new Logger({ module: 'tunnelManager' });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -203,6 +211,15 @@ class TunnelManager {
       logger.warn(`ngrok.disconnect failed for tunnel ${tunnelId} (already cleaned up):`, error);
     }
 
+    // If no owned tunnels remain, the ngrok agent process may have exited.
+    // Reset module + init state so the next connect() bootstraps a fresh agent.
+    const hasOwnedTunnels = Array.from(this.activeTunnels.values()).some(t => t.isOwned);
+    if (!hasOwnedTunnels) {
+      logger.info('No owned tunnels remain — resetting ngrok module for fresh init on next request');
+      resetNgrokModule();
+      this.initialized = false;
+    }
+
     if (tunnelInfo.revokeKey) {
       tunnelInfo.revokeKey().catch((err) =>
         logger.warn(`Failed to revoke key for tunnel ${tunnelId}:`, err)
@@ -344,16 +361,38 @@ class TunnelManager {
       localAddr = inDocker ? `${dockerHost}:${port}` : port;
     }
 
-    try {
-      const ngrok = await getNgrok();
-      const tunnelUrl = await ngrok.connect({
-        proto: 'http' as const,
-        addr: localAddr,
-        hostname: tunnelDomain,
-        authtoken: authToken,
-      });
+    const connectWithRetry = async (): Promise<string> => {
+      try {
+        const ngrok = await getNgrok();
+        const url = await ngrok.connect({
+          proto: 'http' as const,
+          addr: localAddr,
+          hostname: tunnelDomain,
+          authtoken: authToken,
+        });
+        if (!url) throw new Error('ngrok.connect() returned empty URL');
+        return url;
+      } catch (firstError) {
+        // The ngrok agent process may have died after a previous disconnect.
+        // Reset module state and retry once with a fresh agent.
+        logger.warn(`ngrok.connect() failed, retrying with fresh agent: ${firstError}`);
+        resetNgrokModule();
+        this.initialized = false;
+        await this.ensureInitialized();
+        const ngrok = await getNgrok();
+        const url = await ngrok.connect({
+          proto: 'http' as const,
+          addr: localAddr,
+          hostname: tunnelDomain,
+          authtoken: authToken,
+        });
+        if (!url) throw new Error('ngrok.connect() returned empty URL after retry');
+        return url;
+      }
+    };
 
-      if (!tunnelUrl) throw new Error('ngrok.connect() returned empty URL');
+    try {
+      const tunnelUrl = await connectWithRetry();
 
       const publicUrl = generateTunnelUrl(originalUrl, tunnelId);
       const now = Date.now();

@@ -97,6 +97,16 @@ export async function releaseTunnel(ctx: TunnelContext): Promise<void> {
   }
 }
 
+/**
+ * Touch a tunnel's timer by ID to prevent auto-shutoff during active use.
+ * Safe to call with undefined (no-op).
+ */
+export function touchTunnelById(tunnelId?: string): void {
+  if (tunnelId) {
+    tunnelManager.touchTunnel(tunnelId);
+  }
+}
+
 // ─── Response sanitization ───────────────────────────────────────────────────
 
 /**
