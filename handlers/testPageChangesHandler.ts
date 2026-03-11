@@ -26,8 +26,9 @@ import {
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
-// Cache the template UUID within a server session to avoid re-fetching
+// Cache the template UUID and project UUID within a server session to avoid re-fetching
 let cachedTemplateUuid: string | null = null;
+let cachedProjectUuid: string | null = null;
 
 export async function testPageChangesHandler(
   input: TestPageChangesInput,
@@ -48,11 +49,16 @@ export async function testPageChangesHandler(
   const onStdinClose = () => abortController.abort();
   process.stdin.once('close', onStdinClose);
 
+  // Progress budget: 3 setup steps + 25 execution steps = 28 total
+  const SETUP_STEPS = 3;
+  const MAX_EXEC_STEPS = 25;
+  const TOTAL_STEPS = SETUP_STEPS + MAX_EXEC_STEPS;
+
   try {
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
       if (progressCallback) {
-        await progressCallback({ progress: 1, total: 10, message: 'Provisioning secure tunnel for localhost...' });
+        await progressCallback({ progress: 1, total: TOTAL_STEPS, message: 'Provisioning secure tunnel for localhost...' });
       }
 
       const reused = findExistingTunnel(ctx);
@@ -96,7 +102,7 @@ export async function testPageChangesHandler(
 
     // --- Find workflow template ---
     if (progressCallback) {
-      await progressCallback({ progress: 2, total: 10, message: 'Locating evaluation workflow template...' });
+      await progressCallback({ progress: 2, total: TOTAL_STEPS, message: 'Locating evaluation workflow template...' });
     }
 
     if (!cachedTemplateUuid) {
@@ -111,11 +117,29 @@ export async function testPageChangesHandler(
       logger.info(`Using workflow template: ${template.name} (${template.uuid})`);
     }
 
+    // --- Resolve project UUID (best-effort, non-blocking) ---
+    if (!cachedProjectUuid && config.defaults.repoName) {
+      try {
+        const project = await client.findProjectByRepoName(config.defaults.repoName);
+        if (project) {
+          cachedProjectUuid = project.uuid;
+          logger.info(`Resolved project: ${project.name} (${project.uuid})`);
+        } else {
+          logger.info(`No project found for repo "${config.defaults.repoName}" — proceeding without project_id`);
+        }
+      } catch (err) {
+        logger.warn(`Failed to look up project for repo "${config.defaults.repoName}": ${err}`);
+      }
+    }
+
     // --- Build context data (targetUrl is the tunnel URL for localhost, original URL otherwise) ---
     const contextData: Record<string, any> = {
       targetUrl: ctx.targetUrl ?? originalUrl,
       goal: input.description,
     };
+    if (cachedProjectUuid) {
+      contextData.projectId = cachedProjectUuid;
+    }
 
     // --- Build env (credentials/environment) ---
     const env: Record<string, any> = {};
@@ -127,7 +151,7 @@ export async function testPageChangesHandler(
 
     // --- Execute ---
     if (progressCallback) {
-      await progressCallback({ progress: 3, total: 10, message: 'Queuing workflow execution...' });
+      await progressCallback({ progress: 3, total: TOTAL_STEPS, message: 'Queuing workflow execution...' });
     }
 
     const executeResponse = await client.workflows!.executeWorkflow(
@@ -139,30 +163,55 @@ export async function testPageChangesHandler(
     logger.info(`Execution queued: ${executionUuid}`);
 
     // --- Poll ---
-    // nodeExecutions grows as each node completes: trigger → browser.setup → surfer.execute_task → browser.teardown
-    const NODE_PHASE_LABELS: Record<number, string> = {
-      0: 'Browser agent starting up...',
-      1: 'Browser ready, agent navigating...',
-      2: 'Agent evaluating app...',
-      3: 'Wrapping up...',
-    };
+    // Track execution progress via state.stepsTaken from the API.
+    // Setup is steps 1-3, execution maps stepsTaken into steps 4-28 (25 slots).
+    let lastStepsTaken = 0;
     let lastNodeCount = 0;
+    let observedMaxSteps = MAX_EXEC_STEPS;
     const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
       // Keep the tunnel alive while the workflow is actively running
       if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
 
       const nodeCount = exec.nodeExecutions?.length ?? 0;
-      if (nodeCount !== lastNodeCount || exec.status !== 'pending') {
+      const stepsTaken = exec.state?.stepsTaken ?? 0;
+
+      if (nodeCount !== lastNodeCount || stepsTaken !== lastStepsTaken || exec.status !== 'pending') {
         lastNodeCount = nodeCount;
-        logger.info(`Execution status: ${exec.status}, nodes completed: ${nodeCount}`);
+        lastStepsTaken = stepsTaken;
+        logger.info(`Execution status: ${exec.status}, nodes: ${nodeCount}, steps: ${stepsTaken}`);
       }
+
       if (progressCallback) {
-        // Map 0-4 completed nodes to progress 3-9 (3 reserved for tunnel setup)
-        const progress = Math.min(3 + nodeCount * 2, 9);
-        const message = exec.status === 'running'
-          ? (NODE_PHASE_LABELS[nodeCount] ?? 'Agent working...')
-          : exec.status;
-        await progressCallback({ progress, total: 10, message });
+        // If we see steps > our assumed max, bump our ceiling so progress never goes backwards
+        if (stepsTaken > observedMaxSteps) {
+          observedMaxSteps = stepsTaken + 5;
+        }
+
+        // Map stepsTaken (0..observedMaxSteps) into progress (SETUP_STEPS+1 .. TOTAL_STEPS-1)
+        // Reserve the last tick for the "Complete" message
+        let execProgress: number;
+        if (stepsTaken > 0) {
+          execProgress = SETUP_STEPS + Math.round((stepsTaken / observedMaxSteps) * (MAX_EXEC_STEPS - 1));
+        } else {
+          // No steps yet — show we're past setup but execution is starting
+          execProgress = SETUP_STEPS + 1;
+        }
+        execProgress = Math.min(execProgress, TOTAL_STEPS - 1);
+
+        let message: string;
+        if (exec.status === 'running') {
+          if (stepsTaken > 0) {
+            message = `Agent evaluating app... (step ${stepsTaken})`;
+          } else if (nodeCount === 0) {
+            message = 'Browser agent starting up...';
+          } else {
+            message = 'Browser ready, agent navigating...';
+          }
+        } else {
+          message = exec.status;
+        }
+
+        await progressCallback({ progress: execProgress, total: TOTAL_STEPS, message });
       }
     }, abortController.signal);
 
@@ -208,7 +257,7 @@ export async function testPageChangesHandler(
     logger.toolComplete('check_app_in_browser', duration);
 
     if (progressCallback) {
-      await progressCallback({ progress: 10, total: 10, message: `Complete: ${outcome}` });
+      await progressCallback({ progress: TOTAL_STEPS, total: TOTAL_STEPS, message: `Complete: ${outcome}` });
     }
 
     const content: ToolResponse['content'] = [

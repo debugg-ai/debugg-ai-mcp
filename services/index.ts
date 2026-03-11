@@ -31,6 +31,13 @@ class DebuggTransport extends AxiosTransport {
 }
 
 
+export interface ProjectInfo {
+  uuid: string;
+  name: string;
+  slug: string;
+  repo?: { uuid: string; name: string } | null;
+}
+
 export class DebuggAIServerClient  {
   tx: DebuggTransport | undefined;
   url: URL | undefined;
@@ -50,6 +57,36 @@ export class DebuggAIServerClient  {
     this.tx = new DebuggTransport({ baseUrl: serverUrl, apiKey: this.userApiKey, tokenType: config.api.tokenType });
     this.workflows = createWorkflowsService(this.tx);
     this.tunnels = createTunnelsService(this.tx);
+  }
+
+  /**
+   * Look up a project by repo name. Uses ?search= then client-side filters
+   * on repo.name (which is "owner/repo-name" format).
+   * Returns the first match or null.
+   */
+  public async findProjectByRepoName(repoName: string): Promise<ProjectInfo | null> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const response = await this.tx.get<{ results: ProjectInfo[] }>(
+      'api/v1/projects/',
+      { search: repoName }
+    );
+    const projects = response?.results ?? [];
+    if (projects.length === 0) return null;
+
+    // Exact match on project name or slug first
+    const exact = projects.find(
+      p => p.name === repoName || p.slug === repoName
+    );
+    if (exact) return exact;
+
+    // Match on repo.name (owner/repo-name — check if it ends with /repoName)
+    const repoMatch = projects.find(
+      p => p.repo?.name === repoName || p.repo?.name?.endsWith(`/${repoName}`)
+    );
+    if (repoMatch) return repoMatch;
+
+    // Fallback to first result from search
+    return projects[0];
   }
 
   /**
