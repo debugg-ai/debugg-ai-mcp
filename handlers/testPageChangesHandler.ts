@@ -254,6 +254,18 @@ export async function testPageChangesHandler(
       responsePayload.surferOutput = sanitizeResponseUrls(surferNode.outputData, ctx);
     }
 
+    // Include all node executions so clients get the full execution picture
+    if (finalExecution.nodeExecutions?.length) {
+      responsePayload.nodeExecutions = finalExecution.nodeExecutions.map(n => ({
+        nodeId: n.nodeId,
+        nodeType: n.nodeType,
+        status: n.status,
+        executionTimeMs: n.executionTimeMs,
+        error: n.error || undefined,
+        outputData: n.outputData,
+      }));
+    }
+
     logger.toolComplete('check_app_in_browser', duration);
 
     if (progressCallback) {
