@@ -219,31 +219,57 @@ export async function testPageChangesHandler(
 
     // --- Format result ---
     const outcome = finalExecution.state?.outcome ?? finalExecution.status;
-    const surferNode = finalExecution.nodeExecutions?.find(
-      n => n.nodeType === 'surfer.execute_task'
-    );
+    const nodes = finalExecution.nodeExecutions ?? [];
 
-    // Log all node executions to diagnose what the backend returns
-    logger.info('Node executions raw data', {
-      nodeCount: finalExecution.nodeExecutions?.length ?? 0,
-      nodes: finalExecution.nodeExecutions?.map(n => ({
-        nodeId: n.nodeId,
-        nodeType: n.nodeType,
-        status: n.status,
-        outputKeys: n.outputData ? Object.keys(n.outputData) : [],
-        outputData: n.outputData,
-      })),
+    // Extract step-by-step action trace from brain.step nodes
+    const brainSteps = nodes
+      .filter(n => n.nodeType === 'brain.step' && n.outputData?.decision)
+      .sort((a, b) => a.executionOrder - b.executionOrder);
+
+    const actionTrace = brainSteps.map((n, i) => {
+      const d = n.outputData!.decision;
+      return {
+        step: i + 1,
+        action: d.actionType ?? d.action_type,
+        intent: d.intent,
+        target: d.target,
+        value: d.value ?? undefined,
+        success: n.outputData!.success ?? n.status === 'success',
+        durationMs: n.executionTimeMs,
+      };
     });
+
+    // Extract evaluation from brain.evaluate node
+    const evalNode = nodes.find(n => n.nodeType === 'brain.evaluate');
+    const evaluation = evalNode?.outputData ? {
+      passed: evalNode.outputData.passed,
+      outcome: evalNode.outputData.outcome,
+      reason: evalNode.outputData.reason,
+      verifications: evalNode.outputData.verifications,
+    } : undefined;
+
+    // Also check for surfer.execute_task (older workflow graphs)
+    const surferNode = nodes.find(n => n.nodeType === 'surfer.execute_task');
 
     const responsePayload: Record<string, any> = {
       outcome,
       success: finalExecution.state?.success ?? false,
       status: finalExecution.status,
-      stepsTaken: finalExecution.state?.stepsTaken ?? surferNode?.outputData?.stepsTaken ?? 0,
+      stepsTaken: finalExecution.state?.stepsTaken ?? actionTrace.length ?? 0,
       targetUrl: originalUrl,
       executionId: executionUuid,
       durationMs: finalExecution.durationMs ?? duration,
     };
+
+    // The step-by-step action trace — what the browser agent did and why
+    if (actionTrace.length > 0) {
+      responsePayload.actionTrace = actionTrace;
+    }
+
+    // The final evaluation — pass/fail with reasoning
+    if (evaluation) {
+      responsePayload.evaluation = evaluation;
+    }
 
     if (finalExecution.state?.error) responsePayload.agentError = finalExecution.state.error;
     if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
@@ -252,18 +278,6 @@ export async function testPageChangesHandler(
     if (executeResponse.resolvedCredentialId) responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
     if (surferNode?.outputData) {
       responsePayload.surferOutput = sanitizeResponseUrls(surferNode.outputData, ctx);
-    }
-
-    // Include all node executions so clients get the full execution picture
-    if (finalExecution.nodeExecutions?.length) {
-      responsePayload.nodeExecutions = finalExecution.nodeExecutions.map(n => ({
-        nodeId: n.nodeId,
-        nodeType: n.nodeType,
-        status: n.status,
-        executionTimeMs: n.executionTimeMs,
-        error: n.error || undefined,
-        outputData: n.outputData,
-      }));
     }
 
     logger.toolComplete('check_app_in_browser', duration);
