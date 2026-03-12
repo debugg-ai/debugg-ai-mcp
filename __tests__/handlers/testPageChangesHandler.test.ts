@@ -389,6 +389,7 @@ const mockFindExistingTunnel = jest.fn<(ctx: any) => any>();
 const mockBuildContext = jest.fn<(url: string) => any>();
 const mockResolveTargetUrl = jest.fn<(input: any) => string>();
 const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
+const mockTouchTunnelById = jest.fn<(id: string) => void>();
 
 // ── Module mocks (BEFORE dynamic import) ───────────────────────────────────
 
@@ -411,6 +412,7 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   findExistingTunnel: mockFindExistingTunnel,
   ensureTunnel: mockEnsureTunnel,
   sanitizeResponseUrls: mockSanitizeResponseUrls,
+  touchTunnelById: mockTouchTunnelById,
 }));
 
 jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
