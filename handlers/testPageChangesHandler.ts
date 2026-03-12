@@ -173,7 +173,10 @@ export async function testPageChangesHandler(
       if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
 
       const nodeCount = exec.nodeExecutions?.length ?? 0;
-      const stepsTaken = exec.state?.stepsTaken ?? 0;
+      const brainStepCount = (exec.nodeExecutions ?? [])
+        .filter(n => n.nodeType === 'brain.step').length;
+      // Prefer actual brain.step node count over API stepsTaken (which may lag)
+      const stepsTaken = Math.max(brainStepCount, exec.state?.stepsTaken ?? 0);
 
       if (nodeCount !== lastNodeCount || stepsTaken !== lastStepsTaken || exec.status !== 'pending') {
         lastNodeCount = nodeCount;
@@ -201,7 +204,21 @@ export async function testPageChangesHandler(
         let message: string;
         if (exec.status === 'running') {
           if (stepsTaken > 0) {
-            message = `Agent evaluating app... (step ${stepsTaken})`;
+            // Extract the latest brain.step to show what the agent is doing
+            const latestStep = (exec.nodeExecutions ?? [])
+              .filter(n => n.nodeType === 'brain.step' && n.outputData?.decision)
+              .sort((a, b) => b.executionOrder - a.executionOrder)[0];
+
+            if (latestStep?.outputData?.decision) {
+              const d = latestStep.outputData.decision;
+              const action = d.actionType ?? d.action_type ?? 'working';
+              const intent = d.intent;
+              message = intent
+                ? `Step ${stepsTaken}: [${action}] ${intent}`
+                : `Step ${stepsTaken}: ${action}`;
+            } else {
+              message = `Agent evaluating app... (step ${stepsTaken})`;
+            }
           } else if (nodeCount === 0) {
             message = 'Browser agent starting up...';
           } else {
