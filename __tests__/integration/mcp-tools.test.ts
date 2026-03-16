@@ -76,11 +76,8 @@ describe('MCP Tool Handlers Integration Tests', () => {
 
       const input = {
         description: 'MCP Integration Test - full parameters',
-        localPort: 3001,
-        filePath: '/tmp/test/index.html',
+        url: 'https://example.com',
         repoName: 'test-org/test-repo',
-        branchName: 'feature-branch',
-        repoPath: '/tmp/test'
       };
 
       const context: ToolContext = {
@@ -202,34 +199,8 @@ describe('MCP Tool Handlers Integration Tests', () => {
       expect(['json', 'simple']).toContain(config.logging.format);
     });
 
-    test('should have optional defaults when env vars not set', () => {
-      // These should be undefined if not set via environment
-      if (!process.env.DEBUGGAI_LOCAL_PORT) {
-        expect(config.defaults.localPort).toBeUndefined();
-      }
-      
-      if (!process.env.DEBUGGAI_LOCAL_REPO_NAME) {
-        expect(config.defaults.repoName).toBeUndefined();
-      }
-
-      if (!process.env.DEBUGGAI_LOCAL_FILE_PATH) {
-        expect(config.defaults.filePath).toBeUndefined();
-      }
-    });
-
-    test('should use environment variables when provided', () => {
-      // These should match what's in the test config
-      if (process.env.DEBUGGAI_LOCAL_REPO_PATH) {
-        expect(config.defaults.repoPath).toBe(process.env.DEBUGGAI_LOCAL_REPO_PATH);
-      }
-
-      if (process.env.DEBUGGAI_LOCAL_REPO_NAME) {
-        expect(config.defaults.repoName).toBe(process.env.DEBUGGAI_LOCAL_REPO_NAME);
-      }
-
-      if (process.env.ENVIRONMENT && process.env.ENVIRONMENT !== 'test') {
-        expect(process.env.ENVIRONMENT).toBe('local');
-      }
+    test('should have defaults object', () => {
+      expect(config.defaults).toBeDefined();
     });
   });
 });

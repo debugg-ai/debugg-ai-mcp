@@ -46,6 +46,10 @@ export const testPageChangesTool: Tool = {
         type: "string",
         description: "Password to log in with (used together with username)"
       },
+      repoName: {
+        type: "string",
+        description: "GitHub repository name (e.g. 'my-org/my-repo' or 'my-repo'). Used to link this test to a DebuggAI project for tracking and history."
+      },
     },
     required: ["description", "url"],
     additionalProperties: false

@@ -26,9 +26,9 @@ import {
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
-// Cache the template UUID and project UUID within a server session to avoid re-fetching
+// Cache the template UUID and project UUIDs within a server session to avoid re-fetching
 let cachedTemplateUuid: string | null = null;
-let cachedProjectUuid: string | null = null;
+const projectUuidCache = new Map<string, string>();
 
 export async function testPageChangesHandler(
   input: TestPageChangesInput,
@@ -118,17 +118,22 @@ export async function testPageChangesHandler(
     }
 
     // --- Resolve project UUID (best-effort, non-blocking) ---
-    if (!cachedProjectUuid && config.defaults.repoName) {
-      try {
-        const project = await client.findProjectByRepoName(config.defaults.repoName);
-        if (project) {
-          cachedProjectUuid = project.uuid;
-          logger.info(`Resolved project: ${project.name} (${project.uuid})`);
-        } else {
-          logger.info(`No project found for repo "${config.defaults.repoName}" — proceeding without project_id`);
+    let projectUuid: string | undefined;
+    if (input.repoName) {
+      projectUuid = projectUuidCache.get(input.repoName);
+      if (!projectUuid) {
+        try {
+          const project = await client.findProjectByRepoName(input.repoName);
+          if (project) {
+            projectUuid = project.uuid;
+            projectUuidCache.set(input.repoName, projectUuid);
+            logger.info(`Resolved project: ${project.name} (${project.uuid})`);
+          } else {
+            logger.info(`No project found for repo "${input.repoName}" — proceeding without project_id`);
+          }
+        } catch (err) {
+          logger.warn(`Failed to look up project for repo "${input.repoName}": ${err}`);
         }
-      } catch (err) {
-        logger.warn(`Failed to look up project for repo "${config.defaults.repoName}": ${err}`);
       }
     }
 
@@ -137,8 +142,8 @@ export async function testPageChangesHandler(
       targetUrl: ctx.targetUrl ?? originalUrl,
       goal: input.description,
     };
-    if (cachedProjectUuid) {
-      contextData.projectId = cachedProjectUuid;
+    if (projectUuid) {
+      contextData.projectId = projectUuid;
     }
 
     // --- Build env (credentials/environment) ---

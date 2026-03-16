@@ -21,6 +21,7 @@ export const TestPageChangesInputSchema = z.object({
   credentialRole: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
+  repoName: z.string().optional(),
 });
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;

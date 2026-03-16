@@ -33,13 +33,7 @@ const configSchema = z.object({
     tokenType: z.enum(['token', 'bearer']).default('token'),
     baseUrl: z.string().url().default('https://api.debugg.ai'),
   }),
-  defaults: z.object({
-    localPort: z.number().int().min(1).max(65535).optional(),
-    repoName: z.string().optional(),
-    branchName: z.string().optional(),
-    repoPath: z.string().optional(),
-    filePath: z.string().optional(),
-  }),
+  defaults: z.object({}),
   logging: z.object({
     level: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
     format: z.enum(['json', 'simple']).default('simple'),
@@ -64,13 +58,7 @@ export function loadConfig(): Config {
       tokenType: (process.env.DEBUGGAI_TOKEN_TYPE as 'token' | 'bearer') || 'token',
       baseUrl: process.env.DEBUGGAI_API_URL || 'https://api.debugg.ai',
     },
-    defaults: {
-      localPort: process.env.DEBUGGAI_LOCAL_PORT ? parseInt(process.env.DEBUGGAI_LOCAL_PORT, 10) : undefined,
-      repoName: process.env.DEBUGGAI_LOCAL_REPO_NAME || undefined,
-      branchName: process.env.DEBUGGAI_LOCAL_BRANCH_NAME || undefined,
-      repoPath: process.env.DEBUGGAI_LOCAL_REPO_PATH || undefined,
-      filePath: process.env.DEBUGGAI_LOCAL_FILE_PATH || undefined,
-    },
+    defaults: {},
     logging: {
       level: (process.env.LOG_LEVEL as any) || 'info',
       format: (process.env.LOG_FORMAT as any) || 'simple',

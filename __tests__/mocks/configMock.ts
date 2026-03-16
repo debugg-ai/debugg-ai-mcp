@@ -13,13 +13,7 @@ export const createMockConfig = (overrides: Partial<Config> = {}): Config => {
       key: 'test-api-key-for-testing',
       baseUrl: 'https://api.debugg.ai',
     },
-    defaults: {
-      localPort: 3000,
-      repoName: 'test-repo',
-      branchName: 'test-branch',
-      repoPath: '/test/repo/path',
-      filePath: '/test/file/path',
-    },
+    defaults: {},
     logging: {
       level: 'error',
       format: 'simple',

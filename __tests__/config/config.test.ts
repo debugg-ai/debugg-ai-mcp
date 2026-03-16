@@ -27,19 +27,8 @@ describe('Configuration Management', () => {
     expect(config.logging.format).toMatch(/^(json|simple)$/);
   });
 
-  test('config should handle optional defaults correctly', () => {
-    // These should be undefined if environment variables are not set
-    if (!process.env.DEBUGGAI_LOCAL_PORT) {
-      expect(config.defaults.localPort).toBeUndefined();
-    }
-    
-    if (!process.env.DEBUGGAI_LOCAL_REPO_NAME) {
-      expect(config.defaults.repoName).toBeUndefined();
-    }
-    
-    if (!process.env.DEBUGGAI_LOCAL_FILE_PATH) {
-      expect(config.defaults.filePath).toBeUndefined();
-    }
+  test('config should have defaults object', () => {
+    expect(config.defaults).toBeDefined();
   });
 
   test('config should throw error for missing API key', () => {
@@ -65,7 +54,6 @@ describe('config env var precedence', () => {
     'DEBUGGAI_API_KEY',
     'DEBUGGAI_TOKEN_TYPE',
     'DEBUGGAI_API_URL',
-    'DEBUGGAI_LOCAL_PORT',
   ];
 
   beforeEach(() => {
@@ -136,16 +124,4 @@ describe('config env var precedence', () => {
     expect(cfg.api.baseUrl).toBe('https://api.debugg.ai');
   });
 
-  test('localPort is parsed as integer from DEBUGGAI_LOCAL_PORT', () => {
-    process.env.DEBUGGAI_API_KEY = 'some-key';
-    process.env.DEBUGGAI_LOCAL_PORT = '3000';
-    const cfg = loadConfig();
-    expect(cfg.defaults.localPort).toBe(3000);
-  });
-
-  test('localPort is undefined when DEBUGGAI_LOCAL_PORT is not set', () => {
-    process.env.DEBUGGAI_API_KEY = 'some-key';
-    const cfg = loadConfig();
-    expect(cfg.defaults.localPort).toBeUndefined();
-  });
 });
