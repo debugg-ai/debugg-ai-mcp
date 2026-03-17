@@ -137,10 +137,10 @@ export async function testPageChangesHandler(
       }
     }
 
-    // --- Build context data (targetUrl is the tunnel URL for localhost, original URL otherwise) ---
+    // --- Build context data (camelCase here — axiosTransport auto-converts to snake_case) ---
     const contextData: Record<string, any> = {
       targetUrl: ctx.targetUrl ?? originalUrl,
-      goal: input.description,
+      question: input.description,
     };
     if (projectUuid) {
       contextData.projectId = projectUuid;
@@ -155,6 +155,7 @@ export async function testPageChangesHandler(
     if (input.password) env.password = input.password;
 
     // --- Execute ---
+    logger.info('Sending contextData', { contextData, env: Object.keys(env).length > 0 ? env : undefined });
     if (progressCallback) {
       await progressCallback({ progress: 3, total: TOTAL_STEPS, message: 'Queuing workflow execution...' });
     }
