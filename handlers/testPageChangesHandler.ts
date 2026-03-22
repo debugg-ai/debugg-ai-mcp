@@ -212,11 +212,11 @@ export async function testPageChangesHandler(
           if (stepsTaken > 0) {
             // Extract the latest brain.step to show what the agent is doing
             const latestStep = (exec.nodeExecutions ?? [])
-              .filter(n => n.nodeType === 'brain.step' && n.outputData?.decision)
+              .filter(n => n.nodeType === 'brain.step' && n.outputData)
               .sort((a, b) => b.executionOrder - a.executionOrder)[0];
 
-            if (latestStep?.outputData?.decision) {
-              const d = latestStep.outputData.decision;
+            const d = latestStep?.outputData?.decision ?? latestStep?.outputData;
+            if (d) {
               const action = d.actionType ?? d.action_type ?? 'working';
               const intent = d.intent;
               message = intent
@@ -244,13 +244,18 @@ export async function testPageChangesHandler(
     const outcome = finalExecution.state?.outcome ?? finalExecution.status;
     const nodes = finalExecution.nodeExecutions ?? [];
 
-    // Extract step-by-step action trace from brain.step nodes
+    // subworkflow.run is the current graph shape — carries outcome, actionHistory, screenshot
+    const subworkflowNode = nodes.find(n => n.nodeType === 'subworkflow.run');
+    // surfer.execute_task and brain.step/brain.evaluate are older graph shapes
+    const surferNode = nodes.find(n => n.nodeType === 'surfer.execute_task');
+
+    // Action trace: brain.step nodes (old) → subworkflow.run actionHistory (new)
     const brainSteps = nodes
-      .filter(n => n.nodeType === 'brain.step' && n.outputData?.decision)
+      .filter(n => n.nodeType === 'brain.step' && n.outputData)
       .sort((a, b) => a.executionOrder - b.executionOrder);
 
     const actionTrace = brainSteps.map((n, i) => {
-      const d = n.outputData!.decision;
+      const d = n.outputData!.decision ?? n.outputData!;
       return {
         step: i + 1,
         action: d.actionType ?? d.action_type,
@@ -262,38 +267,52 @@ export async function testPageChangesHandler(
       };
     });
 
-    // Extract evaluation from brain.evaluate node
-    const evalNode = nodes.find(n => n.nodeType === 'brain.evaluate');
-    const evaluation = evalNode?.outputData ? {
-      passed: evalNode.outputData.passed,
-      outcome: evalNode.outputData.outcome,
-      reason: evalNode.outputData.reason,
-      verifications: evalNode.outputData.verifications,
-    } : undefined;
+    const subworkflowHistory = subworkflowNode?.outputData?.actionHistory;
+    if (actionTrace.length === 0 && Array.isArray(subworkflowHistory) && subworkflowHistory.length > 0) {
+      subworkflowHistory.forEach((step: any, i: number) => {
+        actionTrace.push({
+          step: i + 1,
+          action: step.actionType ?? step.action_type ?? step.action,
+          intent: step.intent,
+          target: step.target,
+          value: step.value ?? undefined,
+          success: step.success ?? true,
+          durationMs: step.durationMs ?? step.duration_ms ?? undefined,
+        });
+      });
+    }
 
-    // Also check for surfer.execute_task (older workflow graphs)
-    const surferNode = nodes.find(n => n.nodeType === 'surfer.execute_task');
+    // Evaluation: brain.evaluate (old) → subworkflow.run outcome/success (new)
+    const evalNode = nodes.find(n => n.nodeType === 'brain.evaluate');
+    let evaluation: Record<string, any> | undefined;
+    if (evalNode?.outputData) {
+      evaluation = {
+        passed: evalNode.outputData.passed,
+        outcome: evalNode.outputData.outcome,
+        reason: evalNode.outputData.reason,
+        verifications: evalNode.outputData.verifications,
+      };
+    } else if (subworkflowNode?.outputData) {
+      const sw = subworkflowNode.outputData;
+      evaluation = {
+        passed: sw.success,
+        outcome: sw.outcome,
+        reason: sw.error || undefined,
+      };
+    }
 
     const responsePayload: Record<string, any> = {
       outcome,
-      success: finalExecution.state?.success ?? false,
+      success: finalExecution.state?.success ?? subworkflowNode?.outputData?.success ?? false,
       status: finalExecution.status,
-      stepsTaken: finalExecution.state?.stepsTaken ?? actionTrace.length ?? 0,
+      stepsTaken: finalExecution.state?.stepsTaken ?? subworkflowNode?.outputData?.stepsTaken ?? actionTrace.length,
       targetUrl: originalUrl,
       executionId: executionUuid,
       durationMs: finalExecution.durationMs ?? duration,
     };
 
-    // The step-by-step action trace — what the browser agent did and why
-    if (actionTrace.length > 0) {
-      responsePayload.actionTrace = actionTrace;
-    }
-
-    // The final evaluation — pass/fail with reasoning
-    if (evaluation) {
-      responsePayload.evaluation = evaluation;
-    }
-
+    if (actionTrace.length > 0) responsePayload.actionTrace = actionTrace;
+    if (evaluation) responsePayload.evaluation = evaluation;
     if (finalExecution.state?.error) responsePayload.agentError = finalExecution.state.error;
     if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
     if (finalExecution.errorInfo?.failedNodeId) responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
@@ -313,17 +332,26 @@ export async function testPageChangesHandler(
       { type: 'text', text: JSON.stringify(responsePayload, null, 2) },
     ];
 
-    // Search all node outputs for screenshot/gif URLs — not just the surfer node
-    const SCREENSHOT_KEYS = ['finalScreenshot', 'screenshot', 'screenshotUrl', 'screenshotUri'];
+    // Screenshot: check for already-base64 field first (subworkflow.run), then URL-based fields
+    const SCREENSHOT_URL_KEYS = ['finalScreenshot', 'screenshot', 'screenshotUrl', 'screenshotUri'];
     const GIF_KEYS = ['runGif', 'gifUrl', 'gif', 'videoUrl', 'recordingUrl'];
 
-    let screenshotUrl: string | null = null;
+    let screenshotEmbedded = false;
     let gifUrl: string | null = null;
 
-    for (const node of finalExecution.nodeExecutions ?? []) {
+    // subworkflow.run carries screenshotB64 directly — no fetch needed
+    const screenshotB64 = subworkflowNode?.outputData?.screenshotB64;
+    if (typeof screenshotB64 === 'string' && screenshotB64) {
+      logger.info('Embedding inline base64 screenshot from subworkflow.run');
+      content.push(imageContentBlock(screenshotB64, 'image/png'));
+      screenshotEmbedded = true;
+    }
+
+    let screenshotUrl: string | null = null;
+    for (const node of nodes) {
       const data = node.outputData ?? {};
-      if (!screenshotUrl) {
-        for (const key of SCREENSHOT_KEYS) {
+      if (!screenshotEmbedded && !screenshotUrl) {
+        for (const key of SCREENSHOT_URL_KEYS) {
           if (typeof data[key] === 'string' && data[key]) {
             screenshotUrl = data[key] as string;
             break;
@@ -338,10 +366,10 @@ export async function testPageChangesHandler(
           }
         }
       }
-      if (screenshotUrl && gifUrl) break;
+      if ((screenshotEmbedded || screenshotUrl) && gifUrl) break;
     }
 
-    if (screenshotUrl) {
+    if (!screenshotEmbedded && screenshotUrl) {
       logger.info(`Embedding screenshot: ${screenshotUrl}`);
       const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
       if (img) content.push(imageContentBlock(img.data, img.mimeType));
