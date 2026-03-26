@@ -241,15 +241,6 @@ export async function testPageChangesHandler(
 
     const duration = Date.now() - startTime;
 
-    // If the execution failed because the tunnel URL was unreachable, evict the dead tunnel
-    // so the next call re-provisions a fresh one instead of reusing a dead entry.
-    const tunnelErrorMsg = finalExecution.errorMessage ?? finalExecution.state?.error ?? '';
-    if (ctx.tunnelId && tunnelErrorMsg.includes('unreachable') && tunnelErrorMsg.includes('ngrok')) {
-      logger.warn(`Tunnel ${ctx.tunnelId} appears dead (unreachable) — evicting from cache`);
-      tunnelManager.stopTunnel(ctx.tunnelId).catch(() => {});
-      ctx = { ...ctx, tunnelId: undefined };
-    }
-
     // --- Format result ---
     const outcome = finalExecution.state?.outcome ?? finalExecution.status;
     const nodes = finalExecution.nodeExecutions ?? [];
@@ -403,12 +394,13 @@ export async function testPageChangesHandler(
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
     process.stdin.removeListener('close', onStdinClose);
-    // Tunnels stay alive for reuse — the 55-min auto-shutoff on TunnelManager
-    // fires revokeKey when the tunnel actually stops.
-    //
-    // Only revoke explicitly when we provisioned a key but tunnel creation failed
-    // (keyId set, ctx.tunnelId not set → key was never attached to a tunnel).
-    if (keyId && !ctx.tunnelId) {
+    // Always tear down the tunnel when the request completes.
+    if (ctx.tunnelId) {
+      tunnelManager.stopTunnel(ctx.tunnelId).catch(err =>
+        logger.warn(`Failed to stop tunnel ${ctx.tunnelId}: ${err}`)
+      );
+    } else if (keyId) {
+      // Provisioned a key but tunnel creation failed — revoke the orphaned key.
       client.revokeNgrokKey(keyId).catch(err =>
         logger.warn(`Failed to revoke unused ngrok key ${keyId}: ${err}`)
       );
