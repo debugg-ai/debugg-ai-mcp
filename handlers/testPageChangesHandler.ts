@@ -23,6 +23,7 @@ import {
   sanitizeResponseUrls,
   touchTunnelById,
 } from '../utils/tunnelContext.js';
+import { tunnelManager } from '../services/ngrok/tunnelManager.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
@@ -239,6 +240,15 @@ export async function testPageChangesHandler(
     }, abortController.signal);
 
     const duration = Date.now() - startTime;
+
+    // If the execution failed because the tunnel URL was unreachable, evict the dead tunnel
+    // so the next call re-provisions a fresh one instead of reusing a dead entry.
+    const tunnelErrorMsg = finalExecution.errorMessage ?? finalExecution.state?.error ?? '';
+    if (ctx.tunnelId && tunnelErrorMsg.includes('unreachable') && tunnelErrorMsg.includes('ngrok')) {
+      logger.warn(`Tunnel ${ctx.tunnelId} appears dead (unreachable) — evicting from cache`);
+      tunnelManager.stopTunnel(ctx.tunnelId).catch(() => {});
+      ctx = { ...ctx, tunnelId: undefined };
+    }
 
     // --- Format result ---
     const outcome = finalExecution.state?.outcome ?? finalExecution.status;
