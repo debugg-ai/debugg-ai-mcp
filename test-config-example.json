@@ -9,12 +9,7 @@
                 "DEBUGGAI_API_KEY": "your key here",
                 "TEST_USERNAME_EMAIL": "test email here",
                 "TEST_USER_PASSWORD": "test password here",
-                "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true",
-                "DEBUGGAI_LOCAL_PORT": 3000,
-                "DEBUGGAI_LOCAL_REPO_NAME": "your repo name here",
-                "DEBUGGAI_LOCAL_BRANCH_NAME": "your branch name here",
-                "DEBUGGAI_LOCAL_REPO_PATH": "/Users/your username here/Documents/GitHub/your repo name here",
-                "DEBUGGAI_LOCAL_FILE_PATH": "optional file path here"
+                "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true"
             },
             "options": {}
         },
@@ -28,12 +23,7 @@
                 "DEBUGGAI_API_KEY": "your key here",
                 "TEST_USERNAME_EMAIL": "test email here",
                 "TEST_USER_PASSWORD": "test password here",
-                "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true",
-                "DEBUGGAI_LOCAL_PORT": 3000,
-                "DEBUGGAI_LOCAL_REPO_NAME": "your repo name here",
-                "DEBUGGAI_LOCAL_BRANCH_NAME": "your branch name here",
-                "DEBUGGAI_LOCAL_REPO_PATH": "/Users/your username here/Documents/GitHub/your repo name here",
-                "DEBUGGAI_LOCAL_FILE_PATH": "optional file path here"
+                "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true"
             },
             "options": {}
         },
@@ -46,28 +36,14 @@
                 "--init",
                 "-e",
                 "DEBUGGAI_API_KEY=your key here",
-                "-e",
-                "DEBUGGAI_LOCAL_PORT=3000",
-                "-e",
-                "DEBUGGAI_LOCAL_REPO_NAME=your repo name here",
-                "-e",
-                "DEBUGGAI_LOCAL_BRANCH_NAME=your branch name here",
-                "-e",
-                "DEBUGGAI_LOCAL_REPO_PATH=/Users/your username here/Documents/GitHub/your repo name here",
                 "quinnosha/debugg-ai-mcp"
             ],
             "env": {
                 "DEBUGGAI_API_KEY": "your key here",
                 "TEST_USERNAME_EMAIL": "test email here",
                 "TEST_USER_PASSWORD": "test password here",
-                "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true",
-                "DEBUGGAI_LOCAL_PORT": 3000,
-                "DEBUGGAI_LOCAL_REPO_NAME": "your repo name here",
-                "DEBUGGAI_LOCAL_BRANCH_NAME": "your branch name here",
-                "DEBUGGAI_LOCAL_REPO_PATH": "/Users/your username here/Documents/GitHub/your repo name here",
-                "DEBUGGAI_LOCAL_FILE_PATH": "optional file path here"
+                "MCP_REQUEST_TIMEOUT_RESET_ON_PROGRESS": "true"
             }
-    
         }
     }
 }

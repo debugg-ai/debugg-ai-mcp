@@ -23,6 +23,7 @@ import {
   sanitizeResponseUrls,
   touchTunnelById,
 } from '../utils/tunnelContext.js';
+import { detectRepoName } from '../utils/gitContext.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
@@ -119,21 +120,23 @@ export async function testPageChangesHandler(
     }
 
     // --- Resolve project UUID (best-effort, non-blocking) ---
+    // Use explicit repoName if provided, otherwise auto-detect from git remote
+    const repoName = input.repoName || detectRepoName();
     let projectUuid: string | undefined;
-    if (input.repoName) {
-      projectUuid = projectUuidCache.get(input.repoName);
+    if (repoName) {
+      projectUuid = projectUuidCache.get(repoName);
       if (!projectUuid) {
         try {
-          const project = await client.findProjectByRepoName(input.repoName);
+          const project = await client.findProjectByRepoName(repoName);
           if (project) {
             projectUuid = project.uuid;
-            projectUuidCache.set(input.repoName, projectUuid);
+            projectUuidCache.set(repoName, projectUuid);
             logger.info(`Resolved project: ${project.name} (${project.uuid})`);
           } else {
-            logger.info(`No project found for repo "${input.repoName}" — proceeding without project_id`);
+            logger.info(`No project found for repo "${repoName}" — proceeding without project_id`);
           }
         } catch (err) {
-          logger.warn(`Failed to look up project for repo "${input.repoName}": ${err}`);
+          logger.warn(`Failed to look up project for repo "${repoName}": ${err}`);
         }
       }
     }

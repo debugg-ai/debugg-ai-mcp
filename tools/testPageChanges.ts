@@ -48,7 +48,7 @@ export const testPageChangesTool: Tool = {
       },
       repoName: {
         type: "string",
-        description: "GitHub repository name (e.g. 'my-org/my-repo' or 'my-repo'). Used to link this test to a DebuggAI project for tracking and history."
+        description: "GitHub repository name (e.g. 'my-org/my-repo'). Auto-detected from the current git repo — only provide this if you want to run against a different project than the one you're in."
       },
     },
     required: ["description", "url"],
