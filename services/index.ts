@@ -60,32 +60,38 @@ export class DebuggAIServerClient  {
   }
 
   /**
-   * Look up a project by repo name. Uses ?search= then client-side filters
-   * on repo.name (which is "owner/repo-name" format).
-   * Returns the first match or null.
+   * Look up a project by repo name.
+   * Accepts "owner/repo" or bare "repo" — searches with the short name
+   * (more likely to match project names) then ranks results by match quality.
    */
   public async findProjectByRepoName(repoName: string): Promise<ProjectInfo | null> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
+
+    // "debugg-ai/react-web-app" → short = "react-web-app"
+    const short = repoName.includes('/') ? repoName.split('/').pop()! : repoName;
+
     const response = await this.tx.get<{ results: ProjectInfo[] }>(
       'api/v1/projects/',
-      { search: repoName }
+      { search: short }
     );
     const projects = response?.results ?? [];
     if (projects.length === 0) return null;
 
-    // Exact match on project name or slug first
+    // Exact match on full "owner/repo" or short name against project name/slug
     const exact = projects.find(
-      p => p.name === repoName || p.slug === repoName
+      p => p.name === repoName || p.name === short
+        || p.slug === repoName || p.slug === short
     );
     if (exact) return exact;
 
-    // Match on repo.name (owner/repo-name — check if it ends with /repoName)
+    // Match on repo.name — backend may store "owner/repo" or just "repo"
     const repoMatch = projects.find(
-      p => p.repo?.name === repoName || p.repo?.name?.endsWith(`/${repoName}`)
+      p => p.repo?.name === repoName || p.repo?.name === short
+        || p.repo?.name?.endsWith(`/${short}`)
     );
     if (repoMatch) return repoMatch;
 
-    // Fallback to first result from search
+    // Fallback to first search result
     return projects[0];
   }
 
