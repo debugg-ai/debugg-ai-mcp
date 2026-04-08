@@ -27,7 +27,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { config } from "./config/index.js";
-import { tools, getTool } from "./tools/index.js";
+import { initTools, getTools, getTool } from "./tools/index.js";
+import { resolveProjectContext } from "./services/projectContext.js";
 import {
   Logger,
   validateInput,
@@ -172,6 +173,7 @@ server.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise
  * Handle list tools requests
  */
 server.setRequestHandler(ListToolsRequestSchema as any, async (): Promise<any> => {
+  const tools = getTools();
   logger.info('Tools list requested', { toolCount: tools.length });
   return {
     tools: tools,
@@ -208,13 +210,20 @@ async function main(): Promise<void> {
       logger.info('Telemetry enabled (PostHog)');
     }
 
+    // Resolve project context (repo → project → environments/credentials)
+    // This enriches tool descriptions with available credentials for the detected project.
+    const projectCtx = await resolveProjectContext();
+    initTools(projectCtx);
+
     // Create and connect transport
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
+    const tools = getTools();
     logger.info('DebuggAI MCP Server is running and ready to accept requests', {
       transport: 'stdio',
-      toolsAvailable: tools.map(t => t.name)
+      toolsAvailable: tools.map(t => t.name),
+      detectedProject: projectCtx?.project.name ?? null,
     });
 
   } catch (error) {

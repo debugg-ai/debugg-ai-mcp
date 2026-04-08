@@ -96,6 +96,10 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {
       const body: Record<string, any> = { contextData };
+      // Send projectId at top level too — backend may read it from either location
+      if (contextData.projectId) {
+        body.projectId = contextData.projectId;
+      }
       if (env && Object.keys(env).length > 0) {
         body.env = env;
       }

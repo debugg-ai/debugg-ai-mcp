@@ -1,25 +1,32 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ValidatedTool } from '../types/index.js';
-import { testPageChangesTool, validatedTestPageChangesTool } from './testPageChanges.js';
+import { buildTestPageChangesTool, buildValidatedTestPageChangesTool } from './testPageChanges.js';
+import { ProjectContext } from '../services/projectContext.js';
 
-export const tools: Tool[] = [
-  testPageChangesTool,
-];
+let _tools: Tool[] | null = null;
+let _validatedTools: ValidatedTool[] | null = null;
+const toolRegistry = new Map<string, ValidatedTool>();
 
-export const validatedTools: ValidatedTool[] = [
-  validatedTestPageChangesTool,
-];
+/**
+ * Initialize tools with project context (call once after resolveProjectContext).
+ */
+export function initTools(ctx: ProjectContext | null): void {
+  const tool = buildTestPageChangesTool(ctx);
+  const validated = buildValidatedTestPageChangesTool(ctx);
 
-export const toolRegistry = new Map<string, ValidatedTool>();
+  _tools = [tool];
+  _validatedTools = [validated];
 
-for (const tool of validatedTools) {
-  toolRegistry.set(tool.name, tool);
+  toolRegistry.clear();
+  toolRegistry.set(validated.name, validated);
+}
+
+export function getTools(): Tool[] {
+  if (!_tools) initTools(null);
+  return _tools!;
 }
 
 export function getTool(name: string): ValidatedTool | undefined {
+  if (!_validatedTools) initTools(null);
   return toolRegistry.get(name);
-}
-
-export function hasToolTool(name: string): boolean {
-  return toolRegistry.has(name);
 }
