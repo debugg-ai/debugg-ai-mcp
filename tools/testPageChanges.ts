@@ -77,11 +77,11 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
         },
         username: {
           type: "string",
-          description: "Username to log in with (alternative to credentialId — creates or updates a credential idempotently)"
+          description: "A real, existing account email for the target app. Do NOT invent or guess credentials — use one from the available credentials listed above, or ask the user. The browser agent will type this into the login form."
         },
         password: {
           type: "string",
-          description: "Password to log in with (used together with username)"
+          description: "The real password for the username above. Do NOT guess or use placeholder passwords — use credentials from the list above or ask the user."
         },
         repoName: {
           type: "string",

@@ -173,73 +173,72 @@ export async function testPageChangesHandler(
     logger.info(`Execution queued: ${executionUuid}`);
 
     // --- Poll ---
-    // Track execution progress via state.stepsTaken from the API.
-    // Setup is steps 1-3, execution maps stepsTaken into steps 4-28 (25 slots).
+    // Progress phases:
+    //   1-3:   MCP setup (tunnel, template, queue) — already sent above
+    //   4-6:   Backend setup (trigger, browser.setup, subworkflow starting)
+    //   7-27:  Agent steps (mapped from state.stepsTaken)
+    //   28:    Complete
+    const BACKEND_SETUP_END = 6;
     let lastStepsTaken = 0;
-    let lastNodeCount = 0;
     let observedMaxSteps = MAX_EXEC_STEPS;
     const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
       // Keep the tunnel alive while the workflow is actively running
       if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
 
-      const nodeCount = exec.nodeExecutions?.length ?? 0;
-      const brainStepCount = (exec.nodeExecutions ?? [])
-        .filter(n => n.nodeType === 'brain.step').length;
-      // Prefer actual brain.step node count over API stepsTaken (which may lag)
-      const stepsTaken = Math.max(brainStepCount, exec.state?.stepsTaken ?? 0);
+      const nodes = exec.nodeExecutions ?? [];
+      const stepsTaken = Math.max(
+        nodes.filter(n => n.nodeType === 'brain.step').length,
+        exec.state?.stepsTaken ?? 0
+      );
 
-      if (nodeCount !== lastNodeCount || stepsTaken !== lastStepsTaken || exec.status !== 'pending') {
-        lastNodeCount = nodeCount;
+      if (stepsTaken !== lastStepsTaken) {
         lastStepsTaken = stepsTaken;
-        logger.info(`Execution status: ${exec.status}, nodes: ${nodeCount}, steps: ${stepsTaken}`);
+        logger.info(`Execution status: ${exec.status}, nodes: ${nodes.length}, steps: ${stepsTaken}`);
       }
 
-      if (progressCallback) {
-        // If we see steps > our assumed max, bump our ceiling so progress never goes backwards
-        if (stepsTaken > observedMaxSteps) {
-          observedMaxSteps = stepsTaken + 5;
-        }
+      if (!progressCallback) return;
 
-        // Map stepsTaken (0..observedMaxSteps) into progress (SETUP_STEPS+1 .. TOTAL_STEPS-1)
-        // Reserve the last tick for the "Complete" message
-        let execProgress: number;
-        if (stepsTaken > 0) {
-          execProgress = SETUP_STEPS + Math.round((stepsTaken / observedMaxSteps) * (MAX_EXEC_STEPS - 1));
-        } else {
-          // No steps yet — show we're past setup but execution is starting
-          execProgress = SETUP_STEPS + 1;
-        }
+      // --- Compute progress number ---
+      let execProgress: number;
+      let message: string;
+
+      if (stepsTaken > 0) {
+        // Agent is actively stepping — map into slots 7..27
+        if (stepsTaken > observedMaxSteps) observedMaxSteps = stepsTaken + 5;
+        const stepSlots = TOTAL_STEPS - BACKEND_SETUP_END - 1; // 21 slots
+        execProgress = BACKEND_SETUP_END + Math.max(1, Math.round((stepsTaken / observedMaxSteps) * stepSlots));
         execProgress = Math.min(execProgress, TOTAL_STEPS - 1);
 
-        let message: string;
-        if (exec.status === 'running') {
-          if (stepsTaken > 0) {
-            // Extract the latest brain.step to show what the agent is doing
-            const latestStep = (exec.nodeExecutions ?? [])
-              .filter(n => n.nodeType === 'brain.step' && n.outputData)
-              .sort((a, b) => b.executionOrder - a.executionOrder)[0];
-
-            const d = latestStep?.outputData?.decision ?? latestStep?.outputData;
-            if (d) {
-              const action = d.actionType ?? d.action_type ?? 'working';
-              const intent = d.intent;
-              message = intent
-                ? `Step ${stepsTaken}: [${action}] ${intent}`
-                : `Step ${stepsTaken}: ${action}`;
-            } else {
-              message = `Agent evaluating app... (step ${stepsTaken})`;
-            }
-          } else if (nodeCount === 0) {
-            message = 'Browser agent starting up...';
-          } else {
-            message = 'Browser ready, agent navigating...';
-          }
+        // Use state.currentAction for the message (backend sends intent + actionType)
+        const ca = (exec.state as any)?.currentAction;
+        if (ca?.intent) {
+          const action = ca.actionType ?? ca.action_type ?? 'working';
+          message = `Step ${stepsTaken}: [${action}] ${ca.intent}`;
         } else {
-          message = exec.status;
+          message = `Agent evaluating... (step ${stepsTaken})`;
         }
+      } else {
+        // No agent steps yet — show backend setup progress from node transitions
+        const hasSubworkflow = nodes.some(n => n.nodeType === 'subworkflow.run');
+        const hasBrowserSetup = nodes.some(n => n.nodeType === 'browser.setup');
+        const browserReady = nodes.some(n => n.nodeType === 'browser.setup' && n.status === 'success');
 
-        await progressCallback({ progress: execProgress, total: TOTAL_STEPS, message });
+        if (browserReady || hasSubworkflow) {
+          execProgress = BACKEND_SETUP_END;
+          message = 'Browser ready, agent starting...';
+        } else if (hasBrowserSetup) {
+          execProgress = SETUP_STEPS + 2;
+          message = 'Launching browser...';
+        } else if (nodes.length > 0) {
+          execProgress = SETUP_STEPS + 1;
+          message = 'Workflow triggered, preparing...';
+        } else {
+          execProgress = SETUP_STEPS + 1;
+          message = 'Waiting for execution to start...';
+        }
       }
+
+      await progressCallback({ progress: execProgress, total: TOTAL_STEPS, message });
     }, abortController.signal);
 
     const duration = Date.now() - startTime;
