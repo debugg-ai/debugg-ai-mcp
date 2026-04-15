@@ -159,13 +159,16 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
           });
           return execution;
         }
+        // Check abort before sleeping to avoid missing a signal fired between polls
+        if (signal?.aborted) {
+          throw new Error(`Polling cancelled for execution ${executionUuid}`);
+        }
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(resolve, POLL_INTERVAL_MS);
           if (signal) {
-            signal.addEventListener('abort', () => {
-              clearTimeout(timer);
-              reject(new Error(`Polling cancelled for execution ${executionUuid}`));
-            }, { once: true });
+            const onAbort = () => { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); };
+            if (signal.aborted) { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); return; }
+            signal.addEventListener('abort', onAbort, { once: true });
           }
         });
       }

@@ -35,6 +35,7 @@ import type {
         instance ??
         axios.create({
           baseURL: baseUrl.replace(/\/+$/, "/"),
+          timeout: 30_000,
           headers: {
             Accept: "application/json",
             "Content-Type": "application/json",

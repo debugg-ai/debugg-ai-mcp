@@ -41,6 +41,8 @@ let initialized = false;
  * Resolve the current project context: repo → project → environments → credentials.
  * Safe to call multiple times — caches after first successful resolution.
  */
+const STARTUP_TIMEOUT_MS = 10_000; // hard cap so we never block MCP connection
+
 export async function resolveProjectContext(): Promise<ProjectContext | null> {
   if (initialized) return cached;
   initialized = true;
@@ -51,6 +53,24 @@ export async function resolveProjectContext(): Promise<ProjectContext | null> {
     return null;
   }
 
+  try {
+    // Race against a timeout so a slow/unreachable backend never blocks startup
+    return await Promise.race([
+      resolveProjectContextInner(repoName),
+      new Promise<null>((resolve) => {
+        setTimeout(() => {
+          logger.warn('Project context resolution timed out — continuing without it');
+          resolve(null);
+        }, STARTUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (err) {
+    logger.warn(`Failed to resolve project context: ${err}`);
+    return null;
+  }
+}
+
+async function resolveProjectContextInner(repoName: string): Promise<ProjectContext | null> {
   try {
     const client = new DebuggAIServerClient(config.api.key);
     await client.init();
