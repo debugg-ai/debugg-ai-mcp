@@ -210,20 +210,32 @@ async function main(): Promise<void> {
       logger.info('Telemetry enabled (PostHog)');
     }
 
-    // Resolve project context (repo → project → environments/credentials)
-    // This enriches tool descriptions with available credentials for the detected project.
-    const projectCtx = await resolveProjectContext();
-    initTools(projectCtx);
-
-    // Create and connect transport
+    // Connect transport FIRST so the MCP client handshake succeeds immediately.
+    // Tools start with no project context; enriched once the API responds.
+    initTools(null);
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    const tools = getTools();
     logger.info('DebuggAI MCP Server is running and ready to accept requests', {
       transport: 'stdio',
-      toolsAvailable: tools.map(t => t.name),
-      detectedProject: projectCtx?.project.name ?? null,
+      toolsAvailable: getTools().map(t => t.name),
+    });
+
+    // Resolve project context in the background — enriches tool descriptions
+    // with available environments/credentials once the API responds.
+    resolveProjectContext().then((projectCtx) => {
+      if (projectCtx) {
+        initTools(projectCtx);
+        logger.info('Tool descriptions enriched with project context', {
+          project: projectCtx.project.name,
+          environments: projectCtx.environments.length,
+          credentials: projectCtx.environments.reduce((n, e) => n + e.credentials.length, 0),
+        });
+      }
+    }).catch((err) => {
+      logger.warn('Background project context resolution failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
 
   } catch (error) {
