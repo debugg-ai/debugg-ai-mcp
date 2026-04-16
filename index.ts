@@ -45,18 +45,14 @@ import {
   MCPErrorCode 
 } from "./types/index.js";
 
-// Initialize logger
-const logger = new Logger({ module: 'main' });
+// Logger and server are initialized lazily in main() to avoid triggering
+// config loading at module load time. If config validation fails (bad env vars),
+// the error is caught by main()'s try-catch instead of crashing before any
+// error handling is set up.
+let logger: Logger;
+let server: Server;
 
-/**
- * Initialize MCP Server with configuration
- */
 function createMCPServer(): Server {
-  logger.info('Initializing DebuggAI MCP Server', { 
-    name: config.server.name,
-    version: config.server.version 
-  });
-
   return new Server(
     {
       name: config.server.name,
@@ -72,8 +68,6 @@ function createMCPServer(): Server {
     }
   );
 }
-
-const server = createMCPServer();
 
 
 /**
@@ -106,86 +100,83 @@ function createProgressCallback(progressToken?: string): ProgressCallback | unde
 }
 
 /**
- * Handle tool execution requests with proper validation and error handling
+ * Register MCP request handlers. Called in main() after server is created.
  */
-server.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise<any> => {
-  const typedReq = req as CallToolRequest;
-  const requestId = `req_${Date.now()}`;
-  const requestLogger = logger.child({ requestId });
+function registerHandlers(): void {
+  server.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise<any> => {
+    const typedReq = req as CallToolRequest;
+    const requestId = `req_${Date.now()}`;
+    const requestLogger = logger.child({ requestId });
 
-  requestLogger.info("Received tool call request", {
-    toolName: typedReq.params.name,
-    hasProgressToken: !!typedReq.params._meta?.progressToken,
-    progressToken: typedReq.params._meta?.progressToken,
-    progressTokenType: typeof typedReq.params._meta?.progressToken
+    requestLogger.info("Received tool call request", {
+      toolName: typedReq.params.name,
+      hasProgressToken: !!typedReq.params._meta?.progressToken,
+      progressToken: typedReq.params._meta?.progressToken,
+      progressTokenType: typeof typedReq.params._meta?.progressToken
+    });
+
+    const { name, arguments: args } = typedReq.params;
+    const progressToken = typedReq.params._meta?.progressToken;
+
+    const tool = getTool(name);
+    if (!tool) {
+      requestLogger.warn(`Tool not found: ${name}`);
+      throw new Error(`Unknown tool: ${name}`);
+    }
+
+    try {
+      const validatedInput = validateInput(tool.inputSchema, args, name);
+
+      const context: ToolContext = {
+        progressToken: typeof progressToken === 'string' ? progressToken : undefined,
+        requestId,
+        timestamp: new Date(),
+      };
+
+      const progressCallback = createProgressCallback(typeof progressToken === 'string' || typeof progressToken === 'number' ? String(progressToken) : undefined);
+
+      requestLogger.info(`Executing tool: ${name}`);
+      const toolStart = Date.now();
+      const result = await tool.handler(validatedInput, context, progressCallback);
+
+      const toolDuration = Date.now() - toolStart;
+      requestLogger.info(`Tool execution completed: ${name}`);
+      Telemetry.capture(TelemetryEvents.TOOL_EXECUTED, { toolName: name, durationMs: toolDuration, success: true });
+      return result;
+
+    } catch (error) {
+      const mcpError = toMCPError(error, 'tool execution');
+      requestLogger.error('Tool execution failed', {
+        errorCode: mcpError.code,
+        message: mcpError.message,
+        data: mcpError.data
+      });
+      Telemetry.capture(TelemetryEvents.TOOL_FAILED, { toolName: name, errorCode: mcpError.code });
+
+      return createErrorResponse(mcpError, typedReq.params.name);
+    }
   });
 
-  const { name, arguments: args } = typedReq.params;
-  const progressToken = typedReq.params._meta?.progressToken;
-
-  // Unknown tool is a protocol error - throw directly so SDK returns JSON-RPC error
-  const tool = getTool(name);
-  if (!tool) {
-    requestLogger.warn(`Tool not found: ${name}`);
-    throw new Error(`Unknown tool: ${name}`);
-  }
-
-  try {
-    // Validate input using the tool's schema
-    const validatedInput = validateInput(tool.inputSchema, args, name);
-
-    // Create tool context
-    const context: ToolContext = {
-      progressToken: typeof progressToken === 'string' ? progressToken : undefined,
-      requestId,
-      timestamp: new Date(),
-    };
-
-    // Create progress callback
-    const progressCallback = createProgressCallback(typeof progressToken === 'string' || typeof progressToken === 'number' ? String(progressToken) : undefined);
-
-    // Execute tool handler with progress callback
-    requestLogger.info(`Executing tool: ${name}`);
-    const toolStart = Date.now();
-    const result = await tool.handler(validatedInput, context, progressCallback);
-
-    const toolDuration = Date.now() - toolStart;
-    requestLogger.info(`Tool execution completed: ${name}`);
-    Telemetry.capture(TelemetryEvents.TOOL_EXECUTED, { toolName: name, durationMs: toolDuration, success: true });
-    return result;
-
-  } catch (error) {
-    // Validation and execution errors are tool execution errors (isError: true)
-    // so the model can self-correct
-    const mcpError = toMCPError(error, 'tool execution');
-    requestLogger.error('Tool execution failed', {
-      errorCode: mcpError.code,
-      message: mcpError.message,
-      data: mcpError.data
-    });
-    Telemetry.capture(TelemetryEvents.TOOL_FAILED, { toolName: name, errorCode: mcpError.code });
-
-    return createErrorResponse(mcpError, typedReq.params.name);
-  }
-});
-
-/**
- * Handle list tools requests
- */
-server.setRequestHandler(ListToolsRequestSchema as any, async (): Promise<any> => {
-  const tools = getTools();
-  logger.info('Tools list requested', { toolCount: tools.length });
-  return {
-    tools: tools,
-  };
-});
+  server.setRequestHandler(ListToolsRequestSchema as any, async (): Promise<any> => {
+    const tools = getTools();
+    logger.info('Tools list requested', { toolCount: tools.length });
+    return { tools };
+  });
+}
 
 /**
  * Main server initialization and startup
  */
 async function main(): Promise<void> {
   try {
-    // Log startup information
+    // Initialize logger and server here (not at module load time) so config
+    // validation errors are caught by this try-catch instead of crashing.
+    logger = new Logger({ module: 'main' });
+    server = createMCPServer();
+
+    // Register request handlers (they reference the `server` variable)
+    registerHandlers();
+
     logger.info('Starting DebuggAI MCP Server', {
       nodeVersion: process.version,
       platform: process.platform,
@@ -248,29 +239,45 @@ async function main(): Promise<void> {
 }
 
 /**
+ * Safe log helper — falls back to stderr if logger isn't initialized yet
+ * (e.g. config validation failed before logger was created).
+ */
+function safeLog(level: 'info' | 'error' | 'warn', message: string, meta?: any): void {
+  try {
+    if (logger) {
+      logger[level](message, meta);
+      return;
+    }
+  } catch {
+    // Logger init failed (config validation error) — fall through to stderr
+  }
+  process.stderr.write(`[${level.toUpperCase()}] ${message} ${meta ? JSON.stringify(meta) : ''}\n`);
+}
+
+/**
  * Handle graceful shutdown
  */
 process.on('SIGINT', async () => {
-  logger.info('Received SIGINT, shutting down gracefully');
+  safeLog('info', 'Received SIGINT, shutting down gracefully');
   await Telemetry.shutdown();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  logger.info('Received SIGTERM, shutting down gracefully');
+  safeLog('info', 'Received SIGTERM, shutting down gracefully');
   await Telemetry.shutdown();
   process.exit(0);
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled promise rejection', {
+  safeLog('error', 'Unhandled promise rejection', {
     error: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined,
   });
 });
 
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception', {
+  safeLog('error', 'Uncaught exception', {
     error: error.message,
     stack: error.stack,
   });
@@ -280,9 +287,9 @@ process.on('uncaughtException', (error) => {
  * Start the server
  */
 main().catch((error) => {
-  logger.error('Fatal error during startup', {
+  safeLog('error', 'Fatal error during startup', {
     error: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack : undefined
+    stack: error instanceof Error ? error.stack : undefined,
   });
   process.exit(1);
 });
