@@ -18,7 +18,7 @@ export function detectRepoName(): string | null {
   try {
     const raw = execSync('git remote get-url origin', {
       encoding: 'utf-8',
-      timeout: 5000,
+      timeout: 2000,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
 

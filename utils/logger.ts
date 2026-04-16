@@ -36,9 +36,10 @@ const createLogger = (): winston.Logger => {
         stderrLevels: ['error', 'warn', 'info', 'debug'],
       }),
     ],
-    // Ensure uncaught exceptions and rejections are logged
+    // Ensure uncaught exceptions and rejections go to stderr (NOT stdout — stdout is the MCP transport)
     exceptionHandlers: [
       new winston.transports.Console({
+        stderrLevels: ['error', 'warn', 'info', 'debug'],
         format: winston.format.combine(
           winston.format.timestamp(),
           winston.format.errors({ stack: true }),
@@ -48,6 +49,7 @@ const createLogger = (): winston.Logger => {
     ],
     rejectionHandlers: [
       new winston.transports.Console({
+        stderrLevels: ['error', 'warn', 'info', 'debug'],
         format: winston.format.combine(
           winston.format.timestamp(),
           winston.format.errors({ stack: true }),
