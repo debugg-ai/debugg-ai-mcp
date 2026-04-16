@@ -10,6 +10,7 @@
     "dist"
   ],
   "scripts": {
+    "lint": "eslint .",
     "build": "tsc && shx chmod +x dist/index.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
@@ -55,15 +56,18 @@
     "zod": "^3.25.32"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@faker-js/faker": "^9.9.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.15.24",
     "@types/uuid": "^10.0.0",
+    "eslint": "^10.2.0",
     "jest": "^30.0.5",
     "jest-environment-jsdom": "^30.0.5",
     "jest-mock-axios": "^4.8.0",
     "shx": "^0.4.0",
     "ts-jest": "^29.4.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.58.2"
   }
 }
