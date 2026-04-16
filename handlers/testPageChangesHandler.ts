@@ -32,7 +32,37 @@ const logger = new Logger({ module: 'testPageChangesHandler' });
 let cachedTemplateUuid: string | null = null;
 const projectUuidCache = new Map<string, string>();
 
+// Concurrency control — max 2 simultaneous browser checks.
+// Additional requests queue and run when a slot opens.
+const MAX_CONCURRENT = 2;
+let running = 0;
+const queue: Array<{ resolve: () => void }> = [];
+
+async function acquireSlot(): Promise<void> {
+  if (running < MAX_CONCURRENT) { running++; return; }
+  await new Promise<void>((resolve) => queue.push({ resolve }));
+}
+
+function releaseSlot(): void {
+  running--;
+  const next = queue.shift();
+  if (next) { running++; next.resolve(); }
+}
+
 export async function testPageChangesHandler(
+  input: TestPageChangesInput,
+  context: ToolContext,
+  progressCallback?: ProgressCallback
+): Promise<ToolResponse> {
+  await acquireSlot();
+  try {
+    return await testPageChangesHandlerInner(input, context, progressCallback);
+  } finally {
+    releaseSlot();
+  }
+}
+
+async function testPageChangesHandlerInner(
   input: TestPageChangesInput,
   context: ToolContext,
   progressCallback?: ProgressCallback
