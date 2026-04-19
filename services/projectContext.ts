@@ -54,16 +54,20 @@ export async function resolveProjectContext(): Promise<ProjectContext | null> {
   }
 
   try {
-    // Race against a timeout so a slow/unreachable backend never blocks startup
-    return await Promise.race([
+    // Race against a timeout so a slow/unreachable backend never blocks startup.
+    // Cancel the timer when the inner promise settles to prevent leaked callbacks.
+    let timer: NodeJS.Timeout;
+    const result = await Promise.race([
       resolveProjectContextInner(repoName),
       new Promise<null>((resolve) => {
-        setTimeout(() => {
+        timer = setTimeout(() => {
           logger.warn('Project context resolution timed out — continuing without it');
           resolve(null);
         }, STARTUP_TIMEOUT_MS);
       }),
     ]);
+    clearTimeout(timer!);
+    return result;
   } catch (err) {
     logger.warn(`Failed to resolve project context: ${err}`);
     return null;
