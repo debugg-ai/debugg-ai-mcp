@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "debugg-ai-local": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "DEBUGGAI_API_KEY": "KrvXlzVFXVZO82UErXye5N7CtnmBTu1GKULrJnwXRRU",
+        "POSTHOG_API_KEY": "phc_4h2Yov2P0Vc9UMqfKf3dYKSQ6THOs7N6LZR0VKYopZN"
+      }
+    }
+  }
+}
