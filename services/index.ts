@@ -158,6 +158,76 @@ export class DebuggAIServerClient  {
     };
   }
 
+  public async listTeams(
+    pagination: { page: number; pageSize: number },
+    q?: string,
+  ): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; teams: Array<{ uuid: string; name: string; description: string | null; memberCount: number; ownerCount: number; currentUserRole: string | null }> }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const { makePageInfo } = await import('../utils/pagination.js');
+    const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize };
+    if (q) params.search = q;
+    const response = await this.tx.get<{ count: number; next: string | null; results: any[] }>(
+      'api/v1/teams/',
+      params,
+    );
+    return {
+      pageInfo: makePageInfo(pagination.page, pagination.pageSize, response?.count ?? 0, response?.next),
+      teams: (response?.results ?? []).map((t: any) => ({
+        uuid: t.uuid,
+        name: t.name,
+        description: t.description ?? null,
+        memberCount: t.memberCount ?? 0,
+        ownerCount: t.ownerCount ?? 0,
+        currentUserRole: t.currentUserRole ?? null,
+      })),
+    };
+  }
+
+  public async listRepos(
+    pagination: { page: number; pageSize: number },
+    q?: string,
+  ): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; repos: Array<{ uuid: string; name: string; url: string; description: string | null; isPrivate: boolean; isGithubAuthorized: boolean; githubAccountLogin: string | null }> }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const { makePageInfo } = await import('../utils/pagination.js');
+    const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize };
+    if (q) params.search = q;
+    const response = await this.tx.get<{ count: number; next: string | null; results: any[] }>(
+      'api/v1/repos/',
+      params,
+    );
+    return {
+      pageInfo: makePageInfo(pagination.page, pagination.pageSize, response?.count ?? 0, response?.next),
+      repos: (response?.results ?? []).map((r: any) => ({
+        uuid: r.uuid,
+        name: r.name,
+        url: r.url ?? '',
+        description: r.description ?? null,
+        isPrivate: !!r.isPrivate,
+        isGithubAuthorized: !!r.isGithubAuthorized,
+        githubAccountLogin: r.githubAccountLogin ?? null,
+      })),
+    };
+  }
+
+  public async createProject(input: {
+    name: string;
+    platform: string;
+    teamUuid: string;
+    repoUuid: string;
+  }): Promise<{ uuid: string; name: string; slug: string; platform: string | null; repoName: string | null; description: string | null; status: string | null; language: string | null; framework: string | null; timestamp: string; lastMod: string }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    // Backend expects `team` and `repo` keys (UUIDs). MCP surfaces them as
+    // teamUuid/repoUuid for clarity about what kind of UUID they are.
+    const body = {
+      name: input.name,
+      platform: input.platform,
+      team: input.teamUuid,
+      repo: input.repoUuid,
+    };
+    const p = await this.tx.post<any>('api/v1/projects/', body);
+    return this.mapProjectDetail(p);
+  }
+
   /**
    * List environments for a project. Paginated.
    * Optional q filters by name via backend ?search=.

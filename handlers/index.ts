@@ -16,3 +16,6 @@ export * from './deleteProjectHandler.js';
 export * from './listExecutionsHandler.js';
 export * from './getExecutionHandler.js';
 export * from './cancelExecutionHandler.js';
+export * from './listTeamsHandler.js';
+export * from './listReposHandler.js';
+export * from './createProjectHandler.js';

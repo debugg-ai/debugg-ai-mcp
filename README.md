@@ -32,7 +32,7 @@ docker run -i --rm --init -e DEBUGGAI_API_KEY=your_api_key quinnosha/debugg-ai-m
 
 ## Tools
 
-The server exposes **18** tools. The headline one is `check_app_in_browser`; the rest manage projects, environments, credentials, and workflow execution history.
+The server exposes **21** tools. The headline one is `check_app_in_browser`; the rest manage projects, environments, credentials, workflow execution history, and the teams/repos needed to create new projects.
 
 ### `check_app_in_browser`
 
@@ -55,8 +55,16 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 |------|---------|
 | `list_projects` | List projects accessible to your API key. Optional `q` for name/repo search. |
 | `get_project` | Fetch a project by `uuid`. Simplified shape (no team/runner internals). |
+| `create_project` | Create a new project. Needs `name`, `platform` (e.g. `web`), `teamUuid` (from `list_teams`), and `repoUuid` (from `list_repos`). |
 | `update_project` | PATCH a project's `name` or `description`. |
 | `delete_project` | Destructive delete. Cascades envs, creds, and history. |
+
+### Teams and repos (prerequisites for `create_project`)
+
+| Tool | Purpose |
+|------|---------|
+| `list_teams` | Paginated list of teams accessible to the API key; optional `q` for search. |
+| `list_repos` | Paginated list of GitHub-linked repos; optional `q` for search. Use repos with `isGithubAuthorized: true` when creating a project. |
 
 ### Environment management (scoped to a project)
 

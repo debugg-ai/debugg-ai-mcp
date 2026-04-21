@@ -149,6 +149,28 @@ export const ListProjectsInputSchema = z.object({
 }).strict();
 export type ListProjectsInput = z.infer<typeof ListProjectsInputSchema>;
 
+export const ListTeamsInputSchema = z.object({
+  q: z.string().min(1).optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
+}).strict();
+export type ListTeamsInput = z.infer<typeof ListTeamsInputSchema>;
+
+export const ListReposInputSchema = z.object({
+  q: z.string().min(1).optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
+}).strict();
+export type ListReposInput = z.infer<typeof ListReposInputSchema>;
+
+export const CreateProjectInputSchema = z.object({
+  name: z.string().min(1),
+  platform: z.string().min(1),
+  teamUuid: z.string().uuid(),
+  repoUuid: z.string().uuid(),
+}).strict();
+export type CreateProjectInput = z.infer<typeof CreateProjectInputSchema>;
+
 /**
  * Tool execution context
  */

@@ -18,6 +18,9 @@ import { buildDeleteProjectTool, buildValidatedDeleteProjectTool } from './delet
 import { buildListExecutionsTool, buildValidatedListExecutionsTool } from './listExecutions.js';
 import { buildGetExecutionTool, buildValidatedGetExecutionTool } from './getExecution.js';
 import { buildCancelExecutionTool, buildValidatedCancelExecutionTool } from './cancelExecution.js';
+import { buildListTeamsTool, buildValidatedListTeamsTool } from './listTeams.js';
+import { buildListReposTool, buildValidatedListReposTool } from './listRepos.js';
+import { buildCreateProjectTool, buildValidatedCreateProjectTool } from './createProject.js';
 import { ProjectContext } from '../services/projectContext.js';
 
 let _tools: Tool[] | null = null;
@@ -47,6 +50,9 @@ export function initTools(ctx: ProjectContext | null): void {
     buildListExecutionsTool(),
     buildGetExecutionTool(),
     buildCancelExecutionTool(),
+    buildListTeamsTool(),
+    buildListReposTool(),
+    buildCreateProjectTool(),
   ];
   const validated: ValidatedTool[] = [
     buildValidatedTestPageChangesTool(ctx),
@@ -67,6 +73,9 @@ export function initTools(ctx: ProjectContext | null): void {
     buildValidatedListExecutionsTool(),
     buildValidatedGetExecutionTool(),
     buildValidatedCancelExecutionTool(),
+    buildValidatedListTeamsTool(),
+    buildValidatedListReposTool(),
+    buildValidatedCreateProjectTool(),
   ];
 
   _tools = tools;

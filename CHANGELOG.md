@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `create_project` + helper tools (`list_teams`, `list_repos`)
+
+- `create_project({name, platform, teamUuid, repoUuid})` creates a new DebuggAI project. Requires a GitHub-linked repo UUID and a team UUID.
+- `list_teams` — paginated; optional `q` for server-side name search. Discovers `teamUuid` values for `create_project`.
+- `list_repos` — paginated; returns GitHub-linked repos with `isGithubAuthorized` flag. Discovers `repoUuid` values for `create_project`.
+- Eval flow `19-project-create.mjs` exercises end-to-end: list teams → list repos → create → get → delete → get-returns-NotFound.
+
+### Added — mid-flight `cancel_execution` eval coverage
+
+- Flow `17-executions-history.mjs` gained a new step that fires `check_app_in_browser` in the background, polls `list_executions` until the new execution is visible (up to 45s), cancels it, and verifies the foregrounded response reflects `status: cancelled`. Previously only the 409-AlreadyCompleted and 404-NotFound error paths were tested.
+
 ### Changed — pagination is now mandatory on every `list_*` tool
 
 - `list_projects`, `list_environments`, `list_credentials`, `list_executions` now accept optional `page` (1-indexed) and `pageSize` (default 20, max 200, oversized clamped).
