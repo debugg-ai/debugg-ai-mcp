@@ -17,18 +17,17 @@ export const flow = {
       await writeArtifact('no-filter.json', r);
       assert(!r.isError, `Tool error: ${r.content?.[0]?.text?.slice(0, 300)}`);
       const body = JSON.parse(r.content[0].text);
-      assert(body.query === null, `Expected query === null, got ${body.query}`);
-      assert(typeof body.count === 'number', 'count missing');
+      assert(body.filter?.q === null, `Expected filter.q === null, got ${body.filter?.q}`);
+      assert(typeof body.pageInfo?.totalCount === 'number', 'pageInfo.totalCount missing');
       assert(Array.isArray(body.projects), 'projects not an array');
-      assert(body.count === body.projects.length, 'count != projects.length');
-      assert(body.count >= 1, `Expected at least 1 project for this API key, got ${body.count}`);
+      assert(body.pageInfo.totalCount >= 1, `Expected at least 1 project for this API key, got ${body.pageInfo.totalCount}`);
       for (const p of body.projects) {
         assert(typeof p.uuid === 'string', 'project.uuid missing');
         assert(typeof p.name === 'string', 'project.name missing');
         assert(typeof p.slug === 'string', 'project.slug missing');
         assert('repoName' in p, 'project.repoName missing (may be null)');
       }
-      unfilteredCount = body.count;
+      unfilteredCount = body.pageInfo.totalCount;
     });
 
     await step('list_projects — bogus search returns empty or smaller set', async () => {
@@ -40,11 +39,11 @@ export const flow = {
       await writeArtifact('bogus-search.json', r);
       assert(!r.isError, `Tool error: ${r.content?.[0]?.text?.slice(0, 300)}`);
       const body = JSON.parse(r.content[0].text);
-      assert(body.query === bogus, `Expected query "${bogus}", got ${body.query}`);
+      assert(body.filter?.q === bogus, `Expected filter.q "${bogus}", got ${body.filter?.q}`);
       assert(Array.isArray(body.projects), 'projects not an array');
       assert(
-        body.count < unfilteredCount || body.count === 0,
-        `Search didn't filter: unfiltered=${unfilteredCount}, bogus=${body.count}`
+        body.pageInfo.totalCount < unfilteredCount || body.pageInfo.totalCount === 0,
+        `Search didn't filter: unfiltered=${unfilteredCount}, bogus=${body.pageInfo.totalCount}`
       );
     });
 
@@ -62,7 +61,7 @@ export const flow = {
       await writeArtifact('prefix-search.json', r);
       assert(!r.isError, `Tool error: ${r.content?.[0]?.text?.slice(0, 300)}`);
       const body = JSON.parse(r.content[0].text);
-      assert(body.count >= 1, `Expected >=1 match for prefix "${prefix}", got ${body.count}`);
+      assert(body.pageInfo.totalCount >= 1, `Expected >=1 match for prefix "${prefix}", got ${body.pageInfo.totalCount}`);
     });
   },
 };

@@ -90,7 +90,7 @@ export const flow = {
         }, 30_000);
         await writeArtifact('by-q.json', r);
         const body = JSON.parse(r.content[0].text);
-        assert(body.count >= 1, `Expected >=1 match for q="${credLabel}"`);
+        assert(body.pageInfo.totalCount >= 1, `Expected >=1 match for q="${credLabel}"`);
         assert(body.credentials.every(c => c.label.includes(credLabel) || c.username.includes(credLabel)),
           'q filter returned non-matching credentials');
       });
@@ -140,7 +140,7 @@ export const flow = {
           arguments: { environmentId: envUuid, q: minimalLabel },
         }, 30_000);
         const listBody = JSON.parse(listResp.content[0].text);
-        assert(listBody.count >= 1, `minimal cred not findable by q="${minimalLabel}"`);
+        assert(listBody.pageInfo.totalCount >= 1, `minimal cred not findable by q="${minimalLabel}"`);
 
         await deleteDirect(`/api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/${minimalUuid}/`);
       });

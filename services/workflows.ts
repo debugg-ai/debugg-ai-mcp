@@ -69,7 +69,7 @@ export interface WorkflowsService {
     onUpdate?: (execution: WorkflowExecution) => Promise<void>,
     signal?: AbortSignal
   ): Promise<WorkflowExecution>;
-  listExecutions(filters: { status?: string; limit?: number }): Promise<{ count: number; executions: any[] }>;
+  listExecutions(filters: { status?: string; page: number; pageSize: number }): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; executions: any[] }>;
   cancelExecution(executionUuid: string): Promise<void>;
 }
 
@@ -133,16 +133,16 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       return response;
     },
 
-    async listExecutions(filters): Promise<{ count: number; executions: any[] }> {
-      const params: Record<string, any> = {};
+    async listExecutions(filters) {
+      const { makePageInfo } = await import('../utils/pagination.js');
+      const params: Record<string, any> = { page: filters.page, pageSize: filters.pageSize };
       if (filters.status) params.status = filters.status;
-      if (filters.limit) params.pageSize = filters.limit; // backend uses page_size (snake_case via transport)
-      const response = await tx.get<{ count: number; results: any[] }>(
+      const response = await tx.get<{ count: number; next: string | null; results: any[] }>(
         'api/v1/workflows/executions/',
         params,
       );
       return {
-        count: response?.count ?? 0,
+        pageInfo: makePageInfo(filters.page, filters.pageSize, response?.count ?? 0, response?.next),
         executions: (response?.results ?? []).map((e: any) => ({
           uuid: e.uuid,
           workflow: e.workflow,

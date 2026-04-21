@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — pagination is now mandatory on every `list_*` tool
+
+- `list_projects`, `list_environments`, `list_credentials`, `list_executions` now accept optional `page` (1-indexed) and `pageSize` (default 20, max 200, oversized clamped).
+- Response shape unified: `{ filter, pageInfo: {page, pageSize, totalCount, totalPages, hasMore}, <items> }`. The bare `count` field is gone — use `pageInfo.totalCount`.
+- Removes silent first-page truncation. Previously accounts with more than ~10 of anything lost visibility into the rest.
+- Eval flow `18-pagination.mjs` verifies default shape, page-walk disjointness, and pageSize clamping for every list tool.
+- Reopened bead `hpo`: backend `?role=` filter on credentials list returns all creds regardless of filter value. MCP now applies client-side role filtering as defense.
+
 ### Added
 
 - **Eval harness** (`scripts/evals/`): real-server/real-backend test runner with per-flow artifact capture. 16 flows cover MCP protocol, input validation, browser automation on public + localhost URLs, full CRUD lifecycles for environments/credentials/projects, execution history, multi-step credential resolution, concurrent calls, raw-credential auth, and cross-process tunnel isolation. Exposed via `npm run test:e2e`.

@@ -29,6 +29,8 @@ export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
 export const ListEnvironmentsInputSchema = z.object({
   projectUuid: z.string().uuid().optional(),
   q: z.string().min(1).optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
 }).strict();
 export type ListEnvironmentsInput = z.infer<typeof ListEnvironmentsInputSchema>;
 
@@ -105,7 +107,8 @@ export type DeleteProjectInput = z.infer<typeof DeleteProjectInputSchema>;
 
 export const ListExecutionsInputSchema = z.object({
   status: z.string().min(1).optional(),
-  limit: z.number().int().min(1).max(200).optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
 }).strict();
 export type ListExecutionsInput = z.infer<typeof ListExecutionsInputSchema>;
 
@@ -124,6 +127,8 @@ export const ListCredentialsInputSchema = z.object({
   projectUuid: z.string().uuid().optional(),
   q: z.string().min(1).optional(),
   role: z.string().min(1).optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
 }).strict();
 export type ListCredentialsInput = z.infer<typeof ListCredentialsInputSchema>;
 
@@ -139,6 +144,8 @@ export type CreateCredentialInput = z.infer<typeof CreateCredentialInputSchema>;
 
 export const ListProjectsInputSchema = z.object({
   q: z.string().min(1).optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
 }).strict();
 export type ListProjectsInput = z.infer<typeof ListProjectsInputSchema>;
 

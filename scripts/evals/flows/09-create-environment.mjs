@@ -62,7 +62,7 @@ export const flow = {
         }, 30_000);
         await writeArtifact('list-after-create.json', r);
         const body = JSON.parse(r.content[0].text);
-        assert(body.count >= 1, `Expected >=1 match for q="${name}", got ${body.count}`);
+        assert(body.pageInfo.totalCount >= 1, `Expected >=1 match for q="${name}", got ${body.pageInfo.totalCount}`);
         const found = body.environments.find(e => e.uuid === createdUuid);
         assert(!!found, 'Newly-created env not found in filtered list');
       });

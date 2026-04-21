@@ -137,26 +137,40 @@ export class DebuggAIServerClient  {
   }
 
   /**
-   * List projects accessible to the current API key.
+   * List projects accessible to the current API key. Paginated.
    * Optional q filters by project name / repo name server-side (backend `?search=`).
-   * Returns the first page only; pagination can be added if needed.
    */
-  public async listProjects(q?: string): Promise<ProjectInfo[]> {
+  public async listProjects(
+    pagination: { page: number; pageSize: number },
+    q?: string,
+  ): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; projects: ProjectInfo[] }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
-    const params = q ? { search: q } : undefined;
-    const response = await this.tx.get<{ results: ProjectInfo[] }>('api/v1/projects/', params);
-    return response?.results ?? [];
+    const { makePageInfo } = await import('../utils/pagination.js');
+    const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize };
+    if (q) params.search = q;
+    const response = await this.tx.get<{ count: number; next: string | null; results: ProjectInfo[] }>(
+      'api/v1/projects/',
+      params,
+    );
+    return {
+      pageInfo: makePageInfo(pagination.page, pagination.pageSize, response?.count ?? 0, response?.next),
+      projects: response?.results ?? [],
+    };
   }
 
   /**
-   * List environments for a project. Optional q filters by name via backend ?search=.
+   * List environments for a project. Paginated.
+   * Optional q filters by name via backend ?search=.
+   * The bare-array variant (no pagination) is still used internally by
+   * list_credentials when iterating across all envs.
    */
   public async listEnvironmentsForProject(
     projectUuid: string,
     q?: string,
   ): Promise<Array<{ uuid: string; name: string; url: string; isActive: boolean }>> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
-    const params = q ? { search: q } : undefined;
+    const params: Record<string, any> = { pageSize: 200 };
+    if (q) params.search = q;
     const response = await this.tx.get<{ results: any[] }>(
       `api/v1/projects/${projectUuid}/environments/`,
       params,
@@ -167,6 +181,30 @@ export class DebuggAIServerClient  {
       url: e.url || e.activeUrl || '',
       isActive: e.isActive,
     }));
+  }
+
+  public async listEnvironmentsPaginated(
+    projectUuid: string,
+    pagination: { page: number; pageSize: number },
+    q?: string,
+  ): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; environments: Array<{ uuid: string; name: string; url: string; isActive: boolean }> }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const { makePageInfo } = await import('../utils/pagination.js');
+    const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize };
+    if (q) params.search = q;
+    const response = await this.tx.get<{ count: number; next: string | null; results: any[] }>(
+      `api/v1/projects/${projectUuid}/environments/`,
+      params,
+    );
+    return {
+      pageInfo: makePageInfo(pagination.page, pagination.pageSize, response?.count ?? 0, response?.next),
+      environments: (response?.results ?? []).map((e: any) => ({
+        uuid: e.uuid,
+        name: e.name,
+        url: e.url || e.activeUrl || '',
+        isActive: e.isActive,
+      })),
+    };
   }
 
   /**
@@ -251,8 +289,10 @@ export class DebuggAIServerClient  {
   }
 
   /**
-   * List credentials for a specific environment. q filters label/username client-side.
-   * role filters for exact match.
+   * List credentials for a specific environment. Unpaginated (fetches up to
+   * backend max pageSize). q filters label/username client-side (backend
+   * ?search= is inconsistent on this endpoint); role filters server-side.
+   * Used internally by list_credentials when iterating across envs.
    */
   public async listCredentialsForEnvironment(
     projectUuid: string,
@@ -261,8 +301,47 @@ export class DebuggAIServerClient  {
     role?: string,
   ): Promise<Array<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string }>> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const params: Record<string, any> = { pageSize: 200 };
+    if (role) params.role = role;
     const response = await this.tx.get<{ results: any[] }>(
       `api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/`,
+      params,
+    );
+    let creds = (response?.results ?? [])
+      .filter((c: any) => c.isActive)
+      .map((c: any) => ({
+        uuid: c.uuid,
+        label: c.label || c.username,
+        username: c.username,
+        role: c.role,
+        environmentUuid: envUuid,
+      }));
+    if (q) {
+      const needle = q.toLowerCase();
+      creds = creds.filter(c =>
+        c.label.toLowerCase().includes(needle) ||
+        c.username.toLowerCase().includes(needle)
+      );
+    }
+    return creds;
+  }
+
+  public async listCredentialsPaginated(
+    projectUuid: string,
+    envUuid: string,
+    pagination: { page: number; pageSize: number },
+    q?: string,
+    role?: string,
+  ): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; credentials: Array<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string }> }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const { makePageInfo } = await import('../utils/pagination.js');
+    const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize };
+    // Backend ?role= filter is currently ignored (bead hpo) — pass it anyway for future fix-forward,
+    // but re-apply the filter client-side so behavior is correct today.
+    if (role) params.role = role;
+    const response = await this.tx.get<{ count: number; next: string | null; results: any[] }>(
+      `api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/`,
+      params,
     );
     let creds = (response?.results ?? [])
       .filter((c: any) => c.isActive)
@@ -283,7 +362,10 @@ export class DebuggAIServerClient  {
     if (role) {
       creds = creds.filter(c => c.role === role);
     }
-    return creds;
+    return {
+      pageInfo: makePageInfo(pagination.page, pagination.pageSize, response?.count ?? 0, response?.next),
+      credentials: creds,
+    };
   }
 
   /**

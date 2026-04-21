@@ -29,7 +29,7 @@ export const flow = {
       const r = await client.request('tools/call', { name: 'list_projects', arguments: {} }, 30_000);
       assert(!r.isError, `list_projects error: ${r.content?.[0]?.text?.slice(0, 300)}`);
       const body = JSON.parse(r.content[0].text);
-      assert(body.count >= 1, 'need at least 1 project for probe');
+      assert(body.pageInfo.totalCount >= 1, 'need at least 1 project for probe');
       // Prefer a non-main project if available; fall back to first
       const target = body.projects.find(p => p.name !== 'debugg-ai/debugg-ai-mcp') ?? body.projects[0];
       targetUuid = target.uuid;

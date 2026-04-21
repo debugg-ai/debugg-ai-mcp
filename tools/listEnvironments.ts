@@ -2,7 +2,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ListEnvironmentsInputSchema, ValidatedTool } from '../types/index.js';
 import { listEnvironmentsHandler } from '../handlers/listEnvironmentsHandler.js';
 
-const DESCRIPTION = `List environments for a DebuggAI project. By default targets the project resolved from the current git repo; pass projectUuid to target a different project (get UUIDs via list_projects). Optional q filters by environment name via the backend search. Returns each environment's uuid, name, url, and isActive flag.`;
+const DESCRIPTION = `List environments for a DebuggAI project. Paginated — every response includes pageInfo {page, pageSize, totalCount, totalPages, hasMore}; default pageSize 20, max 200. By default targets the project resolved from the current git repo; pass projectUuid to target a different project. Optional q filters by environment name via backend search.`;
 
 export function buildListEnvironmentsTool(): Tool {
   return {
@@ -12,14 +12,10 @@ export function buildListEnvironmentsTool(): Tool {
     inputSchema: {
       type: 'object',
       properties: {
-        projectUuid: {
-          type: 'string',
-          description: 'Optional: UUID of the project to query. Defaults to the project resolved from the current git repo.',
-        },
-        q: {
-          type: 'string',
-          description: 'Optional: filter environments by name (server-side search).',
-        },
+        projectUuid: { type: 'string', description: 'Optional: UUID of the project to query. Defaults to git-auto-detect.' },
+        q: { type: 'string', description: 'Optional: filter by environment name.' },
+        page: { type: 'number', description: 'Optional: 1-indexed page number. Default 1.', minimum: 1 },
+        pageSize: { type: 'number', description: 'Optional: items per page. Default 20, max 200.', minimum: 1, maximum: 200 },
       },
       additionalProperties: false,
     },

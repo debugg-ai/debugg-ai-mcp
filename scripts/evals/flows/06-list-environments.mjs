@@ -18,8 +18,8 @@ export const flow = {
       const body = JSON.parse(r.content[0].text);
       assert('environments' in body, 'Response missing "environments" field');
       assert(Array.isArray(body.environments), '"environments" is not an array');
-      assert(body.query === null, `Expected query === null, got ${body.query}`);
-      assert(typeof body.count === 'number', 'count missing');
+      assert(body.filter?.q === null, `Expected filter.q === null, got ${body.filter?.q}`);
+      assert(typeof body.pageInfo?.totalCount === 'number', 'pageInfo.totalCount missing');
       for (const e of body.environments) {
         assert(typeof e.uuid === 'string', 'environment.uuid missing');
         assert(typeof e.name === 'string', 'environment.name missing');
@@ -45,7 +45,7 @@ export const flow = {
       }, 30_000);
       await writeArtifact('matching-q.json', r);
       const body = JSON.parse(r.content[0].text);
-      assert(body.count >= 1, `q="${needle}" should match at least one env, got ${body.count}`);
+      assert(body.pageInfo.totalCount >= 1, `q="${needle}" should match at least one env, got ${body.pageInfo.totalCount}`);
       assert(body.environments.every(e => e.name.toLowerCase().includes(needle.toLowerCase())),
         'q filter returned non-matching envs');
     });
@@ -59,8 +59,8 @@ export const flow = {
       await writeArtifact('bogus-search.json', r);
       assert(!r.isError, `Tool error: ${r.content?.[0]?.text?.slice(0, 300)}`);
       const body = JSON.parse(r.content[0].text);
-      assert(body.query === bogus, `Expected query "${bogus}", got ${body.query}`);
-      assert(body.count === 0, `Expected 0 matches for bogus q, got ${body.count}`);
+      assert(body.filter?.q === bogus, `Expected filter.q "${bogus}", got ${body.filter?.q}`);
+      assert(body.pageInfo.totalCount === 0, `Expected 0 matches for bogus q, got ${body.pageInfo.totalCount}`);
     });
 
     await step('list_environments — projectUuid override', async () => {

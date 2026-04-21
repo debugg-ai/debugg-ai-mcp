@@ -86,6 +86,20 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | `get_execution` | Full detail for a single execution including node-level state. |
 | `cancel_execution` | Cancel an in-flight execution. |
 
+### Pagination
+
+Every `list_*` tool is paginated by default. Response shape:
+
+```json
+{
+  "filter": { "...echoed query params..." },
+  "pageInfo": { "page": 1, "pageSize": 20, "totalCount": 47, "totalPages": 3, "hasMore": true },
+  "<items>": [ ... ]
+}
+```
+
+Pass optional `page` (1-indexed, default 1) and `pageSize` (default 20, max 200; oversized values are clamped) to any list tool. No tool ever silently truncates results.
+
 ### Security invariants
 
 - Passwords are write-only. They never appear in any response body from any tool.

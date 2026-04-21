@@ -24,7 +24,7 @@ export const flow = {
       await writeArtifact('list.json', r);
       assert(!r.isError, `list_executions: ${r.content?.[0]?.text?.slice(0, 300)}`);
       const body = JSON.parse(r.content[0].text);
-      assert(typeof body.count === 'number', 'count missing');
+      assert(typeof body.pageInfo?.totalCount === 'number', 'pageInfo.totalCount missing');
       assert(Array.isArray(body.executions), 'executions not an array');
       assert(body.executions.length >= 1, `expected >=1 execution, got ${body.executions.length}`);
       for (const e of body.executions) {

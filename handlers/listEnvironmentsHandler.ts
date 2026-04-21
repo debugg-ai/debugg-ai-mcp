@@ -8,6 +8,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { config } from '../config/index.js';
 import { detectRepoName } from '../utils/gitContext.js';
+import { toPaginationParams, makePageInfo } from '../utils/pagination.js';
 
 const logger = new Logger({ module: 'listEnvironmentsHandler' });
 
@@ -16,7 +17,8 @@ export async function listEnvironmentsHandler(
   _context: ToolContext,
 ): Promise<ToolResponse> {
   const start = Date.now();
-  logger.toolStart('list_environments', { projectUuid: input.projectUuid, q: input.q });
+  const pagination = toPaginationParams({ page: input.page, pageSize: input.pageSize });
+  logger.toolStart('list_environments', { projectUuid: input.projectUuid, q: input.q, ...pagination });
 
   try {
     const client = new DebuggAIServerClient(config.api.key);
@@ -32,6 +34,7 @@ export async function listEnvironmentsHandler(
         const payload = {
           error: 'NoProjectResolved',
           message: 'No git repo detected and no projectUuid provided. Pass projectUuid (get it from list_projects) or invoke from a directory with a git origin.',
+          pageInfo: makePageInfo(pagination.page, pagination.pageSize, 0, null),
           environments: [],
         };
         logger.toolComplete('list_environments', Date.now() - start);
@@ -42,6 +45,7 @@ export async function listEnvironmentsHandler(
         const payload = {
           error: 'NoProjectResolved',
           message: `No DebuggAI project found for repo "${repoName}". Pass projectUuid explicitly or call list_projects to discover.`,
+          pageInfo: makePageInfo(pagination.page, pagination.pageSize, 0, null),
           environments: [],
         };
         logger.toolComplete('list_environments', Date.now() - start);
@@ -52,7 +56,7 @@ export async function listEnvironmentsHandler(
       projectRepoName = project.repo?.name ?? repoName;
     }
 
-    const environments = await client.listEnvironmentsForProject(projectUuid, input.q);
+    const { pageInfo, environments } = await client.listEnvironmentsPaginated(projectUuid, pagination, input.q);
 
     const payload = {
       project: {
@@ -60,8 +64,8 @@ export async function listEnvironmentsHandler(
         name: projectName,
         repoName: projectRepoName,
       },
-      query: input.q ?? null,
-      count: environments.length,
+      filter: { q: input.q ?? null },
+      pageInfo,
       environments,
     };
 

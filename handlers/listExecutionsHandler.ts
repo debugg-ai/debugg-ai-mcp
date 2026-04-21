@@ -3,6 +3,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { config } from '../config/index.js';
+import { toPaginationParams } from '../utils/pagination.js';
 
 const logger = new Logger({ module: 'listExecutionsHandler' });
 
@@ -11,23 +12,22 @@ export async function listExecutionsHandler(
   _context: ToolContext,
 ): Promise<ToolResponse> {
   const start = Date.now();
-  logger.toolStart('list_executions', { status: input.status, limit: input.limit });
+  const pagination = toPaginationParams({ page: input.page, pageSize: input.pageSize });
+  logger.toolStart('list_executions', { status: input.status, ...pagination });
 
   try {
     const client = new DebuggAIServerClient(config.api.key);
     await client.init();
 
-    const { count, executions } = await client.workflows!.listExecutions({
+    const { pageInfo, executions } = await client.workflows!.listExecutions({
       status: input.status,
-      limit: input.limit,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
     });
 
     const payload = {
-      filter: {
-        status: input.status ?? null,
-        limit: input.limit ?? null,
-      },
-      count,
+      filter: { status: input.status ?? null },
+      pageInfo,
       executions,
     };
 
