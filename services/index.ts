@@ -96,6 +96,298 @@ export class DebuggAIServerClient  {
   }
 
   /**
+   * Simplified project shape used by get/update tools — drops heavy internal
+   * fields (team, runner_configuration, github_auth_details) that most MCP
+   * clients don't need.
+   */
+  private mapProjectDetail(p: any): { uuid: string; name: string; slug: string; platform: string | null; repoName: string | null; description: string | null; status: string | null; language: string | null; framework: string | null; timestamp: string; lastMod: string } {
+    return {
+      uuid: p.uuid,
+      name: p.name,
+      slug: p.slug,
+      platform: p.platform ?? null,
+      repoName: p.repo?.name ?? null,
+      description: p.description ?? null,
+      status: p.status ?? null,
+      language: p.language ?? null,
+      framework: p.framework ?? null,
+      timestamp: p.timestamp,
+      lastMod: p.lastMod,
+    };
+  }
+
+  public async getProject(uuid: string) {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const p = await this.tx.get<any>(`api/v1/projects/${uuid}/`);
+    return this.mapProjectDetail(p);
+  }
+
+  public async updateProject(uuid: string, patch: { name?: string; description?: string }) {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const body: Record<string, any> = {};
+    if (patch.name !== undefined) body.name = patch.name;
+    if (patch.description !== undefined) body.description = patch.description;
+    const p = await this.tx.patch<any>(`api/v1/projects/${uuid}/`, body);
+    return this.mapProjectDetail(p);
+  }
+
+  public async deleteProject(uuid: string): Promise<void> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    await this.tx.delete(`api/v1/projects/${uuid}/`);
+  }
+
+  /**
+   * List projects accessible to the current API key.
+   * Optional q filters by project name / repo name server-side (backend `?search=`).
+   * Returns the first page only; pagination can be added if needed.
+   */
+  public async listProjects(q?: string): Promise<ProjectInfo[]> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const params = q ? { search: q } : undefined;
+    const response = await this.tx.get<{ results: ProjectInfo[] }>('api/v1/projects/', params);
+    return response?.results ?? [];
+  }
+
+  /**
+   * List environments for a project. Optional q filters by name (case-insensitive substring).
+   * Filtering is client-side because the backend environments endpoint does not
+   * respect ?search= / ?q= / ?name= / ?name__icontains= — all return the full list.
+   */
+  public async listEnvironmentsForProject(
+    projectUuid: string,
+    q?: string,
+  ): Promise<Array<{ uuid: string; name: string; url: string; isActive: boolean }>> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const response = await this.tx.get<{ results: any[] }>(
+      `api/v1/projects/${projectUuid}/environments/`,
+    );
+    let envs = (response?.results ?? []).map((e: any) => ({
+      uuid: e.uuid,
+      name: e.name,
+      url: e.url || e.activeUrl || '',
+      isActive: e.isActive,
+    }));
+    if (q) {
+      const needle = q.toLowerCase();
+      envs = envs.filter(e => e.name.toLowerCase().includes(needle));
+    }
+    return envs;
+  }
+
+  /**
+   * Create a new environment under a project.
+   * Backend requires `name`. Other fields optional.
+   */
+  public async createEnvironment(
+    projectUuid: string,
+    input: { name: string; url?: string; description?: string },
+  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const body: Record<string, any> = { name: input.name };
+    if (input.url) body.url = input.url;
+    if (input.description) body.description = input.description;
+    const response = await this.tx.post<any>(
+      `api/v1/projects/${projectUuid}/environments/`,
+      body,
+    );
+    return {
+      uuid: response.uuid,
+      name: response.name,
+      url: response.url || response.activeUrl || '',
+      isActive: response.isActive,
+    };
+  }
+
+  /**
+   * Delete an environment. Used by evals to clean up throwaway test envs.
+   */
+  public async deleteEnvironment(projectUuid: string, envUuid: string): Promise<void> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    await this.tx.delete(`api/v1/projects/${projectUuid}/environments/${envUuid}/`);
+  }
+
+  /**
+   * Fetch a single environment by UUID. Throws AxiosError with status 404 if not found.
+   */
+  public async getEnvironment(
+    projectUuid: string,
+    envUuid: string,
+  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean; description: string | null; endpointType: string; activeUrl: string | null; timestamp: string; lastMod: string }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const e = await this.tx.get<any>(`api/v1/projects/${projectUuid}/environments/${envUuid}/`);
+    return {
+      uuid: e.uuid,
+      name: e.name,
+      url: e.url ?? '',
+      isActive: e.isActive,
+      description: e.description ?? null,
+      endpointType: e.endpointType,
+      activeUrl: e.activeUrl ?? null,
+      timestamp: e.timestamp,
+      lastMod: e.lastMod,
+    };
+  }
+
+  /**
+   * Patch an environment. Backend PATCH response omits uuid — caller should echo it.
+   */
+  public async updateEnvironment(
+    projectUuid: string,
+    envUuid: string,
+    patch: { name?: string; url?: string; description?: string },
+  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean; description: string | null; endpointType: string }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const body: Record<string, any> = {};
+    if (patch.name !== undefined) body.name = patch.name;
+    if (patch.url !== undefined) body.url = patch.url;
+    if (patch.description !== undefined) body.description = patch.description;
+    const e = await this.tx.patch<any>(
+      `api/v1/projects/${projectUuid}/environments/${envUuid}/`,
+      body,
+    );
+    return {
+      uuid: envUuid, // echo from input; backend PATCH response omits it
+      name: e.name,
+      url: e.url ?? '',
+      isActive: e.isActive,
+      description: e.description ?? null,
+      endpointType: e.endpointType,
+    };
+  }
+
+  /**
+   * List credentials for a specific environment. q filters label/username client-side.
+   * role filters for exact match.
+   */
+  public async listCredentialsForEnvironment(
+    projectUuid: string,
+    envUuid: string,
+    q?: string,
+    role?: string,
+  ): Promise<Array<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string }>> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const response = await this.tx.get<{ results: any[] }>(
+      `api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/`,
+    );
+    let creds = (response?.results ?? [])
+      .filter((c: any) => c.isActive)
+      .map((c: any) => ({
+        uuid: c.uuid,
+        label: c.label || c.username,
+        username: c.username,
+        role: c.role,
+        environmentUuid: envUuid,
+      }));
+    if (q) {
+      const needle = q.toLowerCase();
+      creds = creds.filter(c =>
+        c.label.toLowerCase().includes(needle) ||
+        c.username.toLowerCase().includes(needle)
+      );
+    }
+    if (role) {
+      creds = creds.filter(c => c.role === role);
+    }
+    return creds;
+  }
+
+  /**
+   * Create a credential on an environment. password is write-only — never echoed back.
+   */
+  public async createCredential(
+    projectUuid: string,
+    envUuid: string,
+    input: { label: string; username: string; password: string; role?: string },
+  ): Promise<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const body: Record<string, any> = {
+      label: input.label,
+      username: input.username,
+      password: input.password,
+    };
+    if (input.role) body.role = input.role;
+    const response = await this.tx.post<any>(
+      `api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/`,
+      body,
+    );
+    return {
+      uuid: response.uuid,
+      label: response.label || response.username,
+      username: response.username,
+      role: response.role,
+      environmentUuid: envUuid,
+    };
+  }
+
+  /**
+   * Delete a credential. Used by evals to clean up throwaway test creds.
+   */
+  public async deleteCredential(projectUuid: string, envUuid: string, credUuid: string): Promise<void> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    await this.tx.delete(`api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/${credUuid}/`);
+  }
+
+  /**
+   * Fetch a single credential by UUID. Throws AxiosError wrapper with statusCode=404 if not found.
+   * Response shape omits any password field — backend credential schema has no password field.
+   */
+  public async getCredential(
+    projectUuid: string,
+    envUuid: string,
+    credUuid: string,
+  ): Promise<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string; environmentName: string | null; isActive: boolean; isDefault: boolean; description: string | null; timestamp: string; lastMod: string }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const c = await this.tx.get<any>(`api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/${credUuid}/`);
+    return {
+      uuid: c.uuid,
+      label: c.label ?? c.username,
+      username: c.username,
+      role: c.role ?? null,
+      environmentUuid: envUuid,
+      environmentName: c.environmentName ?? null,
+      isActive: c.isActive,
+      isDefault: c.isDefault,
+      description: c.description ?? null,
+      timestamp: c.timestamp,
+      lastMod: c.lastMod,
+    };
+  }
+
+  /**
+   * Update a credential. Backend PATCH requires label+username in body (treats PATCH as PUT)
+   * so this method does a GET first to fill in current values for any fields the caller didn't
+   * override. See bead kgn.
+   */
+  public async updateCredential(
+    projectUuid: string,
+    envUuid: string,
+    credUuid: string,
+    patch: { label?: string; username?: string; password?: string; role?: string },
+  ): Promise<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string; isActive: boolean }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    // Fetch current to fill in the label+username the backend always requires.
+    const current = await this.getCredential(projectUuid, envUuid, credUuid);
+    const body: Record<string, any> = {
+      label: patch.label ?? current.label,
+      username: patch.username ?? current.username,
+    };
+    if (patch.password !== undefined) body.password = patch.password;
+    if (patch.role !== undefined) body.role = patch.role;
+    const c = await this.tx.patch<any>(
+      `api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/${credUuid}/`,
+      body,
+    );
+    return {
+      uuid: credUuid, // echo from input; backend PATCH response omits it
+      label: c.label ?? current.label,
+      username: c.username ?? current.username,
+      role: c.role ?? patch.role ?? current.role,
+      environmentUuid: envUuid,
+      isActive: c.isActive ?? current.isActive,
+    };
+  }
+
+  /**
    * Revoke an ngrok API key by its key ID.
    * Call this after workflow execution completes to clean up the short-lived key.
    */

@@ -26,6 +26,122 @@ export const TestPageChangesInputSchema = z.object({
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
 
+export const ListEnvironmentsInputSchema = z.object({
+  projectUuid: z.string().uuid().optional(),
+  q: z.string().min(1).optional(),
+}).strict();
+export type ListEnvironmentsInput = z.infer<typeof ListEnvironmentsInputSchema>;
+
+export const CreateEnvironmentInputSchema = z.object({
+  name: z.string().min(1, 'name is required'),
+  url: z.string().url('url is required for standard environments'),
+  description: z.string().optional(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type CreateEnvironmentInput = z.infer<typeof CreateEnvironmentInputSchema>;
+
+export const GetEnvironmentInputSchema = z.object({
+  uuid: z.string().uuid(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type GetEnvironmentInput = z.infer<typeof GetEnvironmentInputSchema>;
+
+export const UpdateEnvironmentInputSchema = z.object({
+  uuid: z.string().uuid(),
+  name: z.string().min(1).optional(),
+  url: z.string().url().optional(),
+  description: z.string().optional(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type UpdateEnvironmentInput = z.infer<typeof UpdateEnvironmentInputSchema>;
+
+export const DeleteEnvironmentInputSchema = z.object({
+  uuid: z.string().uuid(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type DeleteEnvironmentInput = z.infer<typeof DeleteEnvironmentInputSchema>;
+
+export const GetCredentialInputSchema = z.object({
+  uuid: z.string().uuid(),
+  environmentId: z.string().uuid(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type GetCredentialInput = z.infer<typeof GetCredentialInputSchema>;
+
+export const UpdateCredentialInputSchema = z.object({
+  uuid: z.string().uuid(),
+  environmentId: z.string().uuid(),
+  label: z.string().min(1).optional(),
+  username: z.string().min(1).optional(),
+  password: z.string().min(1).optional(),
+  role: z.string().min(1).optional(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type UpdateCredentialInput = z.infer<typeof UpdateCredentialInputSchema>;
+
+export const DeleteCredentialInputSchema = z.object({
+  uuid: z.string().uuid(),
+  environmentId: z.string().uuid(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type DeleteCredentialInput = z.infer<typeof DeleteCredentialInputSchema>;
+
+export const GetProjectInputSchema = z.object({
+  uuid: z.string().uuid(),
+}).strict();
+export type GetProjectInput = z.infer<typeof GetProjectInputSchema>;
+
+export const UpdateProjectInputSchema = z.object({
+  uuid: z.string().uuid(),
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+}).strict();
+export type UpdateProjectInput = z.infer<typeof UpdateProjectInputSchema>;
+
+export const DeleteProjectInputSchema = z.object({
+  uuid: z.string().uuid(),
+}).strict();
+export type DeleteProjectInput = z.infer<typeof DeleteProjectInputSchema>;
+
+export const ListExecutionsInputSchema = z.object({
+  status: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+}).strict();
+export type ListExecutionsInput = z.infer<typeof ListExecutionsInputSchema>;
+
+export const GetExecutionInputSchema = z.object({
+  uuid: z.string().uuid(),
+}).strict();
+export type GetExecutionInput = z.infer<typeof GetExecutionInputSchema>;
+
+export const CancelExecutionInputSchema = z.object({
+  uuid: z.string().uuid(),
+}).strict();
+export type CancelExecutionInput = z.infer<typeof CancelExecutionInputSchema>;
+
+export const ListCredentialsInputSchema = z.object({
+  environmentId: z.string().uuid().optional(),
+  projectUuid: z.string().uuid().optional(),
+  q: z.string().min(1).optional(),
+  role: z.string().min(1).optional(),
+}).strict();
+export type ListCredentialsInput = z.infer<typeof ListCredentialsInputSchema>;
+
+export const CreateCredentialInputSchema = z.object({
+  environmentId: z.string().uuid(),
+  label: z.string().min(1, 'label is required'),
+  username: z.string().min(1, 'username is required'),
+  password: z.string().min(1, 'password is required'),
+  role: z.string().min(1).optional(),
+  projectUuid: z.string().uuid().optional(),
+}).strict();
+export type CreateCredentialInput = z.infer<typeof CreateCredentialInputSchema>;
+
+export const ListProjectsInputSchema = z.object({
+  q: z.string().min(1).optional(),
+}).strict();
+export type ListProjectsInput = z.infer<typeof ListProjectsInputSchema>;
+
 /**
  * Tool execution context
  */

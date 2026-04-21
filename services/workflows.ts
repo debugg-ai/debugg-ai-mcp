@@ -69,6 +69,8 @@ export interface WorkflowsService {
     onUpdate?: (execution: WorkflowExecution) => Promise<void>,
     signal?: AbortSignal
   ): Promise<WorkflowExecution>;
+  listExecutions(filters: { status?: string; limit?: number }): Promise<{ count: number; executions: any[] }>;
+  cancelExecution(executionUuid: string): Promise<void>;
 }
 
 export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => {
@@ -129,6 +131,35 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         throw new Error(`Execution not found: ${executionUuid}`);
       }
       return response;
+    },
+
+    async listExecutions(filters): Promise<{ count: number; executions: any[] }> {
+      const params: Record<string, any> = {};
+      if (filters.status) params.status = filters.status;
+      if (filters.limit) params.pageSize = filters.limit; // backend uses page_size (snake_case via transport)
+      const response = await tx.get<{ count: number; results: any[] }>(
+        'api/v1/workflows/executions/',
+        params,
+      );
+      return {
+        count: response?.count ?? 0,
+        executions: (response?.results ?? []).map((e: any) => ({
+          uuid: e.uuid,
+          workflow: e.workflow,
+          status: e.status,
+          mode: e.mode,
+          source: e.source,
+          outcome: e.outcome ?? null,
+          startedAt: e.startedAt,
+          completedAt: e.completedAt,
+          durationMs: e.durationMs,
+          timestamp: e.timestamp,
+        })),
+      };
+    },
+
+    async cancelExecution(executionUuid: string): Promise<void> {
+      await tx.post(`api/v1/workflows/executions/${executionUuid}/cancel/`, {});
     },
 
     async pollExecution(

@@ -35,43 +35,52 @@ export interface ProjectContext {
 }
 
 let cached: ProjectContext | null = null;
-let initialized = false;
+let inFlight: Promise<ProjectContext | null> | null = null;
 
 /**
  * Resolve the current project context: repo → project → environments → credentials.
- * Safe to call multiple times — caches after first successful resolution.
+ *
+ * Caches the first successful result. Concurrent calls share a single in-flight
+ * promise. Failures are NOT cached — the next call will retry — so a transient
+ * network error on the first tool call doesn't permanently disable the service.
  */
-const STARTUP_TIMEOUT_MS = 10_000; // hard cap so we never block MCP connection
+const STARTUP_TIMEOUT_MS = 10_000;
 
 export async function resolveProjectContext(): Promise<ProjectContext | null> {
-  if (initialized) return cached;
-  initialized = true;
+  if (cached) return cached;
+  if (inFlight) return inFlight;
 
-  const repoName = detectRepoName();
-  if (!repoName) {
-    logger.info('No git repo detected — skipping project context');
-    return null;
-  }
+  inFlight = (async (): Promise<ProjectContext | null> => {
+    const repoName = detectRepoName();
+    if (!repoName) {
+      logger.info('No git repo detected — skipping project context');
+      return null;
+    }
 
-  try {
-    // Race against a timeout so a slow/unreachable backend never blocks startup.
-    // Cancel the timer when the inner promise settles to prevent leaked callbacks.
-    let timer: NodeJS.Timeout;
-    const result = await Promise.race([
-      resolveProjectContextInner(repoName),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => {
-          logger.warn('Project context resolution timed out — continuing without it');
-          resolve(null);
-        }, STARTUP_TIMEOUT_MS);
-      }),
-    ]);
-    clearTimeout(timer!);
-    return result;
-  } catch (err) {
-    logger.warn(`Failed to resolve project context: ${err}`);
-    return null;
-  }
+    let timer: NodeJS.Timeout | null = null;
+    try {
+      const result = await Promise.race([
+        resolveProjectContextInner(repoName),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => {
+            logger.warn('Project context resolution timed out');
+            resolve(null);
+          }, STARTUP_TIMEOUT_MS);
+        }),
+      ]);
+      if (result) cached = result;
+      return result;
+    } catch (err) {
+      logger.warn(`Failed to resolve project context: ${err}`);
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  })().finally(() => {
+    inFlight = null;
+  });
+
+  return inFlight;
 }
 
 async function resolveProjectContextInner(repoName: string): Promise<ProjectContext | null> {

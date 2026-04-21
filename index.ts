@@ -28,7 +28,6 @@ import {
 
 import { config } from "./config/index.js";
 import { initTools, getTools, getTool } from "./tools/index.js";
-import { resolveProjectContext } from "./services/projectContext.js";
 import {
   Logger,
   validateInput,
@@ -201,8 +200,8 @@ async function main(): Promise<void> {
       logger.info('Telemetry enabled (PostHog)');
     }
 
-    // Connect transport FIRST so the MCP client handshake succeeds immediately.
-    // Tools start with no project context; enriched once the API responds.
+    // No API calls at boot. Project context is resolved lazily on first tool
+    // invocation (list_environments / list_credentials / check_app_in_browser).
     initTools(null);
     const transport = new StdioServerTransport();
     await server.connect(transport);
@@ -210,23 +209,6 @@ async function main(): Promise<void> {
     logger.info('DebuggAI MCP Server is running and ready to accept requests', {
       transport: 'stdio',
       toolsAvailable: getTools().map(t => t.name),
-    });
-
-    // Resolve project context in the background — enriches tool descriptions
-    // with available environments/credentials once the API responds.
-    resolveProjectContext().then((projectCtx) => {
-      if (projectCtx) {
-        initTools(projectCtx);
-        logger.info('Tool descriptions enriched with project context', {
-          project: projectCtx.project.name,
-          environments: projectCtx.environments.length,
-          credentials: projectCtx.environments.reduce((n, e) => n + e.credentials.length, 0),
-        });
-      }
-    }).catch((err) => {
-      logger.warn('Background project context resolution failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
     });
 
   } catch (error) {

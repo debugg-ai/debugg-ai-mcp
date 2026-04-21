@@ -37,13 +37,15 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `description` | string **required** | What to test (natural language) |
-| `url` | string | Target URL — required if `localPort` not set |
-| `localPort` | number | Local dev server port — tunnel created automatically |
+| `url` | string **required** | Target URL — a localhost URL (`http://localhost:3000`) is auto-tunneled via ngrok |
 | `environmentId` | string | UUID of a specific environment |
 | `credentialId` | string | UUID of a specific credential |
 | `credentialRole` | string | Pick a credential by role (e.g. `admin`, `guest`) |
 | `username` | string | Username for login |
 | `password` | string | Password for login |
+| `repoName` | string | Override auto-detected git repo name (e.g. `my-org/my-repo`) |
+
+Two additional tools are registered: `list_environments` and `list_credentials`. Both take the project from the current git repo and return JSON describing available environments and credentials (no passwords). Use them to discover `environmentId` and `credentialId` values to pass to `check_app_in_browser`.
 
 ## Configuration
 

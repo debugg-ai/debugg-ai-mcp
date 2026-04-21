@@ -361,8 +361,11 @@ async function testPageChangesHandlerInner(
       await progressCallback({ progress: TOTAL_STEPS, total: TOTAL_STEPS, message: `Complete: ${outcome}` });
     }
 
+    // Sanitize the whole payload so no tunnel URL leaks anywhere — including
+    // agent-authored strings in actionTrace[*].intent, evaluation.reason, etc.
+    const sanitizedPayload = sanitizeResponseUrls(responsePayload, ctx);
     const content: ToolResponse['content'] = [
-      { type: 'text', text: JSON.stringify(responsePayload, null, 2) },
+      { type: 'text', text: JSON.stringify(sanitizedPayload, null, 2) },
     ];
 
     // Screenshot: check for already-base64 field first (subworkflow.run), then URL-based fields
