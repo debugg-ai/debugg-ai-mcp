@@ -64,6 +64,39 @@ export const flow = {
         `filter leaked non-completed: ${body.executions.filter(e => e.status !== 'completed').map(e => e.status).slice(0, 3)}`);
     });
 
+    await step('list_executions({projectUuid}) scopes to that project (bead j5z)', async () => {
+      const projects = await client.request('tools/call', {
+        name: 'list_projects',
+        arguments: { pageSize: 1 },
+      }, 30_000);
+      const targetProjectUuid = JSON.parse(projects.content[0].text).projects[0].uuid;
+
+      const unfiltered = await client.request('tools/call', {
+        name: 'list_executions',
+        arguments: { pageSize: 1 },
+      }, 30_000);
+      const unfilteredCount = JSON.parse(unfiltered.content[0].text).pageInfo.totalCount;
+
+      const scoped = await client.request('tools/call', {
+        name: 'list_executions',
+        arguments: { projectUuid: targetProjectUuid, pageSize: 1 },
+      }, 30_000);
+      await writeArtifact('list-by-project.json', scoped);
+      const scopedBody = JSON.parse(scoped.content[0].text);
+      assert(scopedBody.filter.projectUuid === targetProjectUuid, 'filter.projectUuid not echoed');
+      assert(scopedBody.pageInfo.totalCount <= unfilteredCount,
+        `scoped count ${scopedBody.pageInfo.totalCount} > unfiltered ${unfilteredCount}`);
+
+      // Bogus project UUID must return 0 (not get silently ignored).
+      const bogus = await client.request('tools/call', {
+        name: 'list_executions',
+        arguments: { projectUuid: '00000000-0000-0000-0000-000000000000', pageSize: 1 },
+      }, 30_000);
+      const bogusBody = JSON.parse(bogus.content[0].text);
+      assert(bogusBody.pageInfo.totalCount === 0,
+        `bogus projectUuid expected totalCount=0, got ${bogusBody.pageInfo.totalCount} — j5z regressed`);
+    });
+
     await step('cancel_execution on completed uuid returns AlreadyCompleted error', async () => {
       const r = await client.request('tools/call', {
         name: 'cancel_execution',

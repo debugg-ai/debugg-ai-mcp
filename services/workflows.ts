@@ -69,7 +69,7 @@ export interface WorkflowsService {
     onUpdate?: (execution: WorkflowExecution) => Promise<void>,
     signal?: AbortSignal
   ): Promise<WorkflowExecution>;
-  listExecutions(filters: { status?: string; page: number; pageSize: number }): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; executions: any[] }>;
+  listExecutions(filters: { status?: string; projectId?: string; page: number; pageSize: number }): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; executions: any[] }>;
   cancelExecution(executionUuid: string): Promise<void>;
 }
 
@@ -137,6 +137,7 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       const { makePageInfo } = await import('../utils/pagination.js');
       const params: Record<string, any> = { page: filters.page, pageSize: filters.pageSize };
       if (filters.status) params.status = filters.status;
+      if (filters.projectId) params.projectId = filters.projectId;
       const response = await tx.get<{ count: number; next: string | null; results: any[] }>(
         'api/v1/workflows/executions/',
         params,

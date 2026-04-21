@@ -107,6 +107,7 @@ export type DeleteProjectInput = z.infer<typeof DeleteProjectInputSchema>;
 
 export const ListExecutionsInputSchema = z.object({
   status: z.string().min(1).optional(),
+  projectUuid: z.string().uuid().optional(),
   page: z.number().int().min(1).optional(),
   pageSize: z.number().int().min(1).optional(),
 }).strict();

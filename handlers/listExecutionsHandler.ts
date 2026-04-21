@@ -13,7 +13,7 @@ export async function listExecutionsHandler(
 ): Promise<ToolResponse> {
   const start = Date.now();
   const pagination = toPaginationParams({ page: input.page, pageSize: input.pageSize });
-  logger.toolStart('list_executions', { status: input.status, ...pagination });
+  logger.toolStart('list_executions', { status: input.status, projectUuid: input.projectUuid, ...pagination });
 
   try {
     const client = new DebuggAIServerClient(config.api.key);
@@ -21,12 +21,16 @@ export async function listExecutionsHandler(
 
     const { pageInfo, executions } = await client.workflows!.listExecutions({
       status: input.status,
+      projectId: input.projectUuid,
       page: pagination.page,
       pageSize: pagination.pageSize,
     });
 
     const payload = {
-      filter: { status: input.status ?? null },
+      filter: {
+        status: input.status ?? null,
+        projectUuid: input.projectUuid ?? null,
+      },
       pageInfo,
       executions,
     };

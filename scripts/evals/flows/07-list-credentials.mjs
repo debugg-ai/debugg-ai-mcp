@@ -84,7 +84,7 @@ export const flow = {
         // See bead for backend support: credentials have no role field.
       });
 
-      await step('list_credentials — filter by q matches the label', async () => {
+      await step('list_credentials — filter by q matches the label (backend ?search= — bead 4e8)', async () => {
         const r = await client.request('tools/call', {
           name: 'list_credentials',
           arguments: { environmentId: envUuid, q: credLabel },
@@ -94,6 +94,16 @@ export const flow = {
         assert(body.pageInfo.totalCount >= 1, `Expected >=1 match for q="${credLabel}"`);
         assert(body.credentials.every(c => c.label.includes(credLabel) || c.username.includes(credLabel)),
           'q filter returned non-matching credentials');
+
+        // Lock the backend fix: a known-miss query must return 0. Before the fix
+        // this returned all creds regardless of query.
+        const bogus = await client.request('tools/call', {
+          name: 'list_credentials',
+          arguments: { environmentId: envUuid, q: `zzz-never-matches-${ts}` },
+        }, 30_000);
+        const bogusBody = JSON.parse(bogus.content[0].text);
+        assert(bogusBody.pageInfo.totalCount === 0,
+          `bogus q expected totalCount=0, got ${bogusBody.pageInfo.totalCount} — 4e8 regressed`);
       });
 
       await step('list_credentials — no environmentId filter iterates all envs and includes new cred', async () => {
