@@ -26,6 +26,7 @@ async function deleteDirect(path) {
 
 export const flow = {
   name: 'list-credentials',
+  tags: ['fast', 'crud', 'cred'],
   description: 'list_credentials shape, filtering, and no-secret-leak',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

@@ -12,6 +12,7 @@
 
 export const flow = {
   name: 'protocol',
+  tags: ['fast', 'protocol'],
   description: 'MCP handshake + tools/list schema (shape-only)',
   async run({ client, step, assert, writeArtifact }) {
     await step('tools/list returns at least one tool', async () => {

@@ -31,6 +31,7 @@ async function deleteDirect(path) {
 
 export const flow = {
   name: 'cred-crud-lifecycle',
+  tags: ['fast', 'crud', 'cred'],
   description: 'TDD: cred get/update/delete lifecycle; password is write-only',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

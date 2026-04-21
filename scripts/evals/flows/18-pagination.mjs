@@ -50,6 +50,7 @@ function assertPageInfo(assert, body, expected) {
 
 export const flow = {
   name: 'pagination',
+  tags: ['fast', 'list', 'crud'],
   description: 'Every list_* tool must expose page/pageSize inputs and return pageInfo',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

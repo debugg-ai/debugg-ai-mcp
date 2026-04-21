@@ -122,6 +122,7 @@ async function spawnAuxMCP(cwd) {
 
 export const flow = {
   name: 'multi-mcp-tunnel-contention',
+  tags: ['browser', 'browser-local', 'tunnel', 'multi-process'],
   description: `${N_INSTANCES} independent MCP servers from distinct cwds; concurrent check_app_in_browser with no cross-wiring`,
   async run({ step, assert, writeArtifact }) {
     const ts = Date.now();

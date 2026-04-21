@@ -97,6 +97,7 @@ function makeLoginServer({ validUsername, validPassword }) {
 
 export const flow = {
   name: 'direct-credentials',
+  tags: ['browser', 'browser-local', 'tunnel', 'auth'],
   description: 'check_app_in_browser with raw username/password in tool args (no credentialId)',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

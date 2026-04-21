@@ -18,6 +18,7 @@
 
 export const flow = {
   name: 'project-crud-lifecycle',
+  tags: ['fast', 'crud', 'project'],
   description: 'TDD: get/update/delete project; delete tested only against bogus uuid to avoid destruction',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

@@ -28,6 +28,7 @@ function makeMarkerServer(marker) {
 
 export const flow = {
   name: 'concurrent-checks',
+  tags: ['browser', 'browser-local', 'tunnel', 'concurrency'],
   description: `Fire ${N_CALLS} check_app_in_browser calls in parallel; verify no cross-wiring + some parallelism`,
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

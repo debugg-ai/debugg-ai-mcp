@@ -24,7 +24,26 @@ const ARTIFACTS_ROOT = join(HERE, 'artifacts');
 
 const argv = process.argv.slice(2);
 const SKIP_BUILD = argv.includes('--skip-build');
-const FLOW_FILTER = argv.find(a => a.startsWith('--flow='))?.slice('--flow='.length) ?? null;
+const LIST_ONLY = argv.includes('--list');
+
+// --flow=a,b,c — comma-separated exact flow names (OR match)
+// --tag=x,y,z — comma-separated tag names (OR match)
+// --skip-tag=x — comma-separated tags to exclude
+// Multiple --flow/--tag/--skip-tag flags are accumulated.
+function collect(argvSlice, prefix) {
+  const out = new Set();
+  for (const a of argvSlice) {
+    if (!a.startsWith(prefix)) continue;
+    for (const v of a.slice(prefix.length).split(',')) {
+      const trimmed = v.trim();
+      if (trimmed) out.add(trimmed);
+    }
+  }
+  return out.size > 0 ? out : null;
+}
+const FLOW_FILTER = collect(argv, '--flow=');
+const TAG_FILTER = collect(argv, '--tag=');
+const SKIP_TAG = collect(argv, '--skip-tag=');
 
 const testConfig = JSON.parse(readFileSync(join(ROOT, 'test-config.json'), 'utf-8'));
 const API_KEY = testConfig.mcpServers['debugg-ai-mcp-node'].env.DEBUGGAI_API_KEY;
@@ -44,6 +63,7 @@ class MCPClient {
     this.pending = new Map();
     this.nextId = 1;
     this.buf = '';
+    this.notificationHandlers = new Set();
     proc.stdout.on('data', chunk => {
       this.buf += chunk.toString();
       const lines = this.buf.split('\n');
@@ -56,10 +76,20 @@ class MCPClient {
             const { resolve, reject } = this.pending.get(msg.id);
             this.pending.delete(msg.id);
             msg.error ? reject(new Error(`RPC error ${msg.error.code}: ${msg.error.message}`)) : resolve(msg.result);
+          } else if (msg.method && msg.id == null) {
+            // Server-to-client notification (e.g. notifications/progress).
+            for (const fn of this.notificationHandlers) {
+              try { fn(msg.method, msg.params); } catch { /* listener errors ignored */ }
+            }
           }
         } catch { /* non-JSON */ }
       }
     });
+  }
+  /** Subscribe to server-sent notifications. Returns an unsubscribe function. */
+  onNotification(fn) {
+    this.notificationHandlers.add(fn);
+    return () => this.notificationHandlers.delete(fn);
   }
   _send(msg) { this.proc.stdin.write(JSON.stringify(msg) + '\n'); }
   request(method, params = {}, timeout = 120_000) {
@@ -121,16 +151,7 @@ async function main() {
   console.log(`${c.bold}debugg-ai-mcp evals${c.reset}`);
   console.log(`Root: ${ROOT}`);
 
-  if (!SKIP_BUILD) {
-    hdr('Build');
-    execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
-    console.log(`  ${ok} Build succeeded`);
-  }
-
-  const runId = new Date().toISOString().replace(/[:.]/g, '-');
-  const runDir = join(ARTIFACTS_ROOT, runId);
-  mkdirSync(runDir, { recursive: true });
-
+  // Discover + filter flows first so --list can exit before the build.
   hdr('Discover flows');
   const flowFiles = readdirSync(FLOWS_DIR).filter(f => f.endsWith('.mjs')).sort();
   const flows = [];
@@ -140,15 +161,39 @@ async function main() {
       console.log(`  ${c.yellow}WARN${c.reset}  ${file}: no "flow" export, skipping`);
       continue;
     }
-    if (FLOW_FILTER && mod.flow.name !== FLOW_FILTER) continue;
-    flows.push({ file, ...mod.flow });
+    const tags = Array.isArray(mod.flow.tags) ? mod.flow.tags : [];
+    if (FLOW_FILTER && !FLOW_FILTER.has(mod.flow.name)) continue;
+    if (TAG_FILTER && !tags.some(t => TAG_FILTER.has(t))) continue;
+    if (SKIP_TAG && tags.some(t => SKIP_TAG.has(t))) continue;
+    flows.push({ file, tags, ...mod.flow });
   }
   if (flows.length === 0) {
-    console.error(`\n${bad} No flows matched${FLOW_FILTER ? ` filter "${FLOW_FILTER}"` : ''}`);
+    const parts = [];
+    if (FLOW_FILTER) parts.push(`flow=${[...FLOW_FILTER].join(',')}`);
+    if (TAG_FILTER) parts.push(`tag=${[...TAG_FILTER].join(',')}`);
+    if (SKIP_TAG) parts.push(`skip-tag=${[...SKIP_TAG].join(',')}`);
+    console.error(`\n${bad} No flows matched${parts.length ? ' (' + parts.join(' ') + ')' : ''}`);
     process.exit(1);
   }
-  for (const f of flows) console.log(`  • ${f.name} ${c.dim}(${f.file})${c.reset}`);
-  console.log(`  Artifacts: ${runDir}`);
+  for (const f of flows) {
+    const tagStr = f.tags.length ? ` ${c.dim}[${f.tags.join(' ')}]${c.reset}` : '';
+    console.log(`  • ${f.name}${tagStr} ${c.dim}(${f.file})${c.reset}`);
+  }
+  if (LIST_ONLY) {
+    console.log(`\n${c.dim}--list specified, exiting before build/run.${c.reset}`);
+    process.exit(0);
+  }
+
+  if (!SKIP_BUILD) {
+    hdr('Build');
+    execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
+    console.log(`  ${ok} Build succeeded`);
+  }
+
+  const runId = new Date().toISOString().replace(/[:.]/g, '-');
+  const runDir = join(ARTIFACTS_ROOT, runId);
+  mkdirSync(runDir, { recursive: true });
+  console.log(`\n  Artifacts: ${runDir}`);
 
   hdr('Server startup');
   const proc = spawn('node', [DIST], {

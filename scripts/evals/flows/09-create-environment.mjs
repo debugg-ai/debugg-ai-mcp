@@ -29,6 +29,7 @@ async function deleteEnvDirect(projectUuid, envUuid) {
 
 export const flow = {
   name: 'create-environment',
+  tags: ['fast', 'crud', 'env'],
   description: 'create_environment → list → delete lifecycle',
   async run({ client, step, assert, writeArtifact }) {
     const name = `mcp-eval-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;

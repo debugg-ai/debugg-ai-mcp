@@ -12,7 +12,8 @@
 
 export const flow = {
   name: 'executions-history',
-  description: 'TDD: list + get + cancel execution history (no new execs fired)',
+  tags: ['browser', 'exec'],
+  description: 'TDD: list + get + cancel execution history (incl mid-flight cancel of a real run)',
   async run({ client, step, assert, writeArtifact }) {
     let anyCompletedUuid = null;
 

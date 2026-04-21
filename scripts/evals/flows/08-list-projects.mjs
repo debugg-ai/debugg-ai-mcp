@@ -5,6 +5,7 @@
 
 export const flow = {
   name: 'list-projects',
+  tags: ['fast', 'list', 'project'],
   description: 'list_projects no-filter + search filter both return valid shape',
   async run({ client, step, assert, writeArtifact }) {
     let unfilteredCount = 0;

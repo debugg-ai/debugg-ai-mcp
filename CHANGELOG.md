@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — eval runner: tag-based filtering + response-structure flow
+
+- Runner now accepts `--tag=<name>`, `--skip-tag=<name>`, and `--flow=<a,b,c>` (comma-separated exact names). Every flow declares a `tags: []` array; `--list` prints all flows with tags without running anything.
+- Practical subsets: `--tag=fast` runs 11 non-browser flows in ~40s for iteration; `--tag=browser` runs the 7 heavy flows; `--skip-tag=browser` gives everything except the long runs.
+- New flow `20-response-structure.mjs` explicitly verifies the MCP response contract for `check_app_in_browser`: progress notifications must arrive via `notifications/progress`, be monotonic, and reach `total`; image content blocks (when present) must decode as valid base64 with correct PNG signature and mimeType; `actionTrace` must have monotonically-numbered steps agreeing with `stepsTaken`; `targetUrl` must echo the localhost URL with no tunnel leak.
+- Extended `MCPClient` in the runner with `onNotification(fn)` so flows can observe server→client events.
+
 ### Added — `create_project` + helper tools (`list_teams`, `list_repos`)
 
 - `create_project({name, platform, teamUuid, repoUuid})` creates a new DebuggAI project. Requires a GitHub-linked repo UUID and a team UUID.

@@ -5,6 +5,7 @@
 
 export const flow = {
   name: 'check-public-url',
+  tags: ['browser', 'browser-public'],
   description: 'check_app_in_browser against example.com (real browser agent)',
   async run({ client, step, assert, assertHas, writeArtifact }) {
     await step('check_app_in_browser — example.com, structured result, no tunnel leak', async () => {

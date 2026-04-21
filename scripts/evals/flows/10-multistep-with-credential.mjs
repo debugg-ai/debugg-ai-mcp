@@ -95,6 +95,7 @@ function makeLoginServer({ validUsername, validPassword }) {
 
 export const flow = {
   name: 'multistep-with-credential',
+  tags: ['browser', 'browser-local', 'tunnel', 'auth', 'cred'],
   description: 'Multi-step login flow via credentialId resolution — exercises fill/submit/verify + backend cred injection',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

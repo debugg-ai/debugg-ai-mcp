@@ -45,6 +45,7 @@ async function getEnvDirect(projectUuid, envUuid) {
 
 export const flow = {
   name: 'env-crud-lifecycle',
+  tags: ['fast', 'crud', 'env'],
   description: 'TDD: create → get → update → re-get → delete → get-returns-NotFound',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();

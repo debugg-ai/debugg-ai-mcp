@@ -21,6 +21,7 @@ const LANDMARK_HEADING = 'MCP Tunnel Eval OK';
 
 export const flow = {
   name: 'localhost-tunnel',
+  tags: ['browser', 'browser-local', 'tunnel'],
   description: 'check_app_in_browser end-to-end through a real ngrok tunnel to local http',
   async run({ client, step, assert, assertHas, writeArtifact }) {
     const server = createServer((req, res) => {

@@ -6,6 +6,7 @@
 
 export const flow = {
   name: 'list-environments',
+  tags: ['fast', 'list', 'env'],
   description: 'list_environments default + q filter + projectUuid override',
   async run({ client, step, assert, writeArtifact }) {
     await step('list_environments — default (no inputs)', async () => {

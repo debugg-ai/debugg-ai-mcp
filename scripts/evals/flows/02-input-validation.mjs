@@ -8,6 +8,7 @@
 
 export const flow = {
   name: 'input-validation',
+  tags: ['fast', 'protocol'],
   description: 'Tool-call input validation errors for check_app_in_browser',
   async run({ client, step, assert, writeArtifact }) {
     await step('check_app_in_browser — missing description → validation error', async () => {

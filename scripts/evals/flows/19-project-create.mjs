@@ -16,6 +16,7 @@
 
 export const flow = {
   name: 'project-create',
+  tags: ['fast', 'crud', 'project'],
   description: 'TDD: list_teams + list_repos + create_project end-to-end, with delete cleanup',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();
