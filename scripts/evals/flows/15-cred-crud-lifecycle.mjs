@@ -84,6 +84,54 @@ export const flow = {
         assert(body.credential.environmentUuid === envUuid, `envUuid mismatch: ${body.credential.environmentUuid}`);
       });
 
+      await step('create_credential with role, round-trip via get + filter by role (hpo backend fix)', async () => {
+        const roleLabel = `mcp-eval-role-${ts}`;
+        const roleValue = `role-${ts}`;
+        const created = await client.request('tools/call', {
+          name: 'create_credential',
+          arguments: {
+            environmentId: envUuid,
+            label: roleLabel,
+            username: `role-user-${ts}@example.invalid`,
+            password: 'role-probe-pw',
+            role: roleValue,
+          },
+        }, 30_000);
+        assert(!created.isError, `create with role: ${created.content?.[0]?.text?.slice(0, 300)}`);
+        const createdBody = JSON.parse(created.content[0].text);
+        const roleCredUuid = createdBody.credential.uuid;
+        assert(
+          createdBody.credential.role === roleValue,
+          `create response should echo role. Got: ${createdBody.credential.role}`
+        );
+
+        const got = await client.request('tools/call', {
+          name: 'get_credential',
+          arguments: { uuid: roleCredUuid, environmentId: envUuid },
+        }, 30_000);
+        const gotBody = JSON.parse(got.content[0].text);
+        assert(
+          gotBody.credential.role === roleValue,
+          `get should round-trip role. Got: ${gotBody.credential.role}`
+        );
+
+        const filtered = await client.request('tools/call', {
+          name: 'list_credentials',
+          arguments: { environmentId: envUuid, role: roleValue },
+        }, 30_000);
+        const filteredBody = JSON.parse(filtered.content[0].text);
+        assert(
+          filteredBody.credentials.some(c => c.uuid === roleCredUuid),
+          `list_credentials role=${roleValue} should include the new cred`
+        );
+        assert(
+          filteredBody.credentials.every(c => c.role === roleValue),
+          `list_credentials role filter returned non-matching creds`
+        );
+
+        await deleteDirect(`/api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/${roleCredUuid}/`);
+      });
+
       await step('update_credential patches label; response echoes uuid + new label; no password leak', async () => {
         const r = await client.request('tools/call', {
           name: 'update_credential',

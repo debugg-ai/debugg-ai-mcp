@@ -2,7 +2,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { UpdateCredentialInputSchema, ValidatedTool } from '../types/index.js';
 import { updateCredentialHandler } from '../handlers/updateCredentialHandler.js';
 
-const DESCRIPTION = `Patch a credential by UUID. Optional fields: label, username, password, role. Password is write-only — set it to rotate, but it is never returned in any response. Requires environmentId. Returns {updated:true, credential:{...}}. Note: internally does a GET-then-PATCH to work around a backend quirk where PATCH always requires label+username.`;
+const DESCRIPTION = `Patch a credential by UUID. Optional fields: label, username, password, role. Password is write-only — set it to rotate, but it is never returned in any response. Requires environmentId. Returns {updated:true, credential:{...}}.`;
 
 export function buildUpdateCredentialTool(): Tool {
   return {

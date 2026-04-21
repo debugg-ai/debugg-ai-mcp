@@ -149,29 +149,24 @@ export class DebuggAIServerClient  {
   }
 
   /**
-   * List environments for a project. Optional q filters by name (case-insensitive substring).
-   * Filtering is client-side because the backend environments endpoint does not
-   * respect ?search= / ?q= / ?name= / ?name__icontains= — all return the full list.
+   * List environments for a project. Optional q filters by name via backend ?search=.
    */
   public async listEnvironmentsForProject(
     projectUuid: string,
     q?: string,
   ): Promise<Array<{ uuid: string; name: string; url: string; isActive: boolean }>> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const params = q ? { search: q } : undefined;
     const response = await this.tx.get<{ results: any[] }>(
       `api/v1/projects/${projectUuid}/environments/`,
+      params,
     );
-    let envs = (response?.results ?? []).map((e: any) => ({
+    return (response?.results ?? []).map((e: any) => ({
       uuid: e.uuid,
       name: e.name,
       url: e.url || e.activeUrl || '',
       isActive: e.isActive,
     }));
-    if (q) {
-      const needle = q.toLowerCase();
-      envs = envs.filter(e => e.name.toLowerCase().includes(needle));
-    }
-    return envs;
   }
 
   /**
@@ -354,9 +349,7 @@ export class DebuggAIServerClient  {
   }
 
   /**
-   * Update a credential. Backend PATCH requires label+username in body (treats PATCH as PUT)
-   * so this method does a GET first to fill in current values for any fields the caller didn't
-   * override. See bead kgn.
+   * Update a credential via partial PATCH. Only the specified fields change.
    */
   public async updateCredential(
     projectUuid: string,
@@ -365,12 +358,9 @@ export class DebuggAIServerClient  {
     patch: { label?: string; username?: string; password?: string; role?: string },
   ): Promise<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string; isActive: boolean }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
-    // Fetch current to fill in the label+username the backend always requires.
-    const current = await this.getCredential(projectUuid, envUuid, credUuid);
-    const body: Record<string, any> = {
-      label: patch.label ?? current.label,
-      username: patch.username ?? current.username,
-    };
+    const body: Record<string, any> = {};
+    if (patch.label !== undefined) body.label = patch.label;
+    if (patch.username !== undefined) body.username = patch.username;
     if (patch.password !== undefined) body.password = patch.password;
     if (patch.role !== undefined) body.role = patch.role;
     const c = await this.tx.patch<any>(
@@ -379,11 +369,11 @@ export class DebuggAIServerClient  {
     );
     return {
       uuid: credUuid, // echo from input; backend PATCH response omits it
-      label: c.label ?? current.label,
-      username: c.username ?? current.username,
-      role: c.role ?? patch.role ?? current.role,
+      label: c.label,
+      username: c.username,
+      role: c.role ?? null,
       environmentUuid: envUuid,
-      isActive: c.isActive ?? current.isActive,
+      isActive: c.isActive,
     };
   }
 

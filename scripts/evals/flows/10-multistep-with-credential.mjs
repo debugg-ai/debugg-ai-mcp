@@ -168,6 +168,12 @@ export const flow = {
           body.resolvedCredentialId === credUuid,
           `Backend did not echo resolvedCredentialId. Expected ${credUuid}, got ${body.resolvedCredentialId}`
         );
+        // q2f: resolvedEnvironmentId should match the env the credential lives under,
+        // not the project's default runner env. Backend fix verified here.
+        assert(
+          body.resolvedEnvironmentId === envUuid,
+          `resolvedEnvironmentId should be the credential's own env. Expected ${envUuid}, got ${body.resolvedEnvironmentId}`
+        );
         assert(
           (body.stepsTaken ?? 0) >= 2,
           `Expected multi-step interaction (>=2 steps). Got stepsTaken=${body.stepsTaken}. ` +

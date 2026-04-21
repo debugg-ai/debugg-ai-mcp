@@ -33,7 +33,7 @@ export function buildCreateCredentialTool(): Tool {
         },
         role: {
           type: 'string',
-          description: 'Optional: role string (e.g. "admin", "guest") used by credentialRole resolution.',
+          description: 'Optional: role string (e.g. "admin", "guest"). Persists on the credential and can be used with credentialRole resolution.',
         },
         projectUuid: {
           type: 'string',

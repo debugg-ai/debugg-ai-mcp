@@ -139,27 +139,42 @@ export const flow = {
         assert(body.success === true, `Agent did not succeed. outcome=${JSON.stringify(body.outcome).slice(0, 300)}`);
         assert(body.targetUrl === localUrl, `targetUrl echo: ${body.targetUrl}`);
 
-        // Backend auto-creates a stored cred from raw username/password — track for cleanup.
+        // jad: backend must NOT silently auto-create a stored cred from raw
+        // username/password. Previously this leaked orphan records into the
+        // user's account. Now raw creds should be ephemeral to the call.
+        assert(
+          !body.resolvedCredentialId,
+          `Unexpected resolvedCredentialId when only raw username/password was passed: ${body.resolvedCredentialId} — backend may be auto-creating a stored cred (regression of jad)`
+        );
+
+        // Defensive: if resolvedCredentialId ever comes back (regression), capture for cleanup.
         autoCreatedCredUuid = body.resolvedCredentialId ?? null;
         autoCreatedEnvUuid = body.resolvedEnvironmentId ?? null;
       });
 
-      await step('GET auto-created credential — no password field in response', async () => {
-        if (!autoCreatedCredUuid || !autoCreatedEnvUuid) {
-          console.log('  \x1b[2m(backend did not auto-create a cred — skipping storage check)\x1b[0m');
-          return;
-        }
+      await step('verify no orphan credential was created for our probe username', async () => {
+        // Direct backend lookup: no cred in any env should carry our probe username.
         const proj = await findDefaultProject();
-        assert(!!proj, 'Could not resolve default project for cred cleanup');
+        assert(!!proj, 'Could not resolve project for orphan check');
         projectUuid = proj.uuid;
 
-        const url = `${API_BASE}/api/v1/projects/${proj.uuid}/environments/${autoCreatedEnvUuid}/credentials/${autoCreatedCredUuid}/`;
-        const r = await fetch(url, { headers: { Authorization: `Token ${API_KEY}` } });
-        assert(r.ok, `Failed to GET auto-created cred: ${r.status}`);
-        const cred = await r.json();
-        assert(!('password' in cred), 'Auto-created cred exposes password field on GET');
-        const credText = JSON.stringify(cred);
-        assert(!credText.includes(validPassword), 'Auto-created cred leaked the raw password value in its fields');
+        const envs = await fetch(
+          `${API_BASE}/api/v1/projects/${proj.uuid}/environments/`,
+          { headers: { Authorization: `Token ${API_KEY}` } },
+        ).then(r => r.json());
+
+        for (const env of envs.results ?? []) {
+          const credsResp = await fetch(
+            `${API_BASE}/api/v1/projects/${proj.uuid}/environments/${env.uuid}/credentials/?search=${encodeURIComponent(validUsername)}`,
+            { headers: { Authorization: `Token ${API_KEY}` } },
+          );
+          const credsBody = await credsResp.json();
+          const match = (credsBody.results ?? []).find(c => c.username === validUsername);
+          assert(
+            !match,
+            `Found orphan cred with our probe username in env ${env.name}: ${match?.uuid}. jad regression.`
+          );
+        }
       });
     } finally {
       if (autoCreatedCredUuid && autoCreatedEnvUuid && projectUuid) {
