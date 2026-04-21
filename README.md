@@ -30,7 +30,11 @@ Or with Docker:
 docker run -i --rm --init -e DEBUGGAI_API_KEY=your_api_key quinnosha/debugg-ai-mcp
 ```
 
-## `check_app_in_browser`
+## Tools
+
+The server exposes **18** tools. The headline one is `check_app_in_browser`; the rest manage projects, environments, credentials, and workflow execution history.
+
+### `check_app_in_browser`
 
 Runs an AI browser agent against your app. The agent navigates, interacts, and reports back with screenshots.
 
@@ -41,11 +45,52 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | `environmentId` | string | UUID of a specific environment |
 | `credentialId` | string | UUID of a specific credential |
 | `credentialRole` | string | Pick a credential by role (e.g. `admin`, `guest`) |
-| `username` | string | Username for login |
-| `password` | string | Password for login |
+| `username` | string | Username for login (ephemeral — not persisted) |
+| `password` | string | Password for login (ephemeral — not persisted) |
 | `repoName` | string | Override auto-detected git repo name (e.g. `my-org/my-repo`) |
 
-Two additional tools are registered: `list_environments` and `list_credentials`. Both take the project from the current git repo and return JSON describing available environments and credentials (no passwords). Use them to discover `environmentId` and `credentialId` values to pass to `check_app_in_browser`.
+### Project management
+
+| Tool | Purpose |
+|------|---------|
+| `list_projects` | List projects accessible to your API key. Optional `q` for name/repo search. |
+| `get_project` | Fetch a project by `uuid`. Simplified shape (no team/runner internals). |
+| `update_project` | PATCH a project's `name` or `description`. |
+| `delete_project` | Destructive delete. Cascades envs, creds, and history. |
+
+### Environment management (scoped to a project)
+
+| Tool | Purpose |
+|------|---------|
+| `list_environments` | List envs for a project. Optional `q`, `projectUuid`. |
+| `create_environment` | Create a new env. Requires `name` + `url`. |
+| `get_environment` | Fetch an env by `uuid`. |
+| `update_environment` | PATCH `name` / `url` / `description`. |
+| `delete_environment` | Destructive delete. |
+
+### Credential management (scoped to an environment)
+
+| Tool | Purpose |
+|------|---------|
+| `list_credentials` | List creds. Optional `environmentId`, `q`, `role` (server-side filter). **Never returns passwords.** |
+| `create_credential` | Create a cred. Requires `environmentId`, `label`, `username`, `password`; optional `role`. |
+| `get_credential` | Fetch by `uuid` + `environmentId`. |
+| `update_credential` | Partial PATCH. Pass `password` to rotate — it is never echoed back. |
+| `delete_credential` | Destructive delete. |
+
+### Workflow execution history
+
+| Tool | Purpose |
+|------|---------|
+| `list_executions` | Paginated history. Optional `status`, `limit`. |
+| `get_execution` | Full detail for a single execution including node-level state. |
+| `cancel_execution` | Cancel an in-flight execution. |
+
+### Security invariants
+
+- Passwords are write-only. They never appear in any response body from any tool.
+- Tunnel URLs (`*.ngrok.debugg.ai`) are stripped from all browser-agent responses, including agent-authored text.
+- 404s from the backend surface as `isError: true` with `{error: 'NotFound', ...}`, never as thrown exceptions.
 
 ## Configuration
 
@@ -56,8 +101,12 @@ DEBUGGAI_API_KEY=your_api_key
 ## Local Development
 
 ```bash
-npm install && npm test && npm run build
+npm install
+npm run build
+npm run test:e2e        # real end-to-end evals against the backend
 ```
+
+The eval suite spawns the built MCP server as a subprocess, exercises every tool against a real backend, and writes per-flow artifacts to `scripts/evals/artifacts/<timestamp>/`. See `scripts/evals/flows/` for the individual scenarios.
 
 ## Links
 

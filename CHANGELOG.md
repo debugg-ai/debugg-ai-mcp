@@ -5,6 +5,28 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Eval harness** (`scripts/evals/`): real-server/real-backend test runner with per-flow artifact capture. 16 flows cover MCP protocol, input validation, browser automation on public + localhost URLs, full CRUD lifecycles for environments/credentials/projects, execution history, multi-step credential resolution, concurrent calls, raw-credential auth, and cross-process tunnel isolation. Exposed via `npm run test:e2e`.
+- **Project management tools**: `list_projects`, `get_project`, `update_project`, `delete_project`. (`create_project` deferred — backend requires `platform + repo + team` linkage.)
+- **Environment management tools**: `list_environments`, `create_environment`, `get_environment`, `update_environment`, `delete_environment`.
+- **Credential management tools**: `list_credentials`, `create_credential`, `get_credential`, `update_credential` (with password rotation), `delete_credential`. `password` is write-only across all paths; defensive stripper on update responses.
+- **Execution history tools**: `list_executions` (with `status` + `limit` filters), `get_execution` (full node-level detail), `cancel_execution` (maps backend 409 → `AlreadyCompleted`).
+- **Response sanitization**: `check_app_in_browser` now sanitizes the full response payload end-to-end — ngrok tunnel URLs no longer leak into agent-authored `actionTrace[*].intent` fields.
+- **Verification protocol** in `CLAUDE.md`: mandates running `npm run test:e2e` instead of ad-hoc MCP calls to validate behavior.
+
+### Changed
+
+- **Boot-time behavior**: removed the background `resolveProjectContext()` call from `index.ts`. The server no longer makes any API calls at startup; project context resolves lazily on the first tool call that needs it.
+- **`services/projectContext.ts`**: replaced the failure-caching singleton with a promise-dedup pattern. Concurrent callers share one in-flight promise; results are cached only on success, so transient network errors don't permanently disable context resolution.
+- **Axios error handling**: all handlers map `err.statusCode` (surfaced by the transport's response interceptor) to tool-level `NotFound` errors. Previously they checked only `err.response?.status` which the interceptor strips.
+
+### Tool count
+
+The server now registers **18** tools (was 1). Verify via eval flow `01-protocol.mjs`.
+
 ## [1.0.15] - 2025-08-18
 
 ### Added
