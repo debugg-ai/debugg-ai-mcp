@@ -1,6 +1,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ValidatedTool } from '../types/index.js';
 import { buildTestPageChangesTool, buildValidatedTestPageChangesTool } from './testPageChanges.js';
+import { buildTriggerCrawlTool, buildValidatedTriggerCrawlTool } from './triggerCrawl.js';
 import { buildListEnvironmentsTool, buildValidatedListEnvironmentsTool } from './listEnvironments.js';
 import { buildListCredentialsTool, buildValidatedListCredentialsTool } from './listCredentials.js';
 import { buildListProjectsTool, buildValidatedListProjectsTool } from './listProjects.js';
@@ -33,6 +34,7 @@ const toolRegistry = new Map<string, ValidatedTool>();
 export function initTools(ctx: ProjectContext | null): void {
   const tools: Tool[] = [
     buildTestPageChangesTool(ctx),
+    buildTriggerCrawlTool(ctx),
     buildListProjectsTool(),
     buildListEnvironmentsTool(),
     buildListCredentialsTool(),
@@ -56,6 +58,7 @@ export function initTools(ctx: ProjectContext | null): void {
   ];
   const validated: ValidatedTool[] = [
     buildValidatedTestPageChangesTool(ctx),
+    buildValidatedTriggerCrawlTool(ctx),
     buildValidatedListProjectsTool(),
     buildValidatedListEnvironmentsTool(),
     buildValidatedListCredentialsTool(),

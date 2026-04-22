@@ -26,6 +26,24 @@ export const TestPageChangesInputSchema = z.object({
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
 
+export const TriggerCrawlInputSchema = z.object({
+  url: z.preprocess(
+    normalizeUrl,
+    z.string().url('Invalid URL. Pass a full URL like "http://localhost:3000" or "https://example.com". Localhost URLs are auto-tunneled to the remote browser.'),
+  ),
+  projectUuid: z.string().uuid().optional(),
+  environmentId: z.string().uuid().optional(),
+  credentialId: z.string().uuid().optional(),
+  credentialRole: z.string().optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  headless: z.boolean().optional(),
+  timeoutSeconds: z.number().int().positive().max(1800, 'timeoutSeconds cannot exceed 1800 (30 min)').optional(),
+  repoName: z.string().optional(),
+}).strict();
+
+export type TriggerCrawlInput = z.infer<typeof TriggerCrawlInputSchema>;
+
 export const ListEnvironmentsInputSchema = z.object({
   projectUuid: z.string().uuid().optional(),
   q: z.string().min(1).optional(),

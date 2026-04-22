@@ -61,6 +61,7 @@ export interface WorkflowExecuteResponse {
 }
 
 export interface WorkflowsService {
+  findTemplateByName(keyword: string): Promise<WorkflowTemplate | null>;
   findEvaluationTemplate(): Promise<WorkflowTemplate | null>;
   executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse>;
   getExecution(executionUuid: string): Promise<WorkflowExecution>;
@@ -75,25 +76,28 @@ export interface WorkflowsService {
 
 export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => {
   const service: WorkflowsService = {
-    async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
+    async findTemplateByName(keyword: string): Promise<WorkflowTemplate | null> {
       const response = await tx.get<{ results: WorkflowTemplate[] }>(
         'api/v1/workflows/',
-        { isTemplate: true }
+        { isTemplate: true },
       );
       const templates = response?.results ?? [];
       if (templates.length === 0) return null;
 
-      const evalTemplate = templates.find(t =>
-        t.name.toLowerCase().includes('app evaluation')
-      );
-      if (!evalTemplate) {
+      const needle = keyword.toLowerCase();
+      const match = templates.find(t => t.name.toLowerCase().includes(needle));
+      if (!match) {
         throw new Error(
-          `No "App Evaluation" workflow template found. ` +
+          `No workflow template matching "${keyword}" found. ` +
           `Available templates: ${templates.map(t => `"${t.name}"`).join(', ')}. ` +
-          `Ensure the backend has a template with "App Evaluation" in its name.`
+          `Ensure the backend has a template with "${keyword}" in its name.`,
         );
       }
-      return evalTemplate;
+      return match;
+    },
+
+    async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
+      return service.findTemplateByName('app evaluation');
     },
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {

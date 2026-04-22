@@ -1,4 +1,5 @@
 export * from './testPageChangesHandler.js';
+export * from './triggerCrawlHandler.js';
 export * from './listEnvironmentsHandler.js';
 export * from './listCredentialsHandler.js';
 export * from './listProjectsHandler.js';
