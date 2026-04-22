@@ -239,17 +239,18 @@ function safeLog(level: 'info' | 'error' | 'warn', message: string, meta?: any):
 /**
  * Handle graceful shutdown
  */
-process.on('SIGINT', async () => {
-  safeLog('info', 'Received SIGINT, shutting down gracefully');
+async function gracefulShutdown(signal: string): Promise<void> {
+  safeLog('info', `Received ${signal}, shutting down gracefully`);
+  const { tunnelManager } = await import('./services/ngrok/tunnelManager.js');
+  await tunnelManager.stopAllTunnels().catch((err) =>
+    safeLog('warn', 'stopAllTunnels failed during shutdown', { error: String(err) }),
+  );
   await Telemetry.shutdown();
   process.exit(0);
-});
+}
 
-process.on('SIGTERM', async () => {
-  safeLog('info', 'Received SIGTERM, shutting down gracefully');
-  await Telemetry.shutdown();
-  process.exit(0);
-});
+process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
+process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
 
 process.on('unhandledRejection', (reason) => {
   safeLog('error', 'Unhandled promise rejection', {

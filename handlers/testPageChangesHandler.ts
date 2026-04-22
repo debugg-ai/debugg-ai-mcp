@@ -429,12 +429,11 @@ async function testPageChangesHandlerInner(
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
     process.stdin.removeListener('close', onStdinClose);
-    // Always tear down the tunnel when the request completes.
-    if (ctx.tunnelId) {
-      tunnelManager.stopTunnel(ctx.tunnelId).catch(err =>
-        logger.warn(`Failed to stop tunnel ${ctx.tunnelId}: ${err}`)
-      );
-    } else if (keyId) {
+    // Tunnel is intentionally NOT torn down here — tunnelManager reuses it on
+    // subsequent calls to the same port and auto-shutoffs after 55 min idle.
+    // Process-exit cleanup happens via stopAllTunnels() in the SIGINT/SIGTERM
+    // handlers in index.ts.
+    if (!ctx.tunnelId && keyId) {
       // Provisioned a key but tunnel creation failed — revoke the orphaned key.
       client.revokeNgrokKey(keyId).catch(err =>
         logger.warn(`Failed to revoke unused ngrok key ${keyId}: ${err}`)
