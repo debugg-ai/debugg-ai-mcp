@@ -14,12 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 4xx auth/quota errors (401/403/404) fail fast without retry to avoid loops against a bad API key.
 - New posthog telemetry event `tunnel.provision_retry` fires per retry attempt with outcome, status, and diagnostic fields so flaky provision rates become measurable.
 
-## [1.0.64] - 2026-04-23
+## [2.0.0] - 2026-04-23
 
-> **⚠️ Semver violation — this is functionally a major release shipped as a patch.**
-> The surface collapse below removes 14 tools. Callers pinned to `^1.0.63` will silently
-> receive a breaking API on their next install. A republish as `2.0.0` (or a `2.0.0`
-> bump with `1.0.64` deprecated) is recommended to restore semver discipline.
+> **Republish note:** Versions `1.0.64`, `1.0.65`, and `1.0.66` shipped with this
+> same breaking surface but were incorrectly versioned as patches (CI auto-bumped
+> patch regardless of commit type). All three are now deprecated on npm; consumers
+> should upgrade to `^2.0.0`. The underlying code in `2.0.0` is functionally
+> identical to `1.0.66`.
 
 This is a **breaking release**. The MCP surface collapsed from 22 tools to 11 through a uniform `search_*` pattern plus credential-management consolidation into the environment tools. The full old→new mapping is below.
 
