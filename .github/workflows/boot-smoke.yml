@@ -25,6 +25,7 @@ on:
       - 'services/**'
       - 'utils/**'
       - 'types/**'
+      - 'scripts/ci-boot-smoke.mjs'
       - 'scripts/evals/flows/25-published-boot-smoke.mjs'
       - '.github/workflows/boot-smoke.yml'
 
@@ -33,8 +34,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        node-version: ['20.x', '22.x']
+        # Bead rmu: extended from {ubuntu, macos} × {20, 22} to add Windows
+        # (catches PowerShell-incompatible scripts) and Node 24 (current
+        # stable; default GitHub runner default from 2026-06).
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ['20.x', '22.x', '24.x']
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -52,53 +56,10 @@ jobs:
       - name: Build local dist
         run: npm run build
 
-      - name: Smoke: boot local dist (missing-key path — bead cma)
-        # Prove the fresh-machine scenario: without DEBUGGAI_API_KEY, the
-        # server must still boot and speak MCP (initialize + tools/list), and
-        # a tool call must return a structured ConfigurationError (-32001).
-        # Explicitly unsets DEBUGGAI_API_KEY so secret leakage doesn't mask the test.
-        env:
-          LOG_LEVEL: error
-        run: |
-          unset DEBUGGAI_API_KEY || true
-          node <<'EOF'
-          import('child_process').then(async ({ spawn }) => {
-            const p = spawn('node', ['./dist/index.js'], {
-              stdio: ['pipe', 'pipe', 'pipe'],
-              env: { ...process.env, LOG_LEVEL: 'error', DEBUGGAI_API_KEY: '' },
-            });
-            let out = '';
-            let err = '';
-            p.stdout.on('data', d => (out += d.toString()));
-            p.stderr.on('data', d => (err += d.toString()));
-
-            setTimeout(() => {
-              p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'ci',version:'1.0'}}})+'\n');
-              p.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized',params:{}})+'\n');
-              p.stdin.write(JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'search_projects',arguments:{}}})+'\n');
-            }, 800);
-            setTimeout(() => { p.kill('SIGTERM'); }, 5000);
-
-            p.on('exit', () => {
-              // Parse each JSON-RPC response line from stdout
-              const lines = out.split('\n').filter(Boolean);
-              const responses = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-              const initResp = responses.find(r => r.id === 1);
-              const toolResp = responses.find(r => r.id === 2);
-
-              const assert = (cond, msg) => {
-                if (!cond) { console.error('FAIL:', msg); console.error('---STDOUT---\n' + out.slice(0, 2000)); console.error('---STDERR---\n' + err.slice(0, 1000)); process.exit(1); }
-              };
-
-              assert(initResp?.result?.serverInfo?.name, 'initialize must return serverInfo.name');
-              assert(toolResp?.result?.content?.[0]?.text, 'tool call must return a content[0].text');
-              const toolBody = JSON.parse(toolResp.result.content[0].text);
-              assert(toolResp.result.isError === true, 'tool call must set isError:true');
-              assert(toolBody.error?.code === -32001, 'tool error code must be -32001 (CONFIGURATION_ERROR); got ' + toolBody.error?.code);
-              assert(/DEBUGGAI_API_KEY/.test(toolBody.error?.message || ''), 'tool error message must mention DEBUGGAI_API_KEY');
-
-              console.log('OK: boot smoke passed on', process.platform, process.version);
-              process.exit(0);
-            });
-          });
-          EOF
+      - name: Smoke — boot local dist (missing-key path, bead cma)
+        # Portable: scripts/ci-boot-smoke.mjs is a standalone node script that
+        # works on bash, PowerShell, and cmd.exe. Spawns dist/index.js with
+        # DEBUGGAI_API_KEY scrubbed from the child's env, sends initialize +
+        # tools/call via stdin, and asserts a structured -32001
+        # ConfigurationError that mentions DEBUGGAI_API_KEY.
+        run: node scripts/ci-boot-smoke.mjs
