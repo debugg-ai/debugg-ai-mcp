@@ -358,4 +358,108 @@ describe('triggerCrawlHandler', () => {
     expect(body.executionId).toBe('crawl-exec-uuid-1');
     expect(body.knowledgeGraph).toBeUndefined();
   });
+
+  // ── Bead 0bq: progress-notification race safety ────────────────────────────
+  //
+  // Mirror of the same four invariants verified in testPageChangesHandler.test.ts.
+  // Both handlers share the identical circuit-breaker + inside-onUpdate final-
+  // progress pattern; symmetrical coverage keeps one handler from drifting.
+
+  describe('bead 0bq: progress-race safety', () => {
+    test('no progressCallback call happens AFTER pollExecution resolves', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressCallback = jest.fn<() => Promise<void>>().mockResolvedValue();
+      let pollResolvedAt: number | null = null;
+      let lastProgressAt: number | null = null;
+
+      progressCallback.mockImplementation(async () => {
+        lastProgressAt = Date.now();
+      });
+      mockPoll.mockImplementation(async (_uuid: any, onUpdate: any) => {
+        if (onUpdate) {
+          await onUpdate({
+            uuid: 'crawl-exec-uuid-1', status: 'running', nodeExecutions: [],
+            state: { outcome: '', stepsTaken: 1 },
+          } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        pollResolvedAt = Date.now();
+        await new Promise(r => setTimeout(r, 5));
+        return COMPLETED_EXECUTION;
+      });
+
+      await triggerCrawlHandler(publicInput, defaultContext, progressCallback);
+
+      expect(progressCallback).toHaveBeenCalled();
+      expect(pollResolvedAt).not.toBeNull();
+      expect(lastProgressAt).not.toBeNull();
+      expect(lastProgressAt! <= pollResolvedAt!).toBe(true);
+    });
+
+    test('final progress reaches total inside onUpdate (UX invariant preserved)', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressEvents: Array<{ progress: number; total: number; message?: string }> = [];
+      const progressCallback = jest.fn<(u: any) => Promise<void>>().mockImplementation(async (u) => {
+        progressEvents.push(u);
+      });
+      mockPoll.mockImplementation(async (_uuid: any, onUpdate: any) => {
+        if (onUpdate) {
+          await onUpdate({ uuid: 'crawl-exec-uuid-1', status: 'running', nodeExecutions: [], state: { stepsTaken: 1 } } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        return COMPLETED_EXECUTION;
+      });
+
+      await triggerCrawlHandler(publicInput, defaultContext, progressCallback);
+
+      const last = progressEvents[progressEvents.length - 1];
+      expect(last.progress).toBe(last.total);
+      expect(last.message).toMatch(/Crawl completed|Crawl failed|Crawl cancelled/i);
+    });
+
+    test('circuit breaker: progressCallback throws once → subsequent calls suppressed', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      let callCount = 0;
+      const progressCallback = jest.fn<() => Promise<void>>().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw new Error('client rejected progressToken');
+      });
+
+      mockPoll.mockImplementation(async (_uuid: any, onUpdate: any) => {
+        if (onUpdate) {
+          await onUpdate({ uuid: 'crawl-exec-uuid-1', status: 'running', nodeExecutions: [], state: { stepsTaken: 1 } } as any);
+          await onUpdate({ uuid: 'crawl-exec-uuid-1', status: 'running', nodeExecutions: [], state: { stepsTaken: 2 } } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        return COMPLETED_EXECUTION;
+      });
+
+      // Must not throw even though progressCallback threw mid-flow.
+      const result = await triggerCrawlHandler(publicInput, defaultContext, progressCallback);
+      expect(result.content).toBeDefined();
+
+      // After the first throw (call 1 — "Locating crawl workflow template..."),
+      // the breaker trips and no further callbacks fire for this request.
+      expect(progressCallback).toHaveBeenCalledTimes(1);
+    });
+
+    test('progressCallback throw never aborts the handler — tool response still returned', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressCallback = jest.fn<() => Promise<void>>().mockRejectedValue(
+        new Error('transport closed mid-progress'),
+      );
+
+      const result = await triggerCrawlHandler(publicInput, defaultContext, progressCallback);
+
+      // Handler must complete cleanly despite every progressCallback throwing.
+      expect(result.content).toBeDefined();
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.executionId).toBe('crawl-exec-uuid-1');
+      expect(body.status).toBe('completed');
+    });
+  });
 });

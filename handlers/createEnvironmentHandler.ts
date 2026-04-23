@@ -32,7 +32,7 @@ export async function createEnvironmentHandler(
       if (!repoName) {
         const payload = {
           error: 'NoProjectResolved',
-          message: 'No git repo detected and no projectUuid provided. Pass projectUuid (get it from list_projects) or invoke from a directory with a git origin.',
+          message: 'No git repo detected and no projectUuid provided. Pass projectUuid (get it from search_projects) or invoke from a directory with a git origin.',
         };
         return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
       }

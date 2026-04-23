@@ -265,8 +265,7 @@ export const flow = {
         const pkg = JSON.parse(execSync('cat node_modules/@debugg-ai/debugg-ai-mcp/package.json', { cwd: smokeDir }).toString());
         assert(
           pkg.engines && typeof pkg.engines.node === 'string' && pkg.engines.node.length > 0,
-          `Published package.json missing engines.node. Installing on unsupported Node silently succeeds and crashes at runtime. ` +
-          `Current source sets engines.node = ">=20.20.0"; if this assertion fails, the published version (${pkg.version}) is older than the commit that added it — rerun after CI publishes.`,
+          `Published package.json missing engines.node. Installing on unsupported Node silently succeeds and crashes at runtime. Published version: ${pkg.version}.`,
         );
         // Effective floor is Node 20.20+ because posthog-node requires it
         assert(

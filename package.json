@@ -10,7 +10,10 @@
     "node": ">=20.20.0"
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "lint": "eslint .",
