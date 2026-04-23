@@ -15,6 +15,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
+import { TunnelProvisionError } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
   buildContext,
@@ -123,14 +124,15 @@ async function testPageChangesHandlerInner(
       } else {
         let tunnel;
         try {
-          tunnel = await client.tunnels!.provision();
+          tunnel = await client.tunnels!.provisionWithRetry();
         } catch (provisionError) {
           const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
+          const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
           throw new Error(
             `Failed to provision tunnel for ${ctx.originalUrl}. ` +
             `The remote browser needs a secure tunnel to reach your local dev server. ` +
             `Make sure your dev server is running on the specified port and try again. ` +
-            `(Detail: ${msg})`
+            `(Detail: ${msg})${diag}`
           );
         }
         keyId = tunnel.keyId;

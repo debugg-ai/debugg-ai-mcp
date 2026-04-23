@@ -73,5 +73,6 @@ export const TelemetryEvents = {
   TOOL_FAILED: 'tool.failed',
   WORKFLOW_EXECUTED: 'workflow.executed',
   TUNNEL_PROVISIONED: 'tunnel.provisioned',
+  TUNNEL_PROVISION_RETRY: 'tunnel.provision_retry',
   TUNNEL_STOPPED: 'tunnel.stopped',
 } as const;

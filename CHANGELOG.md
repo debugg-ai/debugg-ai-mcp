@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — tunnel provisioning flakiness surfaces as user-facing errors
+
+- `check_app_in_browser` / `trigger_crawl` now automatically retry transient tunnel-provision failures (5xx, 408, 429, network errors like ECONNRESET) with exponential backoff (500ms → 1500ms → 3000ms, 3 attempts). Previously a single ngrok/backend blip forced the caller to manually retry the tool call. Bead `7nx`.
+- Tunnel-provision error messages now carry structured diagnostic context — HTTP status, ngrok error code, backend `x-request-id`, retryable flag — so users have something actionable to file bug reports against instead of opaque "Tunnel setup failed". Bead `5wz`.
+- 4xx auth/quota errors (401/403/404) fail fast without retry to avoid loops against a bad API key.
+- New posthog telemetry event `tunnel.provision_retry` fires per retry attempt with outcome, status, and diagnostic fields so flaky provision rates become measurable.
+
 ## [1.0.64] - 2026-04-23
 
 > **⚠️ Semver violation — this is functionally a major release shipped as a patch.**

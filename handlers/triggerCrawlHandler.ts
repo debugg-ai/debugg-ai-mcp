@@ -21,6 +21,7 @@ import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
+import { TunnelProvisionError } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
   buildContext,
@@ -85,13 +86,14 @@ export async function triggerCrawlHandler(
       } else {
         let tunnel;
         try {
-          tunnel = await client.tunnels!.provision();
+          tunnel = await client.tunnels!.provisionWithRetry();
         } catch (provisionError) {
           const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
+          const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
           throw new Error(
             `Failed to provision tunnel for ${ctx.originalUrl}. ` +
             `The remote browser needs a secure tunnel to reach your local dev server. ` +
-            `(Detail: ${msg})`,
+            `(Detail: ${msg})${diag}`,
           );
         }
         keyId = tunnel.keyId;

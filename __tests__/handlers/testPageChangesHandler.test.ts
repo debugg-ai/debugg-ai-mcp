@@ -396,7 +396,7 @@ const mockTouchTunnelById = jest.fn<(id: string) => void>();
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
     init: mockInit,
-    tunnels: { provision: mockProvision },
+    tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
     workflows: {
       findEvaluationTemplate: mockFindTemplate,
       executeWorkflow: mockExecute,
