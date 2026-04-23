@@ -29,7 +29,10 @@ const configSchema = z.object({
     version: z.string(),
   }),
   api: z.object({
-    key: z.string().min(1, 'API key is required (set DEBUGGAI_API_KEY)'),
+    // key is validated at tool-call time (not at boot) so MCP clients can surface
+    // a proper error message instead of seeing the subprocess die → "Failed to
+    // reconnect". See bead cma + flow 25.
+    key: z.string(),
     tokenType: z.enum(['token', 'bearer']).default('token'),
     baseUrl: z.string().url().default('https://api.debugg.ai'),
   }),

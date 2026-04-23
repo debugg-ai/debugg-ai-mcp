@@ -37,10 +37,26 @@ const TEMPLATE_KEYWORD = 'raw crawl';
 export async function triggerCrawlHandler(
   input: TriggerCrawlInput,
   context: ToolContext,
-  progressCallback?: ProgressCallback,
+  rawProgressCallback?: ProgressCallback,
 ): Promise<ToolResponse> {
   const startTime = Date.now();
   logger.toolStart('trigger_crawl', input);
+
+  // Bead 0bq: progress circuit-breaker — see testPageChangesHandler for rationale.
+  let progressDisabled = false;
+  const progressCallback: ProgressCallback | undefined = rawProgressCallback
+    ? async (update) => {
+        if (progressDisabled) return;
+        try {
+          await rawProgressCallback(update);
+        } catch (err) {
+          progressDisabled = true;
+          logger.warn('Progress emission failed; disabling further emissions for this request', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    : undefined;
 
   const client = new DebuggAIServerClient(config.api.key);
   await client.init();
@@ -50,7 +66,10 @@ export async function triggerCrawlHandler(
   let keyId: string | undefined;
 
   const abortController = new AbortController();
-  const onStdinClose = () => abortController.abort();
+  const onStdinClose = () => {
+    abortController.abort();
+    progressDisabled = true;
+  };
   process.stdin.once('close', onStdinClose);
 
   try {
@@ -130,13 +149,23 @@ export async function triggerCrawlHandler(
     logger.info(`Crawl execution queued: ${executionUuid}`);
 
     // --- Poll ---
+    // Bead 0bq: emit the final progress (4/4 "Complete:...") INSIDE onUpdate
+    // when terminal status detected, so there's no post-resolve emission that
+    // could race the response and cause stale-progressToken transport tear-down.
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
     const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
       if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
       if (!progressCallback) return;
       const nodeCount = (exec.nodeExecutions ?? []).length;
+      if (TERMINAL_STATUSES.has(exec.status)) {
+        await progressCallback({
+          progress: 4, total: 4,
+          message: `Crawl ${exec.status} (${nodeCount} nodes)`,
+        });
+        return;
+      }
       await progressCallback({
-        progress: 4,
-        total: 4,
+        progress: 4, total: 4,
         message: `Crawl ${exec.status} (${nodeCount} nodes)`,
       });
     }, abortController.signal);
@@ -189,10 +218,9 @@ export async function triggerCrawlHandler(
     }
 
     logger.toolComplete('trigger_crawl', duration);
-
-    if (progressCallback) {
-      await progressCallback({ progress: 4, total: 4, message: `Crawl ${finalExecution.status}` });
-    }
+    // Bead 0bq: final progress is emitted INSIDE pollExecution's onUpdate when
+    // terminal status is detected. Emitting it here would race the response
+    // and could cause stale-progressToken transport tear-down.
 
     const sanitizedPayload = sanitizeResponseUrls(responsePayload, ctx);
     return {

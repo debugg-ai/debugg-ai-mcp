@@ -55,19 +55,19 @@ export const flow = {
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();
 
-    // ─── list_projects ─────────────────────────────────────────────────────
-    await step('list_projects — default page 1, pageSize 20', async () => {
-      const r = await client.request('tools/call', { name: 'list_projects', arguments: {} }, 30_000);
+    // ─── search_projects (filter mode) ─────────────────────────────────────
+    await step('search_projects — default page 1, pageSize 20', async () => {
+      const r = await client.request('tools/call', { name: 'search_projects', arguments: {} }, 30_000);
       await writeArtifact('projects-default.json', r);
-      assert(!r.isError, `list_projects: ${r.content?.[0]?.text?.slice(0, 300)}`);
+      assert(!r.isError, `search_projects: ${r.content?.[0]?.text?.slice(0, 300)}`);
       const body = JSON.parse(r.content[0].text);
       assertPageInfo(assert, body, { page: 1, pageSize: 20 });
       assert(body.projects.length <= 20, `default page exceeded 20 items: ${body.projects.length}`);
     });
 
-    await step('list_projects — page 1 vs page 2 are disjoint with pageSize=3', async () => {
-      const p1 = await client.request('tools/call', { name: 'list_projects', arguments: { page: 1, pageSize: 3 } }, 30_000);
-      const p2 = await client.request('tools/call', { name: 'list_projects', arguments: { page: 2, pageSize: 3 } }, 30_000);
+    await step('search_projects — page 1 vs page 2 are disjoint with pageSize=3', async () => {
+      const p1 = await client.request('tools/call', { name: 'search_projects', arguments: { page: 1, pageSize: 3 } }, 30_000);
+      const p2 = await client.request('tools/call', { name: 'search_projects', arguments: { page: 2, pageSize: 3 } }, 30_000);
       await writeArtifact('projects-p1.json', p1);
       await writeArtifact('projects-p2.json', p2);
       const b1 = JSON.parse(p1.content[0].text);
@@ -81,16 +81,16 @@ export const flow = {
       assert(b1.pageInfo.hasMore === true, 'p1.hasMore should be true with 125+ projects and pageSize=3');
     });
 
-    await step('list_projects — pageSize > 200 clamps to 200', async () => {
-      const r = await client.request('tools/call', { name: 'list_projects', arguments: { pageSize: 10000 } }, 30_000);
+    await step('search_projects — pageSize > 200 clamps to 200', async () => {
+      const r = await client.request('tools/call', { name: 'search_projects', arguments: { pageSize: 10000 } }, 30_000);
       const body = JSON.parse(r.content[0].text);
       assert(body.pageInfo.pageSize === 200, `pageSize should clamp to 200, got ${body.pageInfo.pageSize}`);
     });
 
-    // ─── list_executions ───────────────────────────────────────────────────
-    await step('list_executions — default pageSize 20; pagination walks forward', async () => {
-      const p1 = await client.request('tools/call', { name: 'list_executions', arguments: { pageSize: 5 } }, 30_000);
-      const p2 = await client.request('tools/call', { name: 'list_executions', arguments: { page: 2, pageSize: 5 } }, 30_000);
+    // ─── search_executions ─────────────────────────────────────────────────
+    await step('search_executions — pagination walks forward', async () => {
+      const p1 = await client.request('tools/call', { name: 'search_executions', arguments: { pageSize: 5 } }, 30_000);
+      const p2 = await client.request('tools/call', { name: 'search_executions', arguments: { page: 2, pageSize: 5 } }, 30_000);
       await writeArtifact('executions-p1.json', p1);
       const b1 = JSON.parse(p1.content[0].text);
       const b2 = JSON.parse(p2.content[0].text);
@@ -101,9 +101,10 @@ export const flow = {
       assert(overlap.length === 0, `exec p1∩p2 overlap: ${overlap.length}`);
     });
 
-    // ─── list_environments ─────────────────────────────────────────────────
+    // ─── search_environments (covers env pagination + creds-inline) ────────
     const createdEnvs = [];
     let envProjectUuid = null;
+    const credEnv = { envUuid: null, credUuids: [] };
     try {
       await step('setup: create 5 throwaway envs for env pagination', async () => {
         for (let i = 0; i < 5; i++) {
@@ -118,11 +119,11 @@ export const flow = {
         }
       });
 
-      await step('list_environments — pageSize=2, walk page 1, 2, 3', async () => {
+      await step('search_environments — pageSize=2, walk page 1, 2, 3 (creds inline each page)', async () => {
         const all = new Set();
         for (let page = 1; page <= 3; page++) {
           const r = await client.request('tools/call', {
-            name: 'list_environments',
+            name: 'search_environments',
             arguments: { page, pageSize: 2 },
           }, 30_000);
           await writeArtifact(`envs-p${page}.json`, r);
@@ -130,67 +131,55 @@ export const flow = {
           assertPageInfo(assert, body, { page, pageSize: 2 });
           for (const e of body.environments) {
             assert(!all.has(e.uuid), `env ${e.uuid} appeared on multiple pages`);
+            assert(Array.isArray(e.credentials), `env ${e.uuid} missing credentials inline array`);
             all.add(e.uuid);
           }
         }
-        assert(all.size >= 6, `expected >=6 envs across 3 pages, got ${all.size}`); // 5 created + 1 default
+        assert(all.size >= 6, `expected >=6 envs across 3 pages, got ${all.size}`);
       });
-    } finally {
-      for (const uuid of createdEnvs) {
-        if (envProjectUuid) await deleteDirect(`/api/v1/projects/${envProjectUuid}/environments/${uuid}/`);
-      }
-    }
 
-    // ─── list_credentials ──────────────────────────────────────────────────
-    const credSetupEnv = { projectUuid: null, envUuid: null, credUuids: [] };
-    try {
-      await step('setup: create env + 5 creds for cred pagination', async () => {
-        const envResp = await client.request('tools/call', {
+      await step('setup: create env + 5 creds via create_environment credentials seed (bead 65m)', async () => {
+        const r = await client.request('tools/call', {
           name: 'create_environment',
-          arguments: { name: `mcp-eval-cred-page-${ts}`, url: 'https://example.invalid/cred-page' },
-        }, 30_000);
-        const envBody = JSON.parse(envResp.content[0].text);
-        credSetupEnv.projectUuid = envBody.projectUuid;
-        credSetupEnv.envUuid = envBody.environment.uuid;
-
-        for (let i = 0; i < 5; i++) {
-          const r = await client.request('tools/call', {
-            name: 'create_credential',
-            arguments: {
-              environmentId: credSetupEnv.envUuid,
+          arguments: {
+            name: `mcp-eval-cred-page-env-${ts}`,
+            url: 'https://example.invalid/cred-page-env',
+            credentials: Array.from({ length: 5 }, (_, i) => ({
               label: `mcp-eval-cred-page-${ts}-${i}`,
               username: `cp-${ts}-${i}@x.y`,
               password: 'p',
-            },
-          }, 30_000);
-          const b = JSON.parse(r.content[0].text);
-          credSetupEnv.credUuids.push(b.credential.uuid);
-        }
+            })),
+          },
+        }, 30_000);
+        assert(!r.isError, `create_environment+creds seed: ${r.content?.[0]?.text?.slice(0, 300)}`);
+        const body = JSON.parse(r.content[0].text);
+        credEnv.envUuid = body.environment.uuid;
+        createdEnvs.push(credEnv.envUuid);
+        for (const c of body.credentials) credEnv.credUuids.push(c.uuid);
+        assert(credEnv.credUuids.length === 5, `expected 5 creds seeded, got ${credEnv.credUuids.length}`);
       });
 
-      await step('list_credentials — pageSize=2, walk page 1, 2, 3', async () => {
-        const all = new Set();
-        for (let page = 1; page <= 3; page++) {
-          const r = await client.request('tools/call', {
-            name: 'list_credentials',
-            arguments: { environmentId: credSetupEnv.envUuid, page, pageSize: 2 },
-          }, 30_000);
-          await writeArtifact(`creds-p${page}.json`, r);
-          const body = JSON.parse(r.content[0].text);
-          assertPageInfo(assert, body, { page, pageSize: 2 });
-          for (const c of body.credentials) {
-            assert(!all.has(c.uuid), `cred ${c.uuid} appeared on multiple pages`);
-            all.add(c.uuid);
-          }
+      await step('search_environments(uuid) returns all creds inline for a given env (no cred-level pagination)', async () => {
+        const r = await client.request('tools/call', {
+          name: 'search_environments',
+          arguments: { projectUuid: envProjectUuid, uuid: credEnv.envUuid },
+        }, 30_000);
+        await writeArtifact('creds-inline.json', r);
+        assert(!r.isError, `search_environments(uuid): ${r.content?.[0]?.text?.slice(0, 300)}`);
+        const body = JSON.parse(r.content[0].text);
+        const creds = body.environments[0].credentials;
+        for (const uuid of credEnv.credUuids) {
+          assert(creds.some(c => c.uuid === uuid), `cred ${uuid} missing from inline list`);
         }
-        assert(all.size === 5, `expected all 5 creds across pages, got ${all.size}`);
       });
     } finally {
-      for (const uuid of credSetupEnv.credUuids) {
-        await deleteDirect(`/api/v1/projects/${credSetupEnv.projectUuid}/environments/${credSetupEnv.envUuid}/credentials/${uuid}/`);
+      for (const credUuid of credEnv.credUuids) {
+        if (envProjectUuid && credEnv.envUuid) {
+          await deleteDirect(`/api/v1/projects/${envProjectUuid}/environments/${credEnv.envUuid}/credentials/${credUuid}/`);
+        }
       }
-      if (credSetupEnv.envUuid) {
-        await deleteDirect(`/api/v1/projects/${credSetupEnv.projectUuid}/environments/${credSetupEnv.envUuid}/`);
+      for (const uuid of createdEnvs) {
+        if (envProjectUuid) await deleteDirect(`/api/v1/projects/${envProjectUuid}/environments/${uuid}/`);
       }
     }
   },

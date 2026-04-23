@@ -37,11 +37,12 @@ import {
   Telemetry,
   TelemetryEvents,
 } from "./utils/index.js";
-import { 
+import {
   TypedCallToolRequest,
   ToolContext,
   ProgressCallback,
-  MCPErrorCode 
+  MCPErrorCode,
+  MCPError,
 } from "./types/index.js";
 
 // Logger and server are initialized lazily in main() to avoid triggering
@@ -123,6 +124,21 @@ function registerHandlers(): void {
       throw new Error(`Unknown tool: ${name}`);
     }
 
+    // Deferred config validation (bead cma): if DEBUGGAI_API_KEY is missing,
+    // return a structured error MCP clients can surface in their UI — instead
+    // of letting the backend return a cryptic 401.
+    if (!config.api.key) {
+      const mcpError = new MCPError(
+        MCPErrorCode.CONFIGURATION_ERROR,
+        'DEBUGGAI_API_KEY is not set. ' +
+        'Configure it in your MCP server registration (e.g. `claude mcp add debugg-ai -s user -e DEBUGGAI_API_KEY=<your-key> -- npx -y @debugg-ai/debugg-ai-mcp`). ' +
+        'Get a key at https://debugg.ai.',
+        { missingEnvVars: ['DEBUGGAI_API_KEY'] },
+      );
+      requestLogger.warn('Tool call blocked — DEBUGGAI_API_KEY missing', { tool: name });
+      return createErrorResponse(mcpError, name);
+    }
+
     try {
       const validatedInput = validateInput(tool.inputSchema, args, name);
 
@@ -183,10 +199,12 @@ async function main(): Promise<void> {
       pid: process.pid
     });
 
-    // Validate required environment variables
+    // NOTE: DEBUGGAI_API_KEY validation is deferred to the first tool call so
+    // MCP clients see a proper initialize response + a structured tool error,
+    // rather than the subprocess dying with "Failed to reconnect" (bead cma).
     if (!config.api.key) {
-      throw new Error(
-        'Missing required environment variable: DEBUGGAI_API_KEY'
+      logger.warn(
+        'DEBUGGAI_API_KEY is not set. Server will boot but every tool call will return a ConfigurationError until the env var is configured.',
       );
     }
 

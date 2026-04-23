@@ -736,4 +736,121 @@ describe('testPageChangesHandler — full handler flow', () => {
     await testPageChangesHandler(defaultInput, defaultContext);
     expect(mockFindTemplate).not.toHaveBeenCalled();
   });
+
+  // ── Bead 0bq: progress-notification race safety ──────────────────────────
+  //
+  // Stale progress notifications (for progressTokens the client has already
+  // forgotten) cause Claude Code's MCP SDK to reject them as protocol errors
+  // and tear down the stdio transport — killing ALL subsequent tool calls
+  // in the session, not just the one that hit the race.
+  //
+  // Invariants we enforce here:
+  //   1. No progressCallback call happens AFTER pollExecution returns — the
+  //      final "Complete:" progress must be emitted INSIDE pollExecution's
+  //      onUpdate (when terminal status is detected), so there's no
+  //      post-resolve emission that could race the response.
+  //   2. Circuit breaker: if progressCallback throws once, the handler stops
+  //      emitting further progress for this request.
+  //   3. A progressCallback throw never propagates up and aborts the handler.
+
+  describe('bead 0bq: progress-race safety', () => {
+    test('no progressCallback call happens AFTER pollExecution resolves', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressCallback = jest.fn<() => Promise<void>>().mockResolvedValue();
+      let pollResolvedAt: number | null = null;
+      let lastProgressAt: number | null = null;
+
+      progressCallback.mockImplementation(async () => {
+        lastProgressAt = Date.now();
+      });
+      mockPoll.mockImplementation(async (_uuid, onUpdate) => {
+        // Simulate one in-progress update + one terminal update
+        if (onUpdate) {
+          await onUpdate({
+            uuid: 'e', status: 'running', nodeExecutions: [],
+            state: { outcome: '', success: false, stepsTaken: 1, error: '' },
+          } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        pollResolvedAt = Date.now();
+        await new Promise(r => setTimeout(r, 5));
+        return COMPLETED_EXECUTION;
+      });
+
+      await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+
+      expect(progressCallback).toHaveBeenCalled();
+      expect(pollResolvedAt).not.toBeNull();
+      expect(lastProgressAt).not.toBeNull();
+      expect(lastProgressAt! <= pollResolvedAt!).toBe(true);
+    });
+
+    test('final progress reaches total inside onUpdate (UX invariant preserved)', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressEvents: Array<{ progress: number; total: number; message?: string }> = [];
+      const progressCallback = jest.fn<(u: any) => Promise<void>>().mockImplementation(async (u) => {
+        progressEvents.push(u);
+      });
+      mockPoll.mockImplementation(async (_uuid, onUpdate) => {
+        if (onUpdate) {
+          await onUpdate({ uuid: 'e', status: 'running', nodeExecutions: [], state: { outcome: '', success: false, stepsTaken: 1, error: '' } } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        return COMPLETED_EXECUTION;
+      });
+
+      await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+
+      const last = progressEvents[progressEvents.length - 1];
+      expect(last.progress).toBe(last.total);
+      expect(last.message).toMatch(/Complete|pass|fail/i);
+    });
+
+    test('circuit breaker: progressCallback throws once → subsequent calls suppressed', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      let callCount = 0;
+      const progressCallback = jest.fn<() => Promise<void>>().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw new Error('client rejected progressToken');
+      });
+
+      mockPoll.mockImplementation(async (_uuid, onUpdate) => {
+        if (onUpdate) {
+          // Fire three onUpdate pulses — all would normally emit progress.
+          await onUpdate({ uuid: 'e', status: 'running', nodeExecutions: [], state: { stepsTaken: 1 } } as any);
+          await onUpdate({ uuid: 'e', status: 'running', nodeExecutions: [], state: { stepsTaken: 2 } } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        return COMPLETED_EXECUTION;
+      });
+
+      // Must not throw even though progressCallback threw mid-flow.
+      const result = await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+      expect(result.content).toBeDefined();
+
+      // After the first throw at callCount=1 (e.g. the Provisioning/Locating/Queuing
+      // pre-poll emissions), the breaker trips and no further calls happen.
+      // We expect exactly 1 progressCallback invocation.
+      expect(progressCallback).toHaveBeenCalledTimes(1);
+    });
+
+    test('progressCallback throw never aborts the handler — tool response still returned', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressCallback = jest.fn<() => Promise<void>>().mockRejectedValue(
+        new Error('transport closed mid-progress'),
+      );
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+
+      // Handler must complete cleanly despite every progressCallback throwing.
+      expect(result.content).toBeDefined();
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.outcome).toBeDefined();
+      expect(body.executionId).toBe('exec-uuid-1');
+    });
+  });
 });

@@ -113,31 +113,27 @@ export const flow = {
     let credUuid = null;
 
     try {
-      await step('setup: create env + credential via MCP tools', async () => {
+      await step('setup: create env + credential in one call via credentials seed', async () => {
         const envResp = await client.request('tools/call', {
           name: 'create_environment',
           arguments: {
             name: `mcp-eval-login-${ts}`,
             url: localUrl,
             description: 'Throwaway login env for multistep credential eval',
+            credentials: [{
+              label: `mcp-eval-login-${ts}-cred`,
+              username: validUsername,
+              password: validPassword,
+            }],
           },
         }, 30_000);
-        assert(!envResp.isError, `env create failed: ${envResp.content?.[0]?.text?.slice(0, 300)}`);
+        assert(!envResp.isError, `env+cred create failed: ${envResp.content?.[0]?.text?.slice(0, 300)}`);
         const envBody = JSON.parse(envResp.content[0].text);
         projectUuid = envBody.projectUuid;
         envUuid = envBody.environment.uuid;
-
-        const credResp = await client.request('tools/call', {
-          name: 'create_credential',
-          arguments: {
-            environmentId: envUuid,
-            label: `mcp-eval-login-${ts}-cred`,
-            username: validUsername,
-            password: validPassword,
-          },
-        }, 30_000);
-        assert(!credResp.isError, `cred create failed: ${credResp.content?.[0]?.text?.slice(0, 300)}`);
-        credUuid = JSON.parse(credResp.content[0].text).credential.uuid;
+        assert(envBody.credentials && envBody.credentials.length === 1,
+          `expected seeded credential in response; got ${JSON.stringify(envBody.credentials)}`);
+        credUuid = envBody.credentials[0].uuid;
       });
 
       await step('check_app_in_browser with credentialId — agent logs in and reaches dashboard', async () => {

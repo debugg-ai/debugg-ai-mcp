@@ -71,19 +71,20 @@ export const flow = {
         await writeArtifact('setup.json', body);
       });
 
-      await step('get_environment returns full env by uuid', async () => {
+      await step('search_environments(uuid) returns full env', async () => {
         const r = await client.request('tools/call', {
-          name: 'get_environment',
-          arguments: { uuid: envUuid },
+          name: 'search_environments',
+          arguments: { projectUuid, uuid: envUuid },
         }, 30_000);
         await writeArtifact('get.json', r);
-        assert(!r.isError, `get_environment error: ${r.content?.[0]?.text?.slice(0, 300)}`);
+        assert(!r.isError, `search_environments error: ${r.content?.[0]?.text?.slice(0, 300)}`);
         const body = JSON.parse(r.content[0].text);
-        assert(body.environment, 'response missing .environment');
-        assert(body.environment.uuid === envUuid, `uuid mismatch: ${body.environment.uuid}`);
-        assert(body.environment.name === initialName, `name mismatch: ${body.environment.name}`);
-        assert(body.environment.url === 'https://example.invalid/env-crud', 'url mismatch');
-        assert(typeof body.environment.isActive === 'boolean', 'isActive missing');
+        assert(body.environments.length === 1, 'uuid mode must return 1 env');
+        const env = body.environments[0];
+        assert(env.uuid === envUuid, `uuid mismatch: ${env.uuid}`);
+        assert(env.name === initialName, `name mismatch: ${env.name}`);
+        assert(env.url === 'https://example.invalid/env-crud', 'url mismatch');
+        assert(typeof env.isActive === 'boolean', 'isActive missing');
       });
 
       await step('update_environment patches description and echoes updated resource', async () => {
@@ -102,15 +103,15 @@ export const flow = {
         assert(body.environment.name === initialName, `name unexpectedly changed: ${body.environment.name}`);
       });
 
-      await step('get_environment reflects the patched description', async () => {
+      await step('search_environments(uuid) reflects the patched description', async () => {
         const r = await client.request('tools/call', {
-          name: 'get_environment',
-          arguments: { uuid: envUuid },
+          name: 'search_environments',
+          arguments: { projectUuid, uuid: envUuid },
         }, 30_000);
-        assert(!r.isError, `second get error: ${r.content?.[0]?.text?.slice(0, 300)}`);
+        assert(!r.isError, `search after patch: ${r.content?.[0]?.text?.slice(0, 300)}`);
         const body = JSON.parse(r.content[0].text);
-        assert(body.environment.description === updatedDescription,
-          `patch not persisted: ${body.environment.description}`);
+        assert(body.environments[0].description === updatedDescription,
+          `patch not persisted: ${body.environments[0].description}`);
       });
 
       await step('delete_environment removes the env and returns {deleted:true, uuid}', async () => {
@@ -130,14 +131,12 @@ export const flow = {
         envUuid = null; // signal cleanup is not needed
       });
 
-      await step('get_environment on deleted uuid returns NotFound (isError:true)', async () => {
+      await step('search_environments(uuid) on deleted uuid returns NotFound (isError:true)', async () => {
         const r = await client.request('tools/call', {
-          name: 'get_environment',
-          arguments: { uuid: envUuid ?? '00000000-0000-0000-0000-000000000000' },
+          name: 'search_environments',
+          arguments: { projectUuid, uuid: envUuid ?? '00000000-0000-0000-0000-000000000000' },
         }, 30_000);
         await writeArtifact('get-after-delete.json', r);
-        // For a deleted env (or any nonexistent uuid), MCP should return a
-        // structured error response, not a 200 with arbitrary data.
         assert(r.isError === true, 'expected isError:true on deleted/missing uuid');
         const body = JSON.parse(r.content[0].text);
         assert(

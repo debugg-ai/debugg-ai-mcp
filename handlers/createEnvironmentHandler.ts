@@ -53,11 +53,43 @@ export async function createEnvironmentHandler(
       description: input.description,
     });
 
-    const payload = {
+    const payload: Record<string, any> = {
       created: true,
       projectUuid,
       environment: env,
     };
+
+    // Optional credentials seed: best-effort per-cred. Success goes to
+    // credentials[]; failure goes to credentialWarnings[] (never blocks env creation).
+    if (input.credentials && input.credentials.length > 0) {
+      const created: Array<{ uuid: string; label: string; username: string; role: string | null; environmentUuid: string }> = [];
+      const warnings: Array<{ label: string; error: string }> = [];
+      for (const seed of input.credentials) {
+        try {
+          const cred = await client.createCredential(projectUuid, env.uuid, {
+            label: seed.label,
+            username: seed.username,
+            password: seed.password,
+            role: seed.role,
+          });
+          // Defensive: drop any stray password from the response shape
+          created.push({
+            uuid: cred.uuid,
+            label: cred.label,
+            username: cred.username,
+            role: cred.role ?? null,
+            environmentUuid: cred.environmentUuid,
+          });
+        } catch (err: any) {
+          warnings.push({
+            label: seed.label,
+            error: err?.message ?? String(err),
+          });
+        }
+      }
+      payload.credentials = created;
+      if (warnings.length > 0) payload.credentialWarnings = warnings;
+    }
 
     logger.toolComplete('create_environment', Date.now() - start);
     return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };

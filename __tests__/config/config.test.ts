@@ -31,17 +31,24 @@ describe('Configuration Management', () => {
     expect(config.defaults).toBeDefined();
   });
 
-  test('config should throw error for missing API key', () => {
-    const originalApiKey = process.env.DEBUGGAI_API_KEY;
+  test('config loads with empty key when DEBUGGAI_API_KEY is missing (bead cma: deferred validation)', () => {
+    const saved = {
+      DEBUGGAI_API_KEY: process.env.DEBUGGAI_API_KEY,
+      DEBUGGAI_API_TOKEN: process.env.DEBUGGAI_API_TOKEN,
+      DEBUGGAI_JWT_TOKEN: process.env.DEBUGGAI_JWT_TOKEN,
+    };
     delete process.env.DEBUGGAI_API_KEY;
+    delete process.env.DEBUGGAI_API_TOKEN;
+    delete process.env.DEBUGGAI_JWT_TOKEN;
 
-    expect(() => {
-      loadConfig();
-    }).toThrow('Configuration validation failed');
+    // Must NOT throw — validation is deferred to first tool call so MCP
+    // clients get a proper initialize + structured tool error instead of
+    // "Failed to reconnect".
+    const cfg = loadConfig();
+    expect(cfg.api.key).toBe('');
 
-    // Restore the API key
-    if (originalApiKey) {
-      process.env.DEBUGGAI_API_KEY = originalApiKey;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v !== undefined) process.env[k] = v;
     }
   });
 });
@@ -94,8 +101,9 @@ describe('config env var precedence', () => {
     expect(cfg.api.key).toBe('token-third');
   });
 
-  test('throws when no API key env var is set', () => {
-    expect(() => loadConfig()).toThrow('Configuration validation failed');
+  test('loads with empty key when no API key env var is set (bead cma: deferred validation)', () => {
+    const cfg = loadConfig();
+    expect(cfg.api.key).toBe('');
   });
 
   test('tokenType is bearer when DEBUGGAI_TOKEN_TYPE=bearer', () => {

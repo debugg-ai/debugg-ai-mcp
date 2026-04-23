@@ -119,7 +119,18 @@ async function assertBootsAndInitializes(spawnArgs, env, cwd, writeArtifact, lab
   }
 }
 
-async function assertFailsFastWithoutKey(spawnArgs, cwd, writeArtifact, label) {
+/**
+ * Without DEBUGGAI_API_KEY:
+ *   - Server MUST start and answer `initialize` (so MCP clients don't show
+ *     'Failed to reconnect' with no diagnostic).
+ *   - `tools/list` MUST return the normal roster.
+ *   - The FIRST tool call MUST return a structured MCP error whose message
+ *     clearly mentions DEBUGGAI_API_KEY, so the client surfaces the cause.
+ *
+ * This replaces the old "exits fast with stderr" behavior — stderr was
+ * informative but MCP clients never surface subprocess stderr to users.
+ */
+async function assertMissingKeyReturnsStructuredError(spawnArgs, cwd, writeArtifact, label) {
   const [cmd, ...args] = spawnArgs;
   const env = { ...process.env, LOG_LEVEL: 'error' };
   delete env.DEBUGGAI_API_KEY;
@@ -128,30 +139,53 @@ async function assertFailsFastWithoutKey(spawnArgs, cwd, writeArtifact, label) {
   const stderrChunks = [];
   p.stderr.on('data', (c) => stderrChunks.push(c.toString()));
 
-  const exitResult = await Promise.race([
-    new Promise((resolve) => p.on('exit', (code) => resolve({ exited: true, code }))),
-    new Promise((resolve) => setTimeout(() => resolve({ exited: false }), 10_000)),
-  ]);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const client = new MCPClient(p);
 
-  const stderr = stderrChunks.join('');
-  await writeArtifact(`${label}-missing-key-stderr.txt`, stderr);
+    // 1. initialize must succeed
+    const r = await client.request('initialize', {
+      protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0.0' },
+    }, 15_000);
+    if (!r.serverInfo?.name) {
+      throw new Error(`[${label}] initialize without API key must still return serverInfo; got: ${JSON.stringify(r)}`);
+    }
+    client.notify('notifications/initialized', {});
 
-  if (!exitResult.exited) {
+    // 2. tools/list must succeed with the usual roster
+    const tools = await client.request('tools/list', {}, 10_000);
+    if (!Array.isArray(tools.tools) || tools.tools.length === 0) {
+      throw new Error(`[${label}] tools/list without API key must still return roster; got empty`);
+    }
+
+    // 3. first tool call must return a structured error mentioning DEBUGGAI_API_KEY.
+    //    Use `search_projects` — cheap, no browser agent, no network to backend.
+    const toolResp = await client.request('tools/call', {
+      name: 'search_projects', arguments: {},
+    }, 15_000);
+    await writeArtifact(`${label}-missing-key-tool-response.json`, toolResp);
+
+    if (toolResp.isError !== true) {
+      throw new Error(`[${label}] tool call with no API key must return isError:true; got: ${JSON.stringify(toolResp).slice(0, 400)}`);
+    }
+    const bodyText = toolResp.content?.[0]?.text ?? '';
+    if (!/DEBUGGAI_API_KEY|api\.key|API key/i.test(bodyText)) {
+      throw new Error(
+        `[${label}] Missing-API-key tool error must mention DEBUGGAI_API_KEY (this is the "Failed to reconnect" fix — clients surface tool errors, they don't surface stderr). Got: ${bodyText.slice(0, 400)}`,
+      );
+    }
+
+    client.close();
+    return;
+  } finally {
     try { p.kill('SIGKILL'); } catch { /* ignore */ }
-    throw new Error(`[${label}] Server did NOT exit within 10s when DEBUGGAI_API_KEY is missing — it hung. This is the "Failed to reconnect" failure mode with no diagnostic. stderr so far:\n${stderr.slice(0, 500)}`);
-  }
-  if (exitResult.code === 0) {
-    throw new Error(`[${label}] Expected non-zero exit when API key missing; got 0. stderr:\n${stderr.slice(0, 500)}`);
-  }
-  if (!/DEBUGGAI_API_KEY|api\.key|API key/i.test(stderr)) {
-    throw new Error(`[${label}] Missing-API-key stderr must mention DEBUGGAI_API_KEY for users to self-diagnose; got:\n${stderr.slice(0, 800)}`);
   }
 }
 
 export const flow = {
   name: 'published-boot-smoke',
   tags: ['fast', 'published', 'protocol'],
-  description: 'Boot @debugg-ai/debugg-ai-mcp via npx AND direct-node; prove both paths work and both fail fast without DEBUGGAI_API_KEY',
+  description: 'Boot @debugg-ai/debugg-ai-mcp via npx AND direct-node; prove both paths work, and without DEBUGGAI_API_KEY the server runs but tool calls return a structured error (bead cma)',
   async run({ step, assert, writeArtifact }) {
     const smokeDir = mkdtempSync(join(tmpdir(), 'debuggai-mcp-smoke-'));
     console.log(`  \x1b[2msmoke dir: ${smokeDir}\x1b[0m`);
@@ -159,8 +193,23 @@ export const flow = {
     const testConfig = JSON.parse(execSync(`cat ${join(ROOT, 'test-config.json')}`).toString());
     const API_KEY = testConfig.mcpServers['debugg-ai-mcp-node'].env.DEBUGGAI_API_KEY;
     const ENV_WITH_KEY = { ...process.env, DEBUGGAI_API_KEY: API_KEY, LOG_LEVEL: 'error' };
+    const LOCAL_DIST = join(ROOT, 'dist', 'index.js');
 
     try {
+      // ── Path 0: local dist (tests uncommitted behavior immediately) ──────
+      // This lets us validate bead cma (missing-key → structured error) before
+      // the published version is rebuilt. Path A/B below still test the npm
+      // artifact and will catch any regression between local and published.
+
+      await step('local dist without DEBUGGAI_API_KEY: server runs, tool call returns structured error (locks bead cma against local)', async () => {
+        await assertMissingKeyReturnsStructuredError(
+          ['node', LOCAL_DIST],
+          ROOT,
+          writeArtifact,
+          'local-dist',
+        );
+      });
+
       // ── Path A: npx -y (the actual production spawn path) ────────────────
 
       await step('npx -y @debugg-ai/debugg-ai-mcp — boot + MCP initialize + tools/list (from non-repo cwd)', async () => {
@@ -174,8 +223,8 @@ export const flow = {
         console.log(`  \x1b[2m  published version (via npx): ${version}\x1b[0m`);
       });
 
-      await step('npx -y without DEBUGGAI_API_KEY: exits non-zero within 10s with informative stderr', async () => {
-        await assertFailsFastWithoutKey(
+      await step('npx -y without DEBUGGAI_API_KEY: server runs, initialize+tools/list work, tool call returns structured error (bead cma)', async () => {
+        await assertMissingKeyReturnsStructuredError(
           ['npx', '-y', '@debugg-ai/debugg-ai-mcp'],
           smokeDir,
           writeArtifact,
@@ -212,8 +261,22 @@ export const flow = {
         console.log(`  \x1b[2m  published version (via direct node): ${version}\x1b[0m`);
       });
 
-      await step('node dist/index.js without DEBUGGAI_API_KEY: exits non-zero within 10s with informative stderr', async () => {
-        await assertFailsFastWithoutKey(
+      await step('published manifest has engines.node constraint (locks bead 4b1)', async () => {
+        const pkg = JSON.parse(execSync('cat node_modules/@debugg-ai/debugg-ai-mcp/package.json', { cwd: smokeDir }).toString());
+        assert(
+          pkg.engines && typeof pkg.engines.node === 'string' && pkg.engines.node.length > 0,
+          `Published package.json missing engines.node. Installing on unsupported Node silently succeeds and crashes at runtime. ` +
+          `Current source sets engines.node = ">=20.20.0"; if this assertion fails, the published version (${pkg.version}) is older than the commit that added it — rerun after CI publishes.`,
+        );
+        // Effective floor is Node 20.20+ because posthog-node requires it
+        assert(
+          /20|21|22|23|24/.test(pkg.engines.node) || /\d{2,}/.test(pkg.engines.node),
+          `engines.node should pin to Node 18+; got "${pkg.engines.node}"`,
+        );
+      });
+
+      await step('node dist/index.js without DEBUGGAI_API_KEY: server runs, tool call returns structured error', async () => {
+        await assertMissingKeyReturnsStructuredError(
           ['node', serverBinPath],
           smokeDir,
           writeArtifact,

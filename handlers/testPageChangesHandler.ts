@@ -65,10 +65,30 @@ export async function testPageChangesHandler(
 async function testPageChangesHandlerInner(
   input: TestPageChangesInput,
   context: ToolContext,
-  progressCallback?: ProgressCallback
+  rawProgressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
   logger.toolStart('check_app_in_browser', input);
+
+  // Bead 0bq: wrap the progress callback in a circuit-breaker so a single
+  // client-side rejection of a stale progressToken (which would normally
+  // throw up the stack and abort the handler, or — worse — arrive post-response
+  // and tear down the stdio transport) is swallowed and disables further
+  // emissions in this request.
+  let progressDisabled = false;
+  const progressCallback: ProgressCallback | undefined = rawProgressCallback
+    ? async (update) => {
+        if (progressDisabled) return;
+        try {
+          await rawProgressCallback(update);
+        } catch (err) {
+          progressDisabled = true;
+          logger.warn('Progress emission failed; disabling further emissions for this request', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    : undefined;
 
   const client = new DebuggAIServerClient(config.api.key);
   await client.init();
@@ -78,7 +98,10 @@ async function testPageChangesHandlerInner(
   let keyId: string | undefined;
 
   const abortController = new AbortController();
-  const onStdinClose = () => abortController.abort();
+  const onStdinClose = () => {
+    abortController.abort();
+    progressDisabled = true; // client is gone — stop emitting
+  };
   process.stdin.once('close', onStdinClose);
 
   // Progress budget: 3 setup steps + 25 execution steps = 28 total
@@ -211,6 +234,7 @@ async function testPageChangesHandlerInner(
     const BACKEND_SETUP_END = 6;
     let lastStepsTaken = 0;
     let observedMaxSteps = MAX_EXEC_STEPS;
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
     const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
       // Keep the tunnel alive while the workflow is actively running
       if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
@@ -227,6 +251,20 @@ async function testPageChangesHandlerInner(
       }
 
       if (!progressCallback) return;
+
+      // Bead 0bq: emit the final "Complete:" progress INSIDE this callback
+      // when terminal status is detected. pollExecution will return on the
+      // next line (line 183 in services/workflows.ts), so there's no
+      // post-pollExecution progress emission that could race the response.
+      if (TERMINAL_STATUSES.has(exec.status)) {
+        const terminalOutcome = exec.state?.outcome ?? exec.status;
+        await progressCallback({
+          progress: TOTAL_STEPS,
+          total: TOTAL_STEPS,
+          message: `Complete: ${terminalOutcome}`,
+        });
+        return;
+      }
 
       // --- Compute progress number ---
       let execProgress: number;
@@ -357,9 +395,12 @@ async function testPageChangesHandlerInner(
 
     logger.toolComplete('check_app_in_browser', duration);
 
-    if (progressCallback) {
-      await progressCallback({ progress: TOTAL_STEPS, total: TOTAL_STEPS, message: `Complete: ${outcome}` });
-    }
+    // NOTE (bead 0bq): the final "Complete:" progress is emitted INSIDE
+    // pollExecution's onUpdate when terminal status is detected — see the
+    // TERMINAL_STATUSES block above. Emitting it here (post-resolve) creates
+    // a race where the progress can arrive AFTER the response on the wire,
+    // making the client reject it as an unknown progressToken and close the
+    // transport, breaking ALL subsequent tool calls.
 
     // Sanitize the whole payload so no tunnel URL leaks anywhere — including
     // agent-authored strings in actionTrace[*].intent, evaluation.reason, etc.

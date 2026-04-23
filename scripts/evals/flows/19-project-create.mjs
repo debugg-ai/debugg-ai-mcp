@@ -1,82 +1,80 @@
 /**
- * TDD red: list_teams, list_repos, create_project don't exist yet.
- *
- * Context: POST /api/v1/projects/ requires {name, platform, team, repo} with
- * team and repo being UUIDs already linked to the account. This flow adds
- * two helper tools to discover those UUIDs (list_teams, list_repos), then
- * exercises create_project end-to-end.
+ * create_project end-to-end. Exercises the name-resolution path introduced in
+ * bead 9gh: creates a project from teamName + repoName (no separate
+ * list_teams / list_repos discovery calls).
  *
  * Green definition:
- *   1. list_teams → {pageInfo, teams:[{uuid,name,...}]}
- *   2. list_repos → {pageInfo, repos:[{uuid,name,url,isGithubAuthorized,...}]}
- *   3. create_project({name, platform, teamUuid, repoUuid}) → {created:true, project:{uuid,name,slug,platform,repoName,...}}
- *   4. get_project on the new uuid confirms it exists
- *   5. cleanup: delete_project (verified by get returning NotFound)
+ *   1. create_project({name, platform, teamName, repoName}) → resolves both and creates
+ *   2. search_projects(uuid=new project uuid) confirms it exists
+ *   3. cleanup: delete_project + search_projects returns NotFound
+ *   4. create_project with bogus teamName → isError:true TeamNotFound (no project created)
+ *
+ * Sources teamName + repoName from the backend via a one-time probe of
+ * search_projects (which returns repo.name inside each project row) and a
+ * curl-style direct API call for teams (since list_teams is gone).
  */
+
+import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = dirname(dirname(dirname(HERE)));
+
+async function fetchTeamName() {
+  // Direct backend probe — we don't expose a teams tool anymore.
+  const testConfig = JSON.parse(readFileSync(join(ROOT, 'test-config.json'), 'utf-8'));
+  const TOKEN = testConfig.mcpServers['debugg-ai-mcp-node'].env.DEBUGGAI_API_KEY;
+  const BASE = process.env.DEBUGGAI_API_URL || 'https://api.debugg.ai';
+  const out = execSync(
+    `curl -sH "Authorization: Token ${TOKEN}" "${BASE}/api/v1/teams/?page_size=1"`,
+    { encoding: 'utf8' },
+  );
+  const body = JSON.parse(out);
+  return body.results?.[0]?.name;
+}
+
+async function deleteDirect(projectUuid) {
+  const testConfig = JSON.parse(readFileSync(join(ROOT, 'test-config.json'), 'utf-8'));
+  const TOKEN = testConfig.mcpServers['debugg-ai-mcp-node'].env.DEBUGGAI_API_KEY;
+  const BASE = process.env.DEBUGGAI_API_URL || 'https://api.debugg.ai';
+  execSync(
+    `curl -sfH "Authorization: Token ${TOKEN}" -X DELETE "${BASE}/api/v1/projects/${projectUuid}/" > /dev/null`,
+    { encoding: 'utf8' },
+  );
+}
 
 export const flow = {
   name: 'project-create',
   tags: ['fast', 'crud', 'project'],
-  description: 'TDD: list_teams + list_repos + create_project end-to-end, with delete cleanup',
+  description: 'create_project via teamName/repoName resolution; cleanup via delete_project',
   async run({ client, step, assert, writeArtifact }) {
     const ts = Date.now();
-    let teamUuid = null;
-    let repoUuid = null;
     let createdProjectUuid = null;
+    let teamName = null;
+    let repoName = null;
 
     try {
-      await step('list_teams returns paginated teams with real shape', async () => {
-        const r = await client.request('tools/call', { name: 'list_teams', arguments: {} }, 30_000);
-        await writeArtifact('teams.json', r);
-        assert(!r.isError, `list_teams: ${r.content?.[0]?.text?.slice(0, 300)}`);
-        const body = JSON.parse(r.content[0].text);
-        assert(body.pageInfo, 'response missing pageInfo');
-        assert(Array.isArray(body.teams), 'teams not an array');
-        assert(body.teams.length >= 1, `expected >=1 team, got ${body.teams.length}`);
-        for (const t of body.teams) {
-          assert(typeof t.uuid === 'string', 'team.uuid missing');
-          assert(typeof t.name === 'string', 'team.name missing');
-        }
-        teamUuid = body.teams[0].uuid;
+      await step('setup: discover a teamName (direct API) + repoName (via search_projects)', async () => {
+        teamName = await fetchTeamName();
+        assert(teamName, 'No teams found via backend probe');
+
+        const projectsResp = await client.request('tools/call', {
+          name: 'search_projects',
+          arguments: { pageSize: 5 },
+        }, 30_000);
+        const projects = JSON.parse(projectsResp.content[0].text).projects;
+        const first = projects.find(p => p.repoName);
+        assert(first, 'No project with a repoName found to probe');
+        repoName = first.repoName;
       });
 
-      await step('list_repos returns paginated repos with real shape', async () => {
-        const r = await client.request('tools/call', { name: 'list_repos', arguments: { pageSize: 5 } }, 30_000);
-        await writeArtifact('repos.json', r);
-        assert(!r.isError, `list_repos: ${r.content?.[0]?.text?.slice(0, 300)}`);
-        const body = JSON.parse(r.content[0].text);
-        assert(body.pageInfo, 'response missing pageInfo');
-        assert(Array.isArray(body.repos), 'repos not an array');
-        assert(body.repos.length >= 1, `expected >=1 repo, got ${body.repos.length}`);
-        for (const r of body.repos) {
-          assert(typeof r.uuid === 'string', 'repo.uuid missing');
-          assert(typeof r.name === 'string', 'repo.name missing');
-          assert(typeof r.isGithubAuthorized === 'boolean', 'repo.isGithubAuthorized missing');
-        }
-        // Prefer a github-authorized repo since the backend needs installation linkage
-        const authed = body.repos.find(r => r.isGithubAuthorized) ?? body.repos[0];
-        repoUuid = authed.uuid;
-      });
-
-      await step('list_repos — q filter via server-side search', async () => {
-        // Pull a known repo name then filter by substring
-        const unfiltered = await client.request('tools/call', { name: 'list_repos', arguments: { pageSize: 1 } }, 30_000);
-        const firstName = JSON.parse(unfiltered.content[0].text).repos[0].name;
-        const needle = firstName.slice(0, Math.min(4, firstName.length));
-        const filtered = await client.request('tools/call', { name: 'list_repos', arguments: { q: needle, pageSize: 5 } }, 30_000);
-        const body = JSON.parse(filtered.content[0].text);
-        assert(body.pageInfo.totalCount >= 1, `expected >=1 match for q="${needle}"`);
-
-        const bogus = await client.request('tools/call', { name: 'list_repos', arguments: { q: 'zzz-never-matches-repo', pageSize: 5 } }, 30_000);
-        const bogusBody = JSON.parse(bogus.content[0].text);
-        assert(bogusBody.pageInfo.totalCount === 0, `bogus q expected 0 got ${bogusBody.pageInfo.totalCount}`);
-      });
-
-      await step(`create_project with name + platform=web + teamUuid + repoUuid returns 201-shape`, async () => {
+      await step('create_project via teamName + repoName — resolves + creates', async () => {
         const name = `mcp-eval-create-proj-${ts}`;
         const r = await client.request('tools/call', {
           name: 'create_project',
-          arguments: { name, platform: 'web', teamUuid, repoUuid },
+          arguments: { name, platform: 'web', teamName, repoName },
         }, 30_000);
         await writeArtifact('create.json', r);
         assert(!r.isError, `create_project: ${r.content?.[0]?.text?.slice(0, 400)}`);
@@ -89,17 +87,17 @@ export const flow = {
         createdProjectUuid = body.project.uuid;
       });
 
-      await step('get_project on newly-created uuid succeeds', async () => {
+      await step('search_projects(uuid) on newly-created uuid succeeds', async () => {
         const r = await client.request('tools/call', {
-          name: 'get_project',
+          name: 'search_projects',
           arguments: { uuid: createdProjectUuid },
         }, 30_000);
-        assert(!r.isError, `get_project: ${r.content?.[0]?.text?.slice(0, 300)}`);
+        assert(!r.isError, `search_projects(uuid): ${r.content?.[0]?.text?.slice(0, 300)}`);
         const body = JSON.parse(r.content[0].text);
-        assert(body.project.uuid === createdProjectUuid, 'uuid mismatch');
+        assert(body.projects[0].uuid === createdProjectUuid, 'uuid mismatch');
       });
 
-      await step('delete_project cleans up + get_project returns NotFound', async () => {
+      await step('delete_project + search_projects returns NotFound', async () => {
         const delResp = await client.request('tools/call', {
           name: 'delete_project',
           arguments: { uuid: createdProjectUuid },
@@ -109,7 +107,7 @@ export const flow = {
         assert(delBody.deleted === true, 'delete response missing deleted:true');
 
         const afterResp = await client.request('tools/call', {
-          name: 'get_project',
+          name: 'search_projects',
           arguments: { uuid: createdProjectUuid },
         }, 30_000);
         assert(afterResp.isError === true, 'expected isError:true after delete');
@@ -118,18 +116,24 @@ export const flow = {
           `expected NotFound after delete, got: ${JSON.stringify(afterBody).slice(0, 200)}`);
         createdProjectUuid = null; // skip fallback cleanup
       });
+
+      await step('create_project with bogus teamName → isError:true TeamNotFound', async () => {
+        const r = await client.request('tools/call', {
+          name: 'create_project',
+          arguments: {
+            name: `mcp-eval-bogus-${ts}`,
+            platform: 'web',
+            teamName: 'zzz-team-should-never-match',
+            repoName,
+          },
+        }, 30_000);
+        assert(r.isError === true, 'expected isError:true');
+        const body = JSON.parse(r.content[0].text);
+        assert(/NotFound/.test(body.error ?? ''), `expected NotFound error, got: ${body.error}`);
+      });
     } finally {
       if (createdProjectUuid) {
-        // Fallback: direct-API delete in case flow failed mid-way
-        const { readFileSync: rf } = await import('fs');
-        const { fileURLToPath: fu } = await import('url');
-        const { dirname: dn, join: jn } = await import('path');
-        const here = dn(fu(import.meta.url));
-        const root = dn(dn(dn(here)));
-        const key = JSON.parse(rf(jn(root, 'test-config.json'), 'utf-8')).mcpServers['debugg-ai-mcp-node'].env.DEBUGGAI_API_KEY;
-        await fetch(`https://api.debugg.ai/api/v1/projects/${createdProjectUuid}/`, {
-          method: 'DELETE', headers: { Authorization: `Token ${key}` },
-        }).catch(() => {});
+        await deleteDirect(createdProjectUuid).catch(() => {});
       }
     }
   },

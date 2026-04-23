@@ -2,25 +2,14 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ValidatedTool } from '../types/index.js';
 import { buildTestPageChangesTool, buildValidatedTestPageChangesTool } from './testPageChanges.js';
 import { buildTriggerCrawlTool, buildValidatedTriggerCrawlTool } from './triggerCrawl.js';
-import { buildListEnvironmentsTool, buildValidatedListEnvironmentsTool } from './listEnvironments.js';
-import { buildListCredentialsTool, buildValidatedListCredentialsTool } from './listCredentials.js';
-import { buildListProjectsTool, buildValidatedListProjectsTool } from './listProjects.js';
+import { buildSearchProjectsTool, buildValidatedSearchProjectsTool } from './searchProjects.js';
+import { buildSearchEnvironmentsTool, buildValidatedSearchEnvironmentsTool } from './searchEnvironments.js';
+import { buildSearchExecutionsTool, buildValidatedSearchExecutionsTool } from './searchExecutions.js';
 import { buildCreateEnvironmentTool, buildValidatedCreateEnvironmentTool } from './createEnvironment.js';
-import { buildCreateCredentialTool, buildValidatedCreateCredentialTool } from './createCredential.js';
-import { buildGetEnvironmentTool, buildValidatedGetEnvironmentTool } from './getEnvironment.js';
 import { buildUpdateEnvironmentTool, buildValidatedUpdateEnvironmentTool } from './updateEnvironment.js';
 import { buildDeleteEnvironmentTool, buildValidatedDeleteEnvironmentTool } from './deleteEnvironment.js';
-import { buildGetCredentialTool, buildValidatedGetCredentialTool } from './getCredential.js';
-import { buildUpdateCredentialTool, buildValidatedUpdateCredentialTool } from './updateCredential.js';
-import { buildDeleteCredentialTool, buildValidatedDeleteCredentialTool } from './deleteCredential.js';
-import { buildGetProjectTool, buildValidatedGetProjectTool } from './getProject.js';
 import { buildUpdateProjectTool, buildValidatedUpdateProjectTool } from './updateProject.js';
 import { buildDeleteProjectTool, buildValidatedDeleteProjectTool } from './deleteProject.js';
-import { buildListExecutionsTool, buildValidatedListExecutionsTool } from './listExecutions.js';
-import { buildGetExecutionTool, buildValidatedGetExecutionTool } from './getExecution.js';
-import { buildCancelExecutionTool, buildValidatedCancelExecutionTool } from './cancelExecution.js';
-import { buildListTeamsTool, buildValidatedListTeamsTool } from './listTeams.js';
-import { buildListReposTool, buildValidatedListReposTool } from './listRepos.js';
 import { buildCreateProjectTool, buildValidatedCreateProjectTool } from './createProject.js';
 import { ProjectContext } from '../services/projectContext.js';
 
@@ -35,49 +24,27 @@ export function initTools(ctx: ProjectContext | null): void {
   const tools: Tool[] = [
     buildTestPageChangesTool(ctx),
     buildTriggerCrawlTool(ctx),
-    buildListProjectsTool(),
-    buildListEnvironmentsTool(),
-    buildListCredentialsTool(),
+    buildSearchProjectsTool(),
+    buildSearchEnvironmentsTool(),
     buildCreateEnvironmentTool(),
-    buildCreateCredentialTool(),
-    buildGetEnvironmentTool(),
     buildUpdateEnvironmentTool(),
     buildDeleteEnvironmentTool(),
-    buildGetCredentialTool(),
-    buildUpdateCredentialTool(),
-    buildDeleteCredentialTool(),
-    buildGetProjectTool(),
     buildUpdateProjectTool(),
     buildDeleteProjectTool(),
-    buildListExecutionsTool(),
-    buildGetExecutionTool(),
-    buildCancelExecutionTool(),
-    buildListTeamsTool(),
-    buildListReposTool(),
+    buildSearchExecutionsTool(),
     buildCreateProjectTool(),
   ];
   const validated: ValidatedTool[] = [
     buildValidatedTestPageChangesTool(ctx),
     buildValidatedTriggerCrawlTool(ctx),
-    buildValidatedListProjectsTool(),
-    buildValidatedListEnvironmentsTool(),
-    buildValidatedListCredentialsTool(),
+    buildValidatedSearchProjectsTool(),
+    buildValidatedSearchEnvironmentsTool(),
     buildValidatedCreateEnvironmentTool(),
-    buildValidatedCreateCredentialTool(),
-    buildValidatedGetEnvironmentTool(),
     buildValidatedUpdateEnvironmentTool(),
     buildValidatedDeleteEnvironmentTool(),
-    buildValidatedGetCredentialTool(),
-    buildValidatedUpdateCredentialTool(),
-    buildValidatedDeleteCredentialTool(),
-    buildValidatedGetProjectTool(),
     buildValidatedUpdateProjectTool(),
     buildValidatedDeleteProjectTool(),
-    buildValidatedListExecutionsTool(),
-    buildValidatedGetExecutionTool(),
-    buildValidatedCancelExecutionTool(),
-    buildValidatedListTeamsTool(),
-    buildValidatedListReposTool(),
+    buildValidatedSearchExecutionsTool(),
     buildValidatedCreateProjectTool(),
   ];
 
