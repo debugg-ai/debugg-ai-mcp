@@ -276,7 +276,7 @@ describe('createTunnel — connect options and environment', () => {
     expect(opts.authtoken).toBe('my-secret-key');
     expect(opts.proto).toBe('http');
     expect(opts.hostname).toBe('t1.ngrok.debugg.ai');
-    expect(opts.addr).toBe(3000); // number for plain http
+    expect(opts.addr).toBe('127.0.0.1:3000'); // bead fhg: explicit IPv4 loopback for plain http
   });
 
   test('uses https string addr for https localhost URLs', async () => {
@@ -676,6 +676,75 @@ describe('bead 42g: DEBUGG_TUNNEL_FAULT_MODE integration', () => {
 
     // First attempt: 100ms delay + connect success → at least 100ms.
     expect(elapsed).toBeGreaterThanOrEqual(90);
+  });
+});
+
+// ── Bead fhg: force IPv4 loopback in ngrok.connect addr ─────────────────────
+//
+// Real client incident 2026-04-24: macOS + Next.js dev server + localhost URL →
+// ngrok received traffic and dialed [::1]:<port> (IPv6) → connection refused
+// because Next.js binds to 127.0.0.1 only. Passing a bare port number to
+// ngrok.connect lets ngrok default to 'localhost:<port>' which resolves
+// IPv6-first on modern macOS.
+//
+// Fix: explicitly pass '127.0.0.1:<port>' for http+non-docker case.
+describe('bead fhg: ngrok.connect receives explicit 127.0.0.1 addr', () => {
+  test('http localhost + not-docker → addr is "127.0.0.1:<port>" (not bare port, not "localhost")', async () => {
+    mockNgrokConnect.mockResolvedValue('http://abc.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+
+    await tm.processUrl('http://localhost:4001', 'tok', 't-fhg-1');
+
+    const callArgs = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(callArgs.addr).toBe('127.0.0.1:4001');
+  });
+
+  test('http 127.0.0.1 (already IPv4) + not-docker → addr still "127.0.0.1:<port>"', async () => {
+    mockNgrokConnect.mockResolvedValue('http://abc.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+
+    await tm.processUrl('http://127.0.0.1:5173', 'tok', 't-fhg-2');
+
+    const callArgs = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(callArgs.addr).toBe('127.0.0.1:5173');
+  });
+
+  test('https localhost + not-docker → addr is "https://localhost:<port>" (unchanged; needs TLS so host must be localhost)', async () => {
+    mockNgrokConnect.mockResolvedValue('https://abc.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+
+    await tm.processUrl('https://localhost:3443', 'tok', 't-fhg-3');
+
+    const callArgs = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(callArgs.addr).toBe('https://localhost:3443');
+  });
+
+  test('http localhost + docker → addr is "<dockerHost>:<port>" (unchanged)', async () => {
+    const originalDocker = process.env.DOCKER_CONTAINER;
+    process.env.DOCKER_CONTAINER = 'true';
+    try {
+      mockNgrokConnect.mockResolvedValue('http://abc.ngrok.debugg.ai' as any);
+      const tm = new TunnelManagerClass(createInMemoryRegistry());
+
+      await tm.processUrl('http://localhost:4001', 'tok', 't-fhg-4');
+
+      const callArgs = mockNgrokConnect.mock.calls[0][0] as any;
+      expect(callArgs.addr).toBe('host.docker.internal:4001');
+    } finally {
+      if (originalDocker === undefined) delete process.env.DOCKER_CONTAINER;
+      else process.env.DOCKER_CONTAINER = originalDocker;
+    }
+  });
+
+  test('regression fence: addr is NEVER a bare port number (would default to IPv6 loopback on macOS)', async () => {
+    mockNgrokConnect.mockResolvedValue('http://abc.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+
+    await tm.processUrl('http://localhost:8080', 'tok', 't-fhg-5');
+
+    const callArgs = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(typeof callArgs.addr).toBe('string');
+    expect(callArgs.addr).not.toBe(8080);
   });
 });
 

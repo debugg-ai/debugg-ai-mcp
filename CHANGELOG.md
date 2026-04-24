@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — ngrok now dials IPv4 loopback explicitly (fixes ERR_NGROK_8012 on macOS Next.js)
+
+- `ngrok.connect({addr})` now passes `127.0.0.1:<port>` instead of the bare port number for plain-http localhost URLs. Bare port / `localhost` could resolve to IPv6 `[::1]` first on modern macOS, but Next.js / Vite / most Node dev servers bind to `127.0.0.1` only. Result was a successful tunnel that dialed `[::1]:<port>` and got `connection refused`, surfacing to users as `ERR_NGROK_8012` inside the browser agent trace. Bead `fhg`. Evidenced by real incident log 2026-04-24T19:37Z.
+- Docker (`DOCKER_CONTAINER=true`) and https-localhost paths unchanged.
+
 ### Fixed — concurrent callers joining a pending tunnel revoke their redundant key
 
 - When caller B's request for a localhost URL arrives while caller A's tunnel for the same port is still provisioning, B used to silently join A's promise and throw away B's own minted ngrok key (and its `revokeKey` callback) — an orphan-key-on-backend leak. B now revokes its redundant key immediately on join. Bead `7qh` finding 2.

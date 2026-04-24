@@ -370,11 +370,16 @@ class TunnelManager {
     const inDocker = process.env.DOCKER_CONTAINER === 'true';
     const dockerHost = 'host.docker.internal';
 
-    let localAddr: string | number;
+    // Bead fhg: force IPv4 loopback when running against localhost. ngrok's
+    // default resolution of a bare port or "localhost" can pick IPv6 [::1]
+    // first on macOS/modern OSes, but most dev servers (Next.js, Vite) bind
+    // only to 127.0.0.1 — resulting in ngrok connect:refused + ERR_NGROK_8012
+    // on the browser side with no actionable error back to the MCP caller.
+    let localAddr: string;
     if (isHttpsLocal) {
       localAddr = inDocker ? `https://${dockerHost}:${port}` : `https://localhost:${port}`;
     } else {
-      localAddr = inDocker ? `${dockerHost}:${port}` : port;
+      localAddr = inDocker ? `${dockerHost}:${port}` : `127.0.0.1:${port}`;
     }
 
     // Bead ixh: 3-attempt retry for ngrok.connect transient failures. Previously
