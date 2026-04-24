@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — concurrent callers joining a pending tunnel revoke their redundant key
+
+- When caller B's request for a localhost URL arrives while caller A's tunnel for the same port is still provisioning, B used to silently join A's promise and throw away B's own minted ngrok key (and its `revokeKey` callback) — an orphan-key-on-backend leak. B now revokes its redundant key immediately on join. Bead `7qh` finding 2.
+
 ### Added — tunnel fault-injection + trace harness for diagnosis
 
 - New `DEBUGG_TUNNEL_FAULT_MODE` env var (dev/test only — inert when `NODE_ENV=production`) lets developers force specific ngrok-side failures without mocking, to reproduce client-reported transient "Tunnel setup failed" incidents. Modes: `fail-connect-N:<count>`, `empty-url-N:<count>`, `delay-connect:<ms>`, combinable with commas. Bead `42g`.

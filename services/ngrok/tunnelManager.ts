@@ -294,6 +294,15 @@ class TunnelManager {
     // 2. Deduplicate concurrent creation requests for the same port
     const pending = this.pendingTunnels.get(port);
     if (pending) {
+      // Bead 7qh Finding 2: our minted tunnelKey/keyId are now redundant — the
+      // in-flight call owns the tunnel for this port. Revoke our key up-front
+      // so it doesn't orphan on the backend. Failures are swallowed: we can't
+      // let cleanup break the join.
+      if (revokeKey) {
+        revokeKey().catch((err) =>
+          logger.warn(`Failed to revoke redundant key while joining pending tunnel for port ${port}:`, err),
+        );
+      }
       const info = await pending;
       return { url: info.publicUrl, tunnelId: info.tunnelId, isLocalhost: true };
     }

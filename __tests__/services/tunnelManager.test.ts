@@ -678,3 +678,80 @@ describe('bead 42g: DEBUGG_TUNNEL_FAULT_MODE integration', () => {
     expect(elapsed).toBeGreaterThanOrEqual(90);
   });
 });
+
+// ── Bead 7qh Finding 2: B-joins-A orphan-key revocation ──────────────────────
+//
+// When caller B arrives while caller A's tunnel creation is in-flight for the
+// same port, B's minted tunnelKey/keyId are redundant (A's will win). Before
+// the fix: B's revokeKey callback was silently dropped → orphan key on the
+// backend. After the fix: B's revokeKey is invoked immediately on join.
+describe('bead 7qh: concurrent joiner revokes its own redundant key', () => {
+  test('B joining A pending: B revokeKey invoked, A revokeKey NOT invoked', async () => {
+    const revokeA = jest.fn<() => Promise<void>>().mockResolvedValue();
+    const revokeB = jest.fn<() => Promise<void>>().mockResolvedValue();
+
+    // Make A's connect deterministically slow so B arrives during the window.
+    let resolveConnect: (url: string) => void;
+    mockNgrokConnect.mockImplementation(() =>
+      new Promise<any>((resolve) => { resolveConnect = resolve; }),
+    );
+
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+
+    const aPromise = tm.processUrl('http://localhost:3000', 'keyA', 'tunnelA', 'keyIdA', revokeA);
+    // Give A time to register its pending promise
+    await new Promise((r) => setTimeout(r, 10));
+    const bPromise = tm.processUrl('http://localhost:3000', 'keyB', 'tunnelB', 'keyIdB', revokeB);
+
+    // Let A's connect resolve
+    resolveConnect!('http://tunnelA.ngrok.debugg.ai');
+    const [aResult, bResult] = await Promise.all([aPromise, bPromise]);
+
+    // Both callers get A's tunnel
+    expect(aResult.tunnelId).toBe('tunnelA');
+    expect(bResult.tunnelId).toBe('tunnelA');
+
+    // Critical: B's revokeKey was called (orphan cleanup), A's was NOT
+    expect(revokeB).toHaveBeenCalledTimes(1);
+    expect(revokeA).not.toHaveBeenCalled();
+  });
+
+  test('B joining without revokeKey: still joins cleanly, no throw', async () => {
+    // Edge case: if caller B doesn't provide a revokeKey, joining should still work.
+    let resolveConnect: (url: string) => void;
+    mockNgrokConnect.mockImplementation(() =>
+      new Promise<any>((resolve) => { resolveConnect = resolve; }),
+    );
+
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+    const aPromise = tm.processUrl('http://localhost:3000', 'keyA', 'tunnelA');
+    await new Promise((r) => setTimeout(r, 10));
+    const bPromise = tm.processUrl('http://localhost:3000', 'keyB', 'tunnelB'); // no revokeKey
+
+    resolveConnect!('http://tunnelA.ngrok.debugg.ai');
+    const [, bResult] = await Promise.all([aPromise, bPromise]);
+
+    expect(bResult.tunnelId).toBe('tunnelA');
+  });
+
+  test('B revokeKey throw is swallowed — does not break the join', async () => {
+    const revokeB = jest.fn<() => Promise<void>>().mockRejectedValue(new Error('backend 500'));
+
+    let resolveConnect: (url: string) => void;
+    mockNgrokConnect.mockImplementation(() =>
+      new Promise<any>((resolve) => { resolveConnect = resolve; }),
+    );
+
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+    const aPromise = tm.processUrl('http://localhost:3000', 'keyA', 'tunnelA');
+    await new Promise((r) => setTimeout(r, 10));
+    const bPromise = tm.processUrl('http://localhost:3000', 'keyB', 'tunnelB', 'keyIdB', revokeB);
+
+    resolveConnect!('http://tunnelA.ngrok.debugg.ai');
+    const bResult = await bPromise; // must not throw
+    await aPromise;
+
+    expect(revokeB).toHaveBeenCalledTimes(1);
+    expect(bResult.tunnelId).toBe('tunnelA');
+  });
+});
