@@ -47,6 +47,23 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   touchTunnelById: mockTouchTunnelById,
 }));
 
+// Bead 1om: probes run against real network by default — mock as healthy.
+const mockProbeLocalPort = jest.fn<(...args: any[]) => Promise<any>>()
+  .mockResolvedValue({ reachable: true, elapsedMs: 1 });
+const mockProbeTunnelHealth = jest.fn<(...args: any[]) => Promise<any>>()
+  .mockResolvedValue({ healthy: true, status: 200, elapsedMs: 1 });
+jest.unstable_mockModule('../../utils/localReachability.js', () => ({
+  probeLocalPort: mockProbeLocalPort,
+  probeTunnelHealth: mockProbeTunnelHealth,
+}));
+
+// tunnelManager.stopTunnel is called on health-probe failure — mock to no-op.
+jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+  tunnelManager: {
+    stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(),
+  },
+}));
+
 let triggerCrawlHandler: typeof import('../../handlers/triggerCrawlHandler.js').triggerCrawlHandler;
 
 beforeAll(async () => {
@@ -364,6 +381,49 @@ describe('triggerCrawlHandler', () => {
   // Mirror of the same four invariants verified in testPageChangesHandler.test.ts.
   // Both handlers share the identical circuit-breaker + inside-onUpdate final-
   // progress pattern; symmetrical coverage keeps one handler from drifting.
+
+  describe('bead 1om: pre-flight + health validation', () => {
+    test('pre-flight probe fails → LocalServerUnreachable; no provision/execute', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeLocalPort.mockResolvedValueOnce({
+        reachable: false, code: 'ECONNREFUSED', detail: 'refused', elapsedMs: 2,
+      });
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('LocalServerUnreachable');
+      expect(mockProvision).not.toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('tunnel health probe fails → TunnelTrafficBlocked; no execute', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeTunnelHealth.mockResolvedValueOnce({
+        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_8012',
+        status: 502, elapsedMs: 50,
+      });
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('TunnelTrafficBlocked');
+      expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
+      expect(mockProvision).toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('public URL path: neither probe runs', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      await triggerCrawlHandler(publicInput, defaultContext);
+
+      expect(mockProbeLocalPort).not.toHaveBeenCalled();
+      expect(mockProbeTunnelHealth).not.toHaveBeenCalled();
+    });
+  });
 
   describe('bead 0bq: progress-race safety', () => {
     test('no progressCallback call happens AFTER pollExecution resolves', async () => {

@@ -420,6 +420,26 @@ jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
   imageContentBlock: jest.fn(),
 }));
 
+// Bead 1om: probes run against the real network by default — mock to always
+// return healthy so existing handler-flow tests (which use localhost:3000 with
+// nothing listening) still exercise the provision/execute path they're about.
+// Dedicated bead-1om tests override these mocks to exercise the failure paths.
+const mockProbeLocalPort = jest.fn<(...args: any[]) => Promise<any>>()
+  .mockResolvedValue({ reachable: true, elapsedMs: 1 });
+const mockProbeTunnelHealth = jest.fn<(...args: any[]) => Promise<any>>()
+  .mockResolvedValue({ healthy: true, status: 200, elapsedMs: 1 });
+jest.unstable_mockModule('../../utils/localReachability.js', () => ({
+  probeLocalPort: mockProbeLocalPort,
+  probeTunnelHealth: mockProbeTunnelHealth,
+}));
+
+// tunnelManager.stopTunnel is called on bead-1om health-probe failure.
+jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+  tunnelManager: {
+    stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(),
+  },
+}));
+
 // ── Dynamic import (picks up the mocks) ────────────────────────────────────
 
 let testPageChangesHandler: typeof import('../../handlers/testPageChangesHandler.js').testPageChangesHandler;
@@ -683,6 +703,82 @@ describe('testPageChangesHandler — full handler flow', () => {
     // contextData uses the reused tunnel URL
     const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
     expect(contextData.targetUrl).toBe('https://existing-tid.ngrok.debugg.ai/');
+  });
+
+  // ── Bead 1om: pre-flight local port + post-tunnel health checks ───────────
+  describe('bead 1om: pre-flight + health validation', () => {
+    test('pre-flight probe says port is NOT listening → returns LocalServerUnreachable; no provision/execute calls', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeLocalPort.mockResolvedValueOnce({
+        reachable: false,
+        code: 'ECONNREFUSED',
+        detail: 'connect ECONNREFUSED 127.0.0.1:3000',
+        elapsedMs: 3,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('LocalServerUnreachable');
+      expect(body.message).toContain('127.0.0.1:3000');
+      expect(body.message).toContain('ECONNREFUSED');
+      expect(body.detail.port).toBe(3000);
+
+      // Critical: no downstream work happened
+      expect(mockProvision).not.toHaveBeenCalled();
+      expect(mockEnsureTunnel).not.toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('pre-flight probe succeeds but tunnel health check fails → TunnelTrafficBlocked; no execute call', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeTunnelHealth.mockResolvedValueOnce({
+        healthy: false,
+        status: 502,
+        code: 'NGROK_ERROR',
+        ngrokErrorCode: 'ERR_NGROK_8012',
+        detail: 'ngrok returned ERR_NGROK_8012',
+        elapsedMs: 120,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('TunnelTrafficBlocked');
+      expect(body.message).toContain('traffic isn\'t reaching');
+      expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
+
+      // Provision + ensureTunnel ran (got us to the health check), but execute didn't
+      expect(mockProvision).toHaveBeenCalled();
+      expect(mockEnsureTunnel).toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('public URL path: probes NOT called (skip localhost-only checks)', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(mockProbeLocalPort).not.toHaveBeenCalled();
+      expect(mockProbeTunnelHealth).not.toHaveBeenCalled();
+    });
+
+    test('reused tunnel path: pre-flight still runs (catches a dev server that died since last use)', async () => {
+      setupHappyPath({ isLocalhost: true, reuseExisting: true });
+      mockProbeLocalPort.mockResolvedValueOnce({
+        reachable: false, code: 'ECONNREFUSED', elapsedMs: 1,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('LocalServerUnreachable');
+      // Reused path still bails out before execute
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
   });
 
   // Test 7: pollExecution returns failed outcome

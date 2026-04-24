@@ -22,6 +22,9 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
+import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
+import { extractLocalhostPort } from '../utils/urlParser.js';
 import {
   resolveTargetUrl,
   buildContext,
@@ -76,6 +79,21 @@ export async function triggerCrawlHandler(
   try {
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
+      // Bead 1om: pre-flight local port probe BEFORE provision/ngrok/backend.
+      const localPort = extractLocalhostPort(ctx.originalUrl);
+      if (typeof localPort === 'number') {
+        const probe = await probeLocalPort(localPort);
+        if (!probe.reachable) {
+          const payload = {
+            error: 'LocalServerUnreachable',
+            message: `No server listening on 127.0.0.1:${localPort}. Start your dev server on that port before running trigger_crawl. Probe result: ${probe.code} (${probe.detail ?? 'no detail'}).`,
+            detail: { port: localPort, probeCode: probe.code, probeDetail: probe.detail, elapsedMs: probe.elapsedMs },
+          };
+          logger.warn(`Pre-flight port probe failed for ${ctx.originalUrl}: ${probe.code} in ${probe.elapsedMs}ms`);
+          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+        }
+      }
+
       if (progressCallback) {
         await progressCallback({ progress: 1, total: 4, message: 'Provisioning secure tunnel for localhost...' });
       }
@@ -104,6 +122,31 @@ export async function triggerCrawlHandler(
           tunnel.keyId,
           () => client.revokeNgrokKey(tunnel.keyId),
         );
+      }
+
+      // Bead 1om: post-tunnel health check — verify traffic actually flows.
+      if (ctx.targetUrl) {
+        const health = await probeTunnelHealth(ctx.targetUrl);
+        if (!health.healthy) {
+          const payload = {
+            error: 'TunnelTrafficBlocked',
+            message: `Tunnel was established but traffic isn't reaching the dev server. ${health.detail ?? ''} Common causes: dev server binds to 0.0.0.0 or ::1 but not 127.0.0.1; dev server crashed; firewall.`,
+            detail: {
+              code: health.code,
+              status: health.status,
+              ngrokErrorCode: health.ngrokErrorCode,
+              elapsedMs: health.elapsedMs,
+            },
+          };
+          logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
+          if (ctx.tunnelId) {
+            tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
+              logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
+            );
+          }
+          keyId = undefined;
+          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+        }
       }
     }
 

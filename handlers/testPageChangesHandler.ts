@@ -26,6 +26,8 @@ import {
 } from '../utils/tunnelContext.js';
 import { detectRepoName } from '../utils/gitContext.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
+import { extractLocalhostPort } from '../utils/urlParser.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
@@ -113,6 +115,29 @@ async function testPageChangesHandlerInner(
   try {
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
+      // Bead 1om: pre-flight local port probe BEFORE committing to backend
+      // provision + ngrok session. If the user's dev server isn't listening,
+      // fail in ~1.5s with a structured error instead of burning 5 minutes
+      // on a browser agent trying to reach a dead tunnel.
+      const localPort = extractLocalhostPort(ctx.originalUrl);
+      if (typeof localPort === 'number') {
+        const probe = await probeLocalPort(localPort);
+        if (!probe.reachable) {
+          const payload = {
+            error: 'LocalServerUnreachable',
+            message: `No server listening on 127.0.0.1:${localPort}. Start your dev server on that port before running check_app_in_browser. Probe result: ${probe.code} (${probe.detail ?? 'no detail'}).`,
+            detail: {
+              port: localPort,
+              probeCode: probe.code,
+              probeDetail: probe.detail,
+              elapsedMs: probe.elapsedMs,
+            },
+          };
+          logger.warn(`Pre-flight port probe failed for ${ctx.originalUrl}: ${probe.code} in ${probe.elapsedMs}ms`);
+          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+        }
+      }
+
       if (progressCallback) {
         await progressCallback({ progress: 1, total: TOTAL_STEPS, message: 'Provisioning secure tunnel for localhost...' });
       }
@@ -154,6 +179,40 @@ async function testPageChangesHandlerInner(
           );
         }
         logger.info(`Tunnel ready: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
+      }
+
+      // Bead 1om: verify traffic actually flows through the tunnel. The
+      // tunnel can be established (ngrok.connect returns OK) yet refuse
+      // to forward traffic — e.g., IPv4/IPv6 bind mismatch, or the dev
+      // server died between the pre-flight probe and here. Catch it now,
+      // in ~1s, not via a 5-minute browser-agent false-pass.
+      if (ctx.targetUrl) {
+        const health = await probeTunnelHealth(ctx.targetUrl);
+        if (!health.healthy) {
+          const payload = {
+            error: 'TunnelTrafficBlocked',
+            message: `Tunnel was established but traffic isn't reaching the dev server. ${health.detail ?? ''} Common causes: dev server binds to 0.0.0.0 or ::1 but not 127.0.0.1; dev server crashed; firewall.`,
+            detail: {
+              code: health.code,
+              status: health.status,
+              ngrokErrorCode: health.ngrokErrorCode,
+              elapsedMs: health.elapsedMs,
+            },
+          };
+          logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
+          // Tear down the broken tunnel so a subsequent call doesn't reuse it.
+          // stopTunnel handles both owned (ngrok disconnect + key revoke) and
+          // borrowed (just drops local ref) cases.
+          if (ctx.tunnelId) {
+            tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
+              logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
+            );
+          }
+          // keyId is consumed by stopTunnel's revoke path; clear so the
+          // outer finally block doesn't double-revoke.
+          keyId = undefined;
+          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+        }
       }
     }
 

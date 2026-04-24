@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — MCP now validates local reachability BEFORE hitting the backend (fixes 5-min false-pass regression)
+
+- `check_app_in_browser` and `trigger_crawl` now do a pre-flight TCP probe to `127.0.0.1:<port>` before provisioning a backend tunnel key. If the dev server isn't listening, we return a structured `LocalServerUnreachable` error in ~ms instead of letting the browser agent burn its 5-minute step budget on `ERR_NGROK_8012`. Bead `1om`.
+- After the tunnel is established, we do a second `GET /` probe through the tunnel itself and parse the body for `ERR_NGROK_*` markers. If ngrok received traffic but couldn't dial our backend (e.g., the dev server binds to 0.0.0.0/::1 but not 127.0.0.1), we tear down the tunnel, revoke the key, and return `TunnelTrafficBlocked` — again, fast, with a message that points at the actual cause.
+- End-to-end proof: new eval flow `28-localhost-not-listening.mjs` against a guaranteed-free port, asserts response arrives in <10s with `error:'LocalServerUnreachable'`. Measured **9ms** in practice vs. the prior **5-minute false-pass**.
+
 ### Fixed — ngrok now dials IPv4 loopback explicitly (fixes ERR_NGROK_8012 on macOS Next.js)
 
 - `ngrok.connect({addr})` now passes `127.0.0.1:<port>` instead of the bare port number for plain-http localhost URLs. Bare port / `localhost` could resolve to IPv6 `[::1]` first on modern macOS, but Next.js / Vite / most Node dev servers bind to `127.0.0.1` only. Result was a successful tunnel that dialed `[::1]:<port>` and got `connection refused`, surfacing to users as `ERR_NGROK_8012` inside the browser agent trace. Bead `fhg`. Evidenced by real incident log 2026-04-24T19:37Z.
