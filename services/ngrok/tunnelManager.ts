@@ -81,6 +81,12 @@ class TunnelManager {
   private pendingTunnels = new Map<number, Promise<TunnelInfo>>();
   private initialized = false;
   private readonly TUNNEL_TIMEOUT_MS = 55 * 60 * 1000;
+  /**
+   * Backoff schedule (ms) between ngrok.connect() retry attempts. Bead ixh.
+   * Exposed on the class so tests can override with short delays without
+   * changing the public API or depending on jest fake timers.
+   */
+  public connectBackoffMs: number[] = [500, 1500];
 
   constructor(private readonly reg: RegistryStore = getDefaultRegistry()) {}
 
@@ -361,34 +367,81 @@ class TunnelManager {
       localAddr = inDocker ? `${dockerHost}:${port}` : port;
     }
 
+    // Bead ixh: 3-attempt retry for ngrok.connect transient failures. Previously
+    // only retried ONCE (with agent reset), which is insufficient against real
+    // ngrok / network flakes (client-reported incident 2026-04-24).
+    // - Attempt 1: fresh connect
+    // - Attempt 2: after 500ms backoff, reset the ngrok agent module and retry
+    //   (existing "agent died" recovery path)
+    // - Attempt 3: after 1500ms backoff, retry with the already-reset agent
+    // Auth-token errors short-circuit at any attempt — no point looping.
+    const self = this;
     const connectWithRetry = async (): Promise<string> => {
-      try {
-        const ngrok = await getNgrok();
-        const url = await ngrok.connect({
-          proto: 'http' as const,
-          addr: localAddr,
-          hostname: tunnelDomain,
-          authtoken: authToken,
-        });
-        if (!url) throw new Error('ngrok.connect() returned empty URL');
-        return url;
-      } catch (firstError) {
-        // The ngrok agent process may have died after a previous disconnect.
-        // Reset module state and retry once with a fresh agent.
-        logger.warn(`ngrok.connect() failed, retrying with fresh agent: ${firstError}`);
-        resetNgrokModule();
-        this.initialized = false;
-        await this.ensureInitialized();
-        const ngrok = await getNgrok();
-        const url = await ngrok.connect({
-          proto: 'http' as const,
-          addr: localAddr,
-          hostname: tunnelDomain,
-          authtoken: authToken,
-        });
-        if (!url) throw new Error('ngrok.connect() returned empty URL after retry');
-        return url;
+      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+      const BACKOFF_MS = self.connectBackoffMs; // bead ixh: test-overridable
+      const MAX_ATTEMPTS = BACKOFF_MS.length + 1; // N sleeps between N+1 attempts
+      const connectOpts = {
+        proto: 'http' as const,
+        addr: localAddr,
+        hostname: tunnelDomain,
+        authtoken: authToken,
+      };
+
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          const ngrok = await getNgrok();
+          const url = await ngrok.connect(connectOpts);
+          if (!url) throw new Error(`ngrok.connect() returned empty URL (attempt ${attempt})`);
+          if (attempt > 1) {
+            Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
+              attempt,
+              outcome: 'success',
+              stage: 'ngrok_connect',
+            });
+          }
+          return url;
+        } catch (err) {
+          lastError = err;
+          const msg = err instanceof Error ? err.message : String(err);
+
+          // Auth-class errors are non-retryable — retrying with the same token
+          // would loop. Let the outer catch (line ~437) classify the message.
+          if (/authtoken|unauthorized|\b401\b|\b403\b/i.test(msg)) {
+            Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
+              attempt,
+              outcome: 'giving-up',
+              stage: 'ngrok_connect',
+              reason: 'auth-error',
+            });
+            throw err;
+          }
+
+          const isLastAttempt = attempt >= MAX_ATTEMPTS;
+          Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
+            attempt,
+            outcome: isLastAttempt ? 'giving-up' : 'will-retry',
+            stage: 'ngrok_connect',
+          });
+
+          if (isLastAttempt) throw err;
+
+          // Between attempt 1→2, do an agent-reset (covers the "agent died"
+          // failure mode that used to be the only retried case). Between 2→3,
+          // just wait — the reset already happened.
+          if (attempt === 1) {
+            logger.warn(`ngrok.connect() failed (attempt 1/${MAX_ATTEMPTS}), resetting agent: ${msg}`);
+            resetNgrokModule();
+            this.initialized = false;
+            await this.ensureInitialized();
+          } else {
+            logger.warn(`ngrok.connect() failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
+          }
+          await sleep(BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1]);
+        }
       }
+      // Unreachable (loop always returns or throws), but satisfy TS
+      throw lastError ?? new Error('connectWithRetry: exhausted attempts without error');
     };
 
     try {

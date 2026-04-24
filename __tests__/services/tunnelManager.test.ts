@@ -449,3 +449,136 @@ describe('cross-process tunnel sharing', () => {
     expect(reg.read()['3000'].lastAccessedAt).toBeGreaterThan(before);
   });
 });
+
+// ── Bead ixh: ngrok.connect() 3-attempt retry with backoff ──────────────────
+//
+// Before bead ixh: exactly 2 attempts (1 initial + 1 agent-reset retry). A
+// transient flake on BOTH attempts made the user see "Tunnel creation failed"
+// and need to manually re-run the tool. After ixh: 3 attempts with 500ms +
+// 1500ms exponential backoff, auth errors fail fast, telemetry per attempt.
+describe('bead ixh: connectWithRetry 3-attempt retry', () => {
+  function fastTm() {
+    const tm = new TunnelManagerClass();
+    tm.connectBackoffMs = [1, 1]; // override so tests don't sleep real seconds
+    return tm;
+  }
+
+  test('attempt 1 succeeds: no retry, no extra call', async () => {
+    mockNgrokConnect.mockResolvedValueOnce('http://ok.ngrok.debugg.ai' as any);
+    const tm = fastTm();
+
+    const result = await tm.processUrl('http://localhost:3000', 'tok', 't1');
+
+    expect(result.tunnelId).toBe('t1');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+  });
+
+  test('attempt 1 fails, attempt 2 succeeds (agent-reset path)', async () => {
+    const flaky = new Error('connect ECONNRESET');
+    mockNgrokConnect
+      .mockRejectedValueOnce(flaky)
+      .mockResolvedValueOnce('http://ok.ngrok.debugg.ai' as any);
+    const tm = fastTm();
+
+    const result = await tm.processUrl('http://localhost:3000', 'tok', 't1');
+
+    expect(result.tunnelId).toBe('t1');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+  });
+
+  test('attempts 1+2 fail, attempt 3 succeeds — the NEW retry case ixh fixes', async () => {
+    // Before ixh this would have thrown after attempt 2. After: retries once more.
+    const flaky1 = new Error('connect ECONNRESET');
+    const flaky2 = new Error('ngrok agent dial timeout');
+    mockNgrokConnect
+      .mockRejectedValueOnce(flaky1)
+      .mockRejectedValueOnce(flaky2)
+      .mockResolvedValueOnce('http://ok.ngrok.debugg.ai' as any);
+    const tm = fastTm();
+
+    const result = await tm.processUrl('http://localhost:3000', 'tok', 't1');
+
+    expect(result.tunnelId).toBe('t1');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(3);
+  });
+
+  test('all 3 attempts fail: throws with the last error message', async () => {
+    mockNgrokConnect
+      .mockRejectedValueOnce(new Error('first fail'))
+      .mockRejectedValueOnce(new Error('second fail'))
+      .mockRejectedValueOnce(new Error('third fail'));
+    const tm = fastTm();
+
+    await expect(
+      tm.processUrl('http://localhost:3000', 'tok', 't1'),
+    ).rejects.toThrow(/Failed to create tunnel.*third fail/);
+
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(3);
+  });
+
+  test('auth error: fails fast on attempt 1, no retry', async () => {
+    mockNgrokConnect.mockRejectedValueOnce(new Error('invalid authtoken'));
+    const tm = fastTm();
+
+    await expect(
+      tm.processUrl('http://localhost:3000', 'tok', 't1'),
+    ).rejects.toThrow(/invalid auth token/);
+
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+  });
+
+  test('auth error on attempt 2 (e.g. 401): stops retrying', async () => {
+    mockNgrokConnect
+      .mockRejectedValueOnce(new Error('network blip'))
+      .mockRejectedValueOnce(new Error('401 Unauthorized'));
+    const tm = fastTm();
+
+    await expect(
+      tm.processUrl('http://localhost:3000', 'tok', 't1'),
+    ).rejects.toThrow();
+
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(2); // stopped at auth error, no 3rd attempt
+  });
+
+  test('empty URL returned: treated as retryable error', async () => {
+    mockNgrokConnect
+      .mockResolvedValueOnce('' as any)
+      .mockResolvedValueOnce('http://ok.ngrok.debugg.ai' as any);
+    const tm = fastTm();
+
+    const result = await tm.processUrl('http://localhost:3000', 'tok', 't1');
+
+    expect(result.tunnelId).toBe('t1');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+  });
+
+  test('MAX_ATTEMPTS derives from connectBackoffMs length: single backoff → 2 attempts', async () => {
+    mockNgrokConnect
+      .mockRejectedValueOnce(new Error('fail 1'))
+      .mockRejectedValueOnce(new Error('fail 2'));
+    const tm = new TunnelManagerClass();
+    tm.connectBackoffMs = [1]; // only 1 backoff → 2 attempts total
+
+    await expect(
+      tm.processUrl('http://localhost:3000', 'tok', 't1'),
+    ).rejects.toThrow();
+
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+  });
+
+  test('timing: failed attempts actually sleep between them', async () => {
+    mockNgrokConnect
+      .mockRejectedValueOnce(new Error('fail 1'))
+      .mockRejectedValueOnce(new Error('fail 2'))
+      .mockResolvedValueOnce('http://ok.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass();
+    tm.connectBackoffMs = [50, 50]; // measurable, but fast
+
+    const start = Date.now();
+    await tm.processUrl('http://localhost:3000', 'tok', 't1');
+    const elapsed = Date.now() - start;
+
+    // Two backoffs of 50ms → at least 100ms (allow slack for test noise)
+    expect(elapsed).toBeGreaterThanOrEqual(90);
+  });
+});

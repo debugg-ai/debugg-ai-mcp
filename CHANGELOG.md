@@ -10,9 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed — tunnel provisioning flakiness surfaces as user-facing errors
 
 - `check_app_in_browser` / `trigger_crawl` now automatically retry transient tunnel-provision failures (5xx, 408, 429, network errors like ECONNRESET) with exponential backoff (500ms → 1500ms → 3000ms, 3 attempts). Previously a single ngrok/backend blip forced the caller to manually retry the tool call. Bead `7nx`.
+- **ngrok.connect() retry widened from 2 to 3 attempts** with 500ms / 1500ms backoff. A client still hit "Tunnel setup failed" after `7nx` shipped — the failure was in the ngrok-listener-bringup path, not the backend-provision path. Auth errors still fail fast. Bead `ixh`.
 - Tunnel-provision error messages now carry structured diagnostic context — HTTP status, ngrok error code, backend `x-request-id`, retryable flag — so users have something actionable to file bug reports against instead of opaque "Tunnel setup failed". Bead `5wz`.
 - 4xx auth/quota errors (401/403/404) fail fast without retry to avoid loops against a bad API key.
-- New posthog telemetry event `tunnel.provision_retry` fires per retry attempt with outcome, status, and diagnostic fields so flaky provision rates become measurable.
+- New posthog telemetry event `tunnel.provision_retry` fires per retry attempt with outcome, status, stage (`ngrok_connect` vs backend-provision), and diagnostic fields so flaky rates become measurable.
 
 ## [2.0.0] - 2026-04-23
 
