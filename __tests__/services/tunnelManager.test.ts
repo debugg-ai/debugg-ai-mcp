@@ -582,3 +582,99 @@ describe('bead ixh: connectWithRetry 3-attempt retry', () => {
     expect(elapsed).toBeGreaterThanOrEqual(90);
   });
 });
+
+// ── Bead 42g: fault-injection integration ────────────────────────────────────
+//
+// Proves the fault harness plumbs through to tunnelManager end-to-end via the
+// DEBUGG_TUNNEL_FAULT_MODE env var, so a dev or eval flow can force specific
+// failure modes without having to mock anything.
+describe('bead 42g: DEBUGG_TUNNEL_FAULT_MODE integration', () => {
+  const originalMode = process.env.DEBUGG_TUNNEL_FAULT_MODE;
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  // Each test gets a fresh in-memory registry so the "reuse tunnel for same port"
+  // fast-path in processPerPort doesn't short-circuit subsequent tests with a
+  // previous test's successful result.
+  function freshTm(backoff: number[] = [1, 1]) {
+    const tm = new TunnelManagerClass(createInMemoryRegistry());
+    tm.connectBackoffMs = backoff;
+    return tm;
+  }
+
+  afterEach(() => {
+    if (originalMode === undefined) delete process.env.DEBUGG_TUNNEL_FAULT_MODE;
+    else process.env.DEBUGG_TUNNEL_FAULT_MODE = originalMode;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+  });
+
+  test('fail-connect-N:2 forces 2 synthetic failures; succeeds on attempt 3 WITHOUT touching ngrok.connect', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.DEBUGG_TUNNEL_FAULT_MODE = 'fail-connect-N:2';
+    // Even though ngrok.connect is mocked to succeed, the fault injector should
+    // throw BEFORE it runs for the first 2 attempts.
+    mockNgrokConnect.mockResolvedValue('http://ok.ngrok.debugg.ai' as any);
+    const tm = freshTm();
+
+    const result = await tm.processUrl('http://localhost:3000', 'tok', 't1');
+
+    expect(result.tunnelId).toBe('t1');
+    // ngrok.connect was only called on attempt 3 (first 2 were short-circuited).
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+  });
+
+  test('fail-connect-N:3 exhausts the retry budget and throws the synthetic error', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.DEBUGG_TUNNEL_FAULT_MODE = 'fail-connect-N:3';
+    mockNgrokConnect.mockResolvedValue('http://ok.ngrok.debugg.ai' as any);
+    const tm = freshTm();
+
+    await expect(
+      tm.processUrl('http://localhost:3000', 'tok', 't1'),
+    ).rejects.toThrow(/\[fault-inject\] synthetic connect failure/);
+
+    // All 3 attempts consumed the fault; ngrok.connect never got to run.
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(0);
+  });
+
+  test('SAFETY: fault injection is inert when NODE_ENV=production', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.DEBUGG_TUNNEL_FAULT_MODE = 'fail-connect-N:5'; // would break everything if active
+    mockNgrokConnect.mockResolvedValue('http://ok.ngrok.debugg.ai' as any);
+    const tm = freshTm();
+
+    const result = await tm.processUrl('http://localhost:3000', 'tok', 't1');
+
+    expect(result.tunnelId).toBe('t1');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+  });
+
+  test('empty-url-N:1 triggers the retry-on-empty-URL path without real ngrok', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.DEBUGG_TUNNEL_FAULT_MODE = 'empty-url-N:1';
+    mockNgrokConnect.mockResolvedValue('http://ok.ngrok.debugg.ai' as any);
+    const tm = freshTm();
+
+    const result = await tm.processUrl('http://localhost:3000', 'tok', 't1');
+
+    expect(result.tunnelId).toBe('t1');
+    // Attempt 1: empty-url fault short-circuits BEFORE ngrok.connect runs (same
+    // spirit as fail-connect-N — lets the retry path be exercised without a real
+    // API call). Attempt 2: fault counter exhausted, ngrok.connect runs.
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+  });
+
+  test('delay-connect:100 adds the delay to each attempt', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.DEBUGG_TUNNEL_FAULT_MODE = 'delay-connect:100';
+    mockNgrokConnect.mockResolvedValue('http://ok.ngrok.debugg.ai' as any);
+    const tm = freshTm();
+
+    const start = Date.now();
+    await tm.processUrl('http://localhost:3000', 'tok', 't1');
+    const elapsed = Date.now() - start;
+
+    // First attempt: 100ms delay + connect success → at least 100ms.
+    expect(elapsed).toBeGreaterThanOrEqual(90);
+  });
+});

@@ -21,6 +21,7 @@ import { Logger } from '../../utils/logger.js';
 import { Telemetry, TelemetryEvents } from '../../utils/telemetry.js';
 import { isLocalhostUrl, extractLocalhostPort, generateTunnelUrl } from '../../utils/urlParser.js';
 import { v4 as uuidv4 } from 'uuid';
+import { FaultInjector, TunnelTrace, getFaultModeFromEnv } from './tunnelFaultInjection.js';
 import {
   RegistryStore,
   getDefaultRegistry,
@@ -376,6 +377,13 @@ class TunnelManager {
     // - Attempt 3: after 1500ms backoff, retry with the already-reset agent
     // Auth-token errors short-circuit at any attempt — no point looping.
     const self = this;
+    // Bead 42g: fault injection + trace. Only active when NODE_ENV !== 'production'
+    // AND DEBUGG_TUNNEL_FAULT_MODE env var is set. Zero overhead when disabled.
+    const faultMode = getFaultModeFromEnv();
+    const faults = new FaultInjector(faultMode);
+    const trace = new TunnelTrace();
+    trace.emit('createTunnel.start', { port, tunnelId, hasFaultMode: !!faultMode });
+
     const connectWithRetry = async (): Promise<string> => {
       const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
       const BACKOFF_MS = self.connectBackoffMs; // bead ixh: test-overridable
@@ -389,10 +397,27 @@ class TunnelManager {
 
       let lastError: unknown;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        trace.emit('connect.attempt.start', { attempt });
+        // Optional fault-injected delay before each attempt.
+        const delayMs = faults.delayMsForAttempt();
+        if (delayMs > 0) {
+          trace.emit('connect.fault.delay', { attempt, delayMs });
+          await sleep(delayMs);
+        }
         try {
           const ngrok = await getNgrok();
-          const url = await ngrok.connect(connectOpts);
-          if (!url) throw new Error(`ngrok.connect() returned empty URL (attempt ${attempt})`);
+          // Fault-inject a synthetic failure BEFORE ngrok.connect runs so we
+          // can simulate connect-layer failures without hitting the real API.
+          if (faults.shouldFailConnect()) {
+            trace.emit('connect.fault.inject', { attempt, mode: 'fail-connect-N' });
+            throw new Error(`[fault-inject] synthetic connect failure (attempt ${attempt})`);
+          }
+          const url = faults.shouldReturnEmptyUrl() ? '' : await ngrok.connect(connectOpts);
+          if (!url) {
+            trace.emit('connect.attempt.empty-url', { attempt });
+            throw new Error(`ngrok.connect() returned empty URL (attempt ${attempt})`);
+          }
+          trace.emit('connect.attempt.success', { attempt });
           if (attempt > 1) {
             Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
               attempt,
@@ -404,10 +429,12 @@ class TunnelManager {
         } catch (err) {
           lastError = err;
           const msg = err instanceof Error ? err.message : String(err);
+          trace.emit('connect.attempt.fail', { attempt, message: msg.slice(0, 200) });
 
           // Auth-class errors are non-retryable — retrying with the same token
-          // would loop. Let the outer catch (line ~437) classify the message.
+          // would loop. Let the outer catch classify the message.
           if (/authtoken|unauthorized|\b401\b|\b403\b/i.test(msg)) {
+            trace.emit('connect.giving-up', { reason: 'auth-error' });
             Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
               attempt,
               outcome: 'giving-up',
@@ -424,20 +451,26 @@ class TunnelManager {
             stage: 'ngrok_connect',
           });
 
-          if (isLastAttempt) throw err;
+          if (isLastAttempt) {
+            trace.emit('connect.giving-up', { reason: 'max-attempts' });
+            throw err;
+          }
 
           // Between attempt 1→2, do an agent-reset (covers the "agent died"
           // failure mode that used to be the only retried case). Between 2→3,
           // just wait — the reset already happened.
           if (attempt === 1) {
             logger.warn(`ngrok.connect() failed (attempt 1/${MAX_ATTEMPTS}), resetting agent: ${msg}`);
+            trace.emit('agent.reset');
             resetNgrokModule();
             this.initialized = false;
             await this.ensureInitialized();
           } else {
             logger.warn(`ngrok.connect() failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
           }
-          await sleep(BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1]);
+          const backoffMs = BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
+          trace.emit('connect.backoff', { attempt, backoffMs });
+          await sleep(backoffMs);
         }
       }
       // Unreachable (loop always returns or throws), but satisfy TS
@@ -483,12 +516,18 @@ class TunnelManager {
 
       this.resetTunnelTimer(tunnelInfo);
 
+      trace.emit('createTunnel.success', { tunnelId, publicUrl });
       logger.info(`Tunnel created: ${publicUrl} → localhost:${port}`);
       Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'created' });
       return tunnelInfo;
 
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
+      trace.emit('createTunnel.fail', { message: msg.slice(0, 200) });
+      // Bead 42g: when the trace captured meaningful timing info, log it at
+      // WARN so operators can post-mortem. Keeping it out of the thrown error
+      // text so we don't leak internals to users.
+      logger.warn(`Tunnel lifecycle trace (fail path):\n${trace.format()}`);
       if (msg.includes('authtoken')) {
         throw new Error(`Failed to create tunnel: invalid auth token. ${msg}`);
       }

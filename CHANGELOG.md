@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — tunnel fault-injection + trace harness for diagnosis
+
+- New `DEBUGG_TUNNEL_FAULT_MODE` env var (dev/test only — inert when `NODE_ENV=production`) lets developers force specific ngrok-side failures without mocking, to reproduce client-reported transient "Tunnel setup failed" incidents. Modes: `fail-connect-N:<count>`, `empty-url-N:<count>`, `delay-connect:<ms>`, combinable with commas. Bead `42g`.
+- Structured `TunnelTrace` captures timestamped lifecycle events per tunnel-create call (start, each connect attempt, fault inject, agent reset, backoff, success/fail). Dumped to WARN logs on any tunnel creation failure so real-world flakes get a post-mortem trail instead of an opaque error message.
+
 ### Fixed — tunnel provisioning flakiness surfaces as user-facing errors
 
 - `check_app_in_browser` / `trigger_crawl` now automatically retry transient tunnel-provision failures (5xx, 408, 429, network errors like ECONNRESET) with exponential backoff (500ms → 1500ms → 3000ms, 3 attempts). Previously a single ngrok/backend blip forced the caller to manually retry the tool call. Bead `7nx`.
