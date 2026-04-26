@@ -10,6 +10,10 @@ DEBUGG_README.md
 .claude/**
 debugg_ai_test_page_changes.yaml
 
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
 # Dolt database files (added by bd init)
 .dolt/
 *.db
