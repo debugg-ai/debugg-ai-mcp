@@ -48,6 +48,17 @@ const SKIP_TAG = collect(argv, '--skip-tag=');
 const testConfig = JSON.parse(readFileSync(join(ROOT, 'test-config.json'), 'utf-8'));
 const API_KEY = testConfig.mcpServers['debugg-ai-mcp-node'].env.DEBUGGAI_API_KEY;
 
+// Spawn override — used to run the eval suite against the published npm
+// package (or any other MCP binary) instead of the local dist/. Pass:
+//   MCP_SPAWN_CMD   — executable (e.g. "npx")
+//   MCP_SPAWN_ARGS  — JSON array of args (e.g. '["-y","@debugg-ai/debugg-ai-mcp@latest"]')
+//   MCP_SPAWN_CWD   — cwd; set to a tmpdir when using npx to avoid self-shadow
+// When unset, the runner spawns `node dist/index.js` from ROOT — the local-dev path.
+const SPAWN_CMD = process.env.MCP_SPAWN_CMD || 'node';
+const SPAWN_ARGS = process.env.MCP_SPAWN_ARGS ? JSON.parse(process.env.MCP_SPAWN_ARGS) : [DIST];
+const SPAWN_CWD = process.env.MCP_SPAWN_CWD || ROOT;
+const USING_OVERRIDE = !!process.env.MCP_SPAWN_CMD;
+
 const c = {
   reset: '\x1b[0m', bold: '\x1b[1m',
   green: '\x1b[32m', red: '\x1b[31m', yellow: '\x1b[33m', cyan: '\x1b[36m', dim: '\x1b[2m',
@@ -184,7 +195,8 @@ async function main() {
     process.exit(0);
   }
 
-  if (!SKIP_BUILD) {
+  // Auto-skip build under spawn override: we're not testing local dist/.
+  if (!SKIP_BUILD && !USING_OVERRIDE) {
     hdr('Build');
     execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
     console.log(`  ${ok} Build succeeded`);
@@ -196,10 +208,13 @@ async function main() {
   console.log(`\n  Artifacts: ${runDir}`);
 
   hdr('Server startup');
-  const proc = spawn('node', [DIST], {
+  if (USING_OVERRIDE) {
+    console.log(`  ${c.dim}spawn override: ${SPAWN_CMD} ${SPAWN_ARGS.join(' ')} (cwd: ${SPAWN_CWD})${c.reset}`);
+  }
+  const proc = spawn(SPAWN_CMD, SPAWN_ARGS, {
     env: { ...process.env, DEBUGGAI_API_KEY: API_KEY, LOG_LEVEL: 'error' },
     stdio: ['pipe', 'pipe', 'pipe'],
-    cwd: ROOT,
+    cwd: SPAWN_CWD,
   });
   const stderrLines = [];
   proc.stderr.on('data', chunk => {
