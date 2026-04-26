@@ -166,6 +166,24 @@ export const flow = {
         assert(body.targetUrl === localUrl, `targetUrl mismatch: expected ${localUrl}, got ${body.targetUrl}`);
         assert(!textBlock.text.includes('ngrok.debugg.ai'), 'response leaks internal tunnel URL');
       });
+
+      await step('response body carries browserSession with HAR + console-log keys (release 2026-04-25)', async () => {
+        const textBlock = response.content?.find(b => b.type === 'text');
+        const body = JSON.parse(textBlock.text);
+        // Conservative contract: a successful fresh check_app_in_browser run
+        // must surface browserSession with the new keys present. Values may
+        // be null (capture failure is normal per release notes), but the
+        // keys themselves must exist — that's what proves the MCP is passing
+        // the field through. Full URL-fetchability contract is in flow 61.
+        assert('browserSession' in body, 'browserSession key missing on check_app_in_browser response');
+        const bs = body.browserSession;
+        assert(bs && typeof bs === 'object', `browserSession should be a non-null object on a successful run, got ${typeof bs} (${JSON.stringify(bs)?.slice(0, 80)})`);
+        for (const key of ['harUrl', 'consoleLogUrl', 'recordingUrl']) {
+          assert(key in bs, `browserSession.${key} key missing — backend release 2026-04-25 may have regressed. Got keys: [${Object.keys(bs).join(', ')}]`);
+          const v = bs[key];
+          assert(v === null || (typeof v === 'string' && v.length > 0), `browserSession.${key} should be string|null, got ${typeof v}`);
+        }
+      });
     } finally {
       off();
       await new Promise(resolve => server.close(resolve));

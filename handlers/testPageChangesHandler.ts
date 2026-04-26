@@ -453,6 +453,13 @@ async function testPageChangesHandlerInner(
     if (surferNode?.outputData) {
       responsePayload.surferOutput = sanitizeResponseUrls(surferNode.outputData, ctx);
     }
+    // Backend release 2026-04-25: browser_session block on execution detail
+    // carries presigned S3 URLs for HAR + console log + recording. Pass through
+    // verbatim — sanitizeResponseUrls below only strips ngrok hosts so S3 URLs
+    // are preserved. Resolves client-feedback items #1 (network) + #7 (console).
+    if (finalExecution.browserSession) {
+      responsePayload.browserSession = finalExecution.browserSession;
+    }
 
     logger.toolComplete('check_app_in_browser', duration);
 

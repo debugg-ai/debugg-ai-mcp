@@ -29,6 +29,23 @@ export interface NodeExecution {
   error?: string;
 }
 
+/**
+ * Per-execution browser session metadata. Backend release 2026-04-25 added
+ * harUrl + consoleLogUrl as presigned S3 URLs alongside the existing
+ * recordingUrl. URLs are short-lived — refetch the parent execution to renew.
+ * All fields are optional/nullable: a session may complete without producing
+ * the corresponding artifact (browser crash, capture disabled, download fail).
+ */
+export interface BrowserSession {
+  uuid?: string;
+  status?: string;
+  vncWsPath?: string | null;
+  recordingUrl?: string | null;
+  recordingStatus?: string | null;
+  harUrl?: string | null;
+  consoleLogUrl?: string | null;
+}
+
 export interface WorkflowExecution {
   uuid: string;
   status: string;
@@ -44,6 +61,7 @@ export interface WorkflowExecution {
   errorMessage: string;
   errorInfo: { message?: string; failedNodeId?: string } | null;
   nodeExecutions: NodeExecution[];
+  browserSession?: BrowserSession | null;
 }
 
 export interface WorkflowEnv {

@@ -231,6 +231,12 @@ export async function triggerCrawlHandler(
     if (finalExecution.errorInfo?.failedNodeId) responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
     if (executeResponse.resolvedEnvironmentId) responsePayload.resolvedEnvironmentId = executeResponse.resolvedEnvironmentId;
     if (executeResponse.resolvedCredentialId) responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
+    // Backend release 2026-04-25: browser_session block on execution detail.
+    // Crawl runs through the same browser pipeline, so the field is populated
+    // here too. Pass through verbatim (presigned S3 URLs).
+    if (finalExecution.browserSession) {
+      responsePayload.browserSession = finalExecution.browserSession;
+    }
 
     // Extract crawl metrics from surfer.crawl node (absent in older graph shapes)
     const crawlNode = nodes.find(n => n.nodeType === 'surfer.crawl');

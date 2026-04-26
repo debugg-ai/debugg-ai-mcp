@@ -54,6 +54,16 @@ export const flow = {
       assert(exec.uuid === anyCompletedUuid, `uuid mismatch: ${exec.uuid}`);
       assert('nodeExecutions' in exec, 'execution.nodeExecutions missing in uuid mode');
       assert('state' in exec, 'execution.state missing in uuid mode');
+      // browserSession: backend release 2026-04-25 added this top-level field.
+      // Conservative shape check — field must be present (key exists), value
+      // can be null (subworkflow-mode executions often have null sessions).
+      // Full URL contract is locked by flow 61.
+      assert('browserSession' in exec, 'execution.browserSession key missing in uuid mode (backend release 2026-04-25)');
+      const bs = exec.browserSession;
+      assert(
+        bs === null || (typeof bs === 'object' && bs !== null),
+        `browserSession should be object|null, got ${typeof bs}`,
+      );
     });
 
     await step('uuid miss: isError:true NotFound', async () => {
