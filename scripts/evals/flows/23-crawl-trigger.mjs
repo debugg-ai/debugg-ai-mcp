@@ -72,15 +72,20 @@ export const flow = {
       assert(body.knowledgeGraph.edgesImported === 0, `Skipped import must have edgesImported=0; got ${body.knowledgeGraph.edgesImported}`);
     });
 
-    await step('browserSession with HAR + console-log keys (release 2026-04-25)', async () => {
+    await step('browserSession with URL + status keys (releases 2026-04-25 + 2026-04-26)', async () => {
       const body = JSON.parse(response.content[0].text);
       assert('browserSession' in body, 'browserSession key missing on trigger_crawl response');
       const bs = body.browserSession;
       assert(bs && typeof bs === 'object', `browserSession should be a non-null object on a successful crawl, got ${typeof bs}`);
       for (const key of ['harUrl', 'consoleLogUrl', 'recordingUrl']) {
-        assert(key in bs, `browserSession.${key} key missing — backend release 2026-04-25 may have regressed. Got keys: [${Object.keys(bs).join(', ')}]`);
+        assert(key in bs, `browserSession.${key} key missing — release 2026-04-25 regressed. Got keys: [${Object.keys(bs).join(', ')}]`);
         const v = bs[key];
         assert(v === null || (typeof v === 'string' && v.length > 0), `browserSession.${key} should be string|null, got ${typeof v}`);
+      }
+      for (const key of ['harStatus', 'consoleLogStatus', 'harRedactionStatus', 'consoleLogRedactionStatus']) {
+        assert(key in bs, `browserSession.${key} key missing — release 2026-04-26 (per-artifact status, bead 3yw6) regressed. Got keys: [${Object.keys(bs).join(', ')}]`);
+        const v = bs[key];
+        assert(v === null || typeof v === 'string', `browserSession.${key} should be string|null, got ${typeof v}`);
       }
     });
 

@@ -30,11 +30,23 @@ export interface NodeExecution {
 }
 
 /**
- * Per-execution browser session metadata. Backend release 2026-04-25 added
- * harUrl + consoleLogUrl as presigned S3 URLs alongside the existing
- * recordingUrl. URLs are short-lived — refetch the parent execution to renew.
- * All fields are optional/nullable: a session may complete without producing
- * the corresponding artifact (browser crash, capture disabled, download fail).
+ * Per-execution browser session metadata.
+ *
+ * Backend release 2026-04-25 added harUrl + consoleLogUrl as presigned S3
+ * URLs alongside the existing recordingUrl. URLs are short-lived — refetch
+ * the parent execution to renew.
+ *
+ * Backend follow-up 2026-04-26 (bead 3yw6) added per-artifact status fields
+ * that disambiguate "not produced" from "produced and failed":
+ *   harStatus / consoleLogStatus            — known values include 'downloaded',
+ *                                             'not_available', 'failed', 'queued'
+ *   harRedactionStatus / consoleLogRedactionStatus
+ *                                           — known values include 'redacted',
+ *                                             'redaction_failed'; null when not
+ *                                             applicable (no auth headers, etc.)
+ *
+ * All fields are nullable. Until backend deploy lands, the new status fields
+ * may be absent from older sessions.
  */
 export interface BrowserSession {
   uuid?: string;
@@ -44,6 +56,10 @@ export interface BrowserSession {
   recordingStatus?: string | null;
   harUrl?: string | null;
   consoleLogUrl?: string | null;
+  harStatus?: string | null;
+  consoleLogStatus?: string | null;
+  harRedactionStatus?: string | null;
+  consoleLogRedactionStatus?: string | null;
 }
 
 export interface WorkflowExecution {

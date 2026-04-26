@@ -54,16 +54,22 @@ export const flow = {
       assert(exec.uuid === anyCompletedUuid, `uuid mismatch: ${exec.uuid}`);
       assert('nodeExecutions' in exec, 'execution.nodeExecutions missing in uuid mode');
       assert('state' in exec, 'execution.state missing in uuid mode');
-      // browserSession: backend release 2026-04-25 added this top-level field.
-      // Conservative shape check — field must be present (key exists), value
-      // can be null (subworkflow-mode executions often have null sessions).
-      // Full URL contract is locked by flow 61.
-      assert('browserSession' in exec, 'execution.browserSession key missing in uuid mode (backend release 2026-04-25)');
+      // browserSession: release 2026-04-25 added the field; 2026-04-26 added
+      // per-artifact status keys (bead 3yw6). Conservative check — field must
+      // be present (key exists), value can be null (subworkflow-mode executions
+      // routinely have null sessions). When non-null, status keys are required.
+      // Full URL+content contract is locked by flow 61.
+      assert('browserSession' in exec, 'execution.browserSession key missing in uuid mode (release 2026-04-25)');
       const bs = exec.browserSession;
       assert(
         bs === null || (typeof bs === 'object' && bs !== null),
         `browserSession should be object|null, got ${typeof bs}`,
       );
+      if (bs) {
+        for (const key of ['harStatus', 'consoleLogStatus', 'harRedactionStatus', 'consoleLogRedactionStatus']) {
+          assert(key in bs, `non-null browserSession is missing ${key} — release 2026-04-26 (bead 3yw6) regressed. Got keys: [${Object.keys(bs).join(', ')}]`);
+        }
+      }
     });
 
     await step('uuid miss: isError:true NotFound', async () => {

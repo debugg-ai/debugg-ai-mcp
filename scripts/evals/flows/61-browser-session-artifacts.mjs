@@ -27,29 +27,53 @@ const HAR_PROBE_BYTES = 1024;
 const CONSOLE_PROBE_BYTES = 1024;
 
 /**
- * Validate the shape of a non-null browserSession field. The contract per
- * backend release notes 2026-04-25:
- *   - harUrl, consoleLogUrl, recordingUrl: REQUIRED keys, value is string|null
- *     (null is normal — capture may have failed or been disabled)
- *   - uuid, status, recordingStatus, vncWsPath: optional, string|null when present
+ * Validate the shape of a non-null browserSession field.
+ *
+ * Locked contract:
+ *   Required URL keys (release 2026-04-25): harUrl, consoleLogUrl, recordingUrl
+ *     → string|null (null is normal — see status fields below for the reason)
+ *   Required status keys (release 2026-04-26 — bead 3yw6): harStatus,
+ *     consoleLogStatus, harRedactionStatus, consoleLogRedactionStatus
+ *     → string|null. Disambiguates "not_available" (page emitted nothing) from
+ *       "failed" (capture genuinely broke) so callers stop polling blind.
+ *   Optional metadata: uuid, status, recordingStatus, vncWsPath
+ *     → string|null when present.
  *
  * Caller must already have verified bs is non-null (browserSession itself can
  * legitimately be null on subworkflow-mode executions).
  */
 function assertBrowserSessionShape(bs, assert, source) {
   assert(typeof bs === 'object' && bs !== null, `${source}: browserSession is not an object (got ${typeof bs})`);
-  // Locked contract — these three keys MUST be present (not just defined).
-  // If they're missing, the backend hasn't deployed the new fields yet.
   for (const key of ['harUrl', 'consoleLogUrl', 'recordingUrl']) {
     assert(
       key in bs,
-      `${source}: browserSession.${key} key is missing — backend release 2026-04-25 (har_url + console_log_url + recording_url) may not be deployed. Got keys: [${Object.keys(bs).join(', ')}]`,
+      `${source}: browserSession.${key} key missing — backend release 2026-04-25 may not be deployed. Got keys: [${Object.keys(bs).join(', ')}]`,
     );
     const v = bs[key];
     assert(
       v === null || (typeof v === 'string' && v.length > 0),
       `${source}: browserSession.${key} should be string|null, got ${typeof v} (value: ${JSON.stringify(v)?.slice(0, 80)})`,
     );
+  }
+  for (const key of ['harStatus', 'consoleLogStatus', 'harRedactionStatus', 'consoleLogRedactionStatus']) {
+    assert(
+      key in bs,
+      `${source}: browserSession.${key} key missing — backend release 2026-04-26 (per-artifact status, bead 3yw6) may not be deployed. Got keys: [${Object.keys(bs).join(', ')}]`,
+    );
+    const v = bs[key];
+    assert(
+      v === null || typeof v === 'string',
+      `${source}: browserSession.${key} should be string|null, got ${typeof v} (value: ${JSON.stringify(v)?.slice(0, 80)})`,
+    );
+  }
+  // URL ↔ status invariant: when *Status === 'downloaded', URL must be non-null.
+  if (bs.harStatus === 'downloaded') {
+    assert(typeof bs.harUrl === 'string' && bs.harUrl.length > 0,
+      `${source}: harStatus='downloaded' but harUrl is null/missing — invariant violated`);
+  }
+  if (bs.consoleLogStatus === 'downloaded') {
+    assert(typeof bs.consoleLogUrl === 'string' && bs.consoleLogUrl.length > 0,
+      `${source}: consoleLogStatus='downloaded' but consoleLogUrl is null/missing — invariant violated`);
   }
   for (const key of ['uuid', 'status', 'recordingStatus', 'vncWsPath']) {
     if (!(key in bs)) continue;
@@ -102,8 +126,8 @@ export const flow = {
         ...candidates.filter(e => e.mode === 'subworkflow'),
       ].slice(0, 15);
 
-      let withHarUrl = null;
-      let withBsOnly = null;
+      let withDownloadedHar = null;  // best — drives URL probe
+      let withBsOnly = null;          // fallback — proves shape
       let lastChecked = null;
       for (const cand of ordered) {
         const detail = await client.request('tools/call', {
@@ -115,8 +139,8 @@ export const flow = {
         const exec = body.executions?.[0];
         lastChecked = exec;
         if (!exec?.browserSession) continue;
-        if (typeof exec.browserSession.harUrl === 'string' && exec.browserSession.harUrl.length > 0) {
-          withHarUrl = exec;
+        if (exec.browserSession.harStatus === 'downloaded') {
+          withDownloadedHar = exec;
           await writeArtifact('search-executions-detail.json', detail);
           break;
         }
@@ -126,7 +150,7 @@ export const flow = {
         }
       }
 
-      const chosen = withHarUrl ?? withBsOnly;
+      const chosen = withDownloadedHar ?? withBsOnly;
       assert(
         chosen,
         `no recent completed execution had a non-null browserSession (checked ${ordered.length}). ` +
@@ -136,7 +160,7 @@ export const flow = {
 
       assertBrowserSessionShape(chosen.browserSession, assert, 'search_executions detail');
       detailExec = chosen;
-      console.log(`  \x1b[2m  → using execution ${chosen.uuid.slice(0,8)} (${chosen.mode}); harUrl=${withHarUrl ? 'populated' : 'null'}\x1b[0m`);
+      console.log(`  \x1b[2m  → using execution ${chosen.uuid.slice(0,8)} (${chosen.mode}); harStatus=${chosen.browserSession.harStatus ?? 'null'}\x1b[0m`);
     });
 
     await step('check_app_in_browser response carries browserSession on a fresh run', async () => {
@@ -177,39 +201,44 @@ export const flow = {
       }
     });
 
-    await step('presigned HAR URL (if populated) is reachable + contains HAR-shaped JSON', async () => {
-      const harUrl = detailExec?.browserSession?.harUrl;
-      if (!harUrl) {
-        console.log('  (skipped: harUrl is null — backend reports capture not available for this session)');
+    await step('HAR artifact: status field is consistent with URL availability + content shape', async () => {
+      const bs = detailExec?.browserSession;
+      const harUrl = bs?.harUrl;
+      const harStatus = bs?.harStatus;
+      // Status field is the source of truth — if it's not 'downloaded' we
+      // expect harUrl to be null and we can't probe content.
+      if (harStatus !== 'downloaded') {
+        console.log(`  \x1b[2m  → skipped: harStatus='${harStatus ?? 'null'}' (no fetchable artifact) — disambiguated by bead 3yw6\x1b[0m`);
         return;
       }
+      assert(harUrl, `harStatus='downloaded' but harUrl is missing — invariant should already have caught this`);
       const probe = await probeUrl(harUrl, HAR_PROBE_BYTES);
       await writeArtifact('har-probe.json', { status: probe.status, contentType: probe.contentType, bodyHeadBytes: probe.bodyHead.length });
       assert(
         probe.status === 200 || probe.status === 206,
-        `HAR HEAD/GET returned ${probe.status} — presigned URL may be expired or invalid`,
+        `HAR fetch returned ${probe.status} — presigned URL may be expired or invalid`,
       );
-      // HAR 1.2 spec — top-level "log" key. We only fetched 1KB so we just look
-      // for the substring rather than parse-full-JSON (the file is much larger).
       assert(
         probe.bodyHead.includes('"log"'),
         `HAR body doesn't contain expected '"log"' root key. First 200 bytes: ${probe.bodyHead.slice(0, 200)}`,
       );
     });
 
-    await step('presigned console-log URL (if populated) is reachable + JSON-array shaped', async () => {
-      const consoleUrl = detailExec?.browserSession?.consoleLogUrl;
-      if (!consoleUrl) {
-        console.log('  (skipped: consoleLogUrl is null — capture not available for this session)');
+    await step('console-log artifact: status field is consistent with URL availability + content shape', async () => {
+      const bs = detailExec?.browserSession;
+      const consoleUrl = bs?.consoleLogUrl;
+      const consoleStatus = bs?.consoleLogStatus;
+      if (consoleStatus !== 'downloaded') {
+        console.log(`  \x1b[2m  → skipped: consoleLogStatus='${consoleStatus ?? 'null'}' (no fetchable artifact)\x1b[0m`);
         return;
       }
+      assert(consoleUrl, `consoleLogStatus='downloaded' but consoleLogUrl is missing — invariant should already have caught this`);
       const probe = await probeUrl(consoleUrl, CONSOLE_PROBE_BYTES);
       await writeArtifact('console-probe.json', { status: probe.status, contentType: probe.contentType, bodyHeadBytes: probe.bodyHead.length });
       assert(
         probe.status === 200 || probe.status === 206,
         `console-log fetch returned ${probe.status}`,
       );
-      // Console log is a JSON array per release notes — should start with [ after whitespace trim
       assert(
         probe.bodyHead.trim().startsWith('['),
         `console-log doesn't start with '[' — got: ${probe.bodyHead.slice(0, 100)}`,
