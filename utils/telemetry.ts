@@ -75,4 +75,6 @@ export const TelemetryEvents = {
   TUNNEL_PROVISIONED: 'tunnel.provisioned',
   TUNNEL_PROVISION_RETRY: 'tunnel.provision_retry',
   TUNNEL_STOPPED: 'tunnel.stopped',
+  TEMPLATE_LOOKUP: 'template.lookup',
+  PROJECT_LOOKUP: 'project.lookup',
 } as const;

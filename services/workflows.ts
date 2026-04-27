@@ -7,7 +7,13 @@ import { AxiosTransport } from '../utils/axiosTransport.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-const POLL_INTERVAL_MS = 3000;
+// Exponential backoff polling: short executions (10-15s crawls) detect terminal
+// status quickly via the early polls; long executions (60-150s browser runs)
+// avoid hammering the backend with 20+ roundtrips. Cap at 5s so we never wait
+// more than 5s past terminal-state achievement.
+const POLL_INTERVAL_INITIAL_MS = 1000;
+const POLL_INTERVAL_MAX_MS = 5000;
+const POLL_BACKOFF_MULTIPLIER = 1.5;
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
 export interface WorkflowTemplate {
@@ -209,6 +215,7 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       const deadline = Date.now() + EXECUTION_TIMEOUT_MS;
       const pollStart = Date.now();
       let pollCount = 0;
+      let intervalMs = POLL_INTERVAL_INITIAL_MS;
       while (Date.now() < deadline) {
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
@@ -226,6 +233,7 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
             stepsTaken: execution.state?.stepsTaken ?? 0,
             durationMs: Date.now() - pollStart,
             pollCount,
+            finalIntervalMs: intervalMs,
           });
           return execution;
         }
@@ -233,14 +241,18 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
         }
+        const sleepMs = intervalMs;
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, POLL_INTERVAL_MS);
+          const timer = setTimeout(resolve, sleepMs);
           if (signal) {
             const onAbort = () => { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); };
             if (signal.aborted) { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); return; }
             signal.addEventListener('abort', onAbort, { once: true });
           }
         });
+        // Backoff for next iteration — capped at MAX so we don't wait too long
+        // past terminal-state achievement on the longest runs.
+        intervalMs = Math.min(Math.round(intervalMs * POLL_BACKOFF_MULTIPLIER), POLL_INTERVAL_MAX_MS);
       }
       throw new Error(
         `Execution ${executionUuid} timed out after ${EXECUTION_TIMEOUT_MS / 1000}s`

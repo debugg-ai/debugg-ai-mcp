@@ -28,12 +28,16 @@ import { detectRepoName } from '../utils/gitContext.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
+import {
+  getCachedTemplateUuid,
+  getCachedProjectUuid,
+  invalidateTemplateCache,
+  invalidateProjectCache,
+} from '../utils/handlerCaches.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
-// Cache the template UUID and project UUIDs within a server session to avoid re-fetching
-let cachedTemplateUuid: string | null = null;
-const projectUuidCache = new Map<string, string>();
+const TEMPLATE_NAME = 'app evaluation';
 
 // Concurrency control — max 2 simultaneous browser checks.
 // Additional requests queue and run when a slot opens.
@@ -216,43 +220,37 @@ async function testPageChangesHandlerInner(
       }
     }
 
-    // --- Find workflow template ---
+    // --- Resolve template + project in parallel (both independent post-tunnel) ---
     if (progressCallback) {
       await progressCallback({ progress: 2, total: TOTAL_STEPS, message: 'Locating evaluation workflow template...' });
     }
 
-    if (!cachedTemplateUuid) {
-      const template = await client.workflows!.findEvaluationTemplate();
-      if (!template) {
-        throw new Error(
-          'App Evaluation Workflow Template not found. ' +
-          'Ensure the template is seeded in the backend (GET /api/v1/workflows/?is_template=true).'
-        );
-      }
-      cachedTemplateUuid = template.uuid;
-      logger.info(`Using workflow template: ${template.name} (${template.uuid})`);
-    }
-
-    // --- Resolve project UUID (best-effort, non-blocking) ---
-    // Use explicit repoName if provided, otherwise auto-detect from git remote
     const repoName = input.repoName || detectRepoName();
-    let projectUuid: string | undefined;
-    if (repoName) {
-      projectUuid = projectUuidCache.get(repoName);
-      if (!projectUuid) {
-        try {
-          const project = await client.findProjectByRepoName(repoName);
-          if (project) {
-            projectUuid = project.uuid;
-            projectUuidCache.set(repoName, projectUuid);
-            logger.info(`Resolved project: ${project.name} (${project.uuid})`);
-          } else {
-            logger.info(`No project found for repo "${repoName}" — proceeding without project_id`);
-          }
-        } catch (err) {
-          logger.warn(`Failed to look up project for repo "${repoName}": ${err}`);
-        }
-      }
+
+    const [templateUuid, projectUuid] = await Promise.all([
+      getCachedTemplateUuid(TEMPLATE_NAME, async () => {
+        return client.workflows!.findEvaluationTemplate();
+      }),
+      repoName
+        ? getCachedProjectUuid(repoName, async (repo) => {
+            try {
+              return await client.findProjectByRepoName(repo);
+            } catch (err) {
+              logger.warn(`Failed to look up project for repo "${repo}": ${err}`);
+              return null;
+            }
+          })
+        : Promise.resolve(undefined),
+    ]);
+
+    if (!templateUuid) {
+      throw new Error(
+        'App Evaluation Workflow Template not found. ' +
+        'Ensure the template is seeded in the backend (GET /api/v1/workflows/?is_template=true).'
+      );
+    }
+    if (repoName && !projectUuid) {
+      logger.info(`No project found for repo "${repoName}" — proceeding without project_id`);
     }
 
     // --- Build context data (camelCase here — axiosTransport auto-converts to snake_case) ---
@@ -279,7 +277,7 @@ async function testPageChangesHandlerInner(
     }
 
     const executeResponse = await client.workflows!.executeWorkflow(
-      cachedTemplateUuid,
+      templateUuid,
       contextData,
       Object.keys(env).length > 0 ? env : undefined
     );
@@ -532,7 +530,8 @@ async function testPageChangesHandlerInner(
     logger.toolError('check_app_in_browser', error as Error, duration);
 
     if (error instanceof Error && (error.message.includes('not found') || error.message.includes('401'))) {
-      cachedTemplateUuid = null;
+      invalidateTemplateCache();
+      invalidateProjectCache();
     }
 
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');

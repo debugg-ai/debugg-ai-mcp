@@ -33,6 +33,7 @@ import {
   sanitizeResponseUrls,
   touchTunnelById,
 } from '../utils/tunnelContext.js';
+import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
 
 const logger = new Logger({ module: 'triggerCrawlHandler' });
 
@@ -150,20 +151,20 @@ export async function triggerCrawlHandler(
       }
     }
 
-    // --- Find the crawl workflow template ---
+    // --- Find the crawl workflow template (cached across calls) ---
     if (progressCallback) {
       await progressCallback({ progress: 2, total: 4, message: 'Locating crawl workflow template...' });
     }
 
-    const template = await client.workflows!.findTemplateByName(TEMPLATE_KEYWORD);
-    if (!template) {
+    const templateUuid = await getCachedTemplateUuid(TEMPLATE_KEYWORD, async (name) => {
+      return client.workflows!.findTemplateByName(name);
+    });
+    if (!templateUuid) {
       throw new Error(
         `Raw Crawl Workflow Template not found. ` +
         `Ensure the backend has a template matching "${TEMPLATE_KEYWORD}" seeded and accessible.`,
       );
     }
-    const templateUuid = template.uuid;
-    logger.info(`Using crawl template: ${template.name} (${templateUuid})`);
 
     // --- Build contextData + env ---
     const contextData: Record<string, any> = {
@@ -280,6 +281,9 @@ export async function triggerCrawlHandler(
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('trigger_crawl', error as Error, duration);
+    if (error instanceof Error && (error.message.includes('not found') || error.message.includes('401'))) {
+      invalidateTemplateCache();
+    }
     throw handleExternalServiceError(error, 'DebuggAI', 'crawl execution');
   } finally {
     process.stdin.removeListener('close', onStdinClose);

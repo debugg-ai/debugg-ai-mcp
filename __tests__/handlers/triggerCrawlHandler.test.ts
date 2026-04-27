@@ -168,8 +168,14 @@ function setupHappyPath(options: { isLocalhost: boolean } = { isLocalhost: false
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('triggerCrawlHandler', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
+    // Tests share a process-scoped template cache (utils/handlerCaches.ts).
+    // Clear it between tests so mockFindTemplateByName.mockResolvedValue(null)
+    // is honored instead of a previously-cached uuid being returned.
+    const { invalidateTemplateCache, invalidateProjectCache } = await import('../../utils/handlerCaches.js');
+    invalidateTemplateCache();
+    invalidateProjectCache();
   });
 
   test('looks up the crawl template via findTemplateByName("raw crawl")', async () => {
