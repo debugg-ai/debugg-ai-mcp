@@ -2,6 +2,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ValidatedTool } from '../types/index.js';
 import { buildTestPageChangesTool, buildValidatedTestPageChangesTool } from './testPageChanges.js';
 import { buildTriggerCrawlTool, buildValidatedTriggerCrawlTool } from './triggerCrawl.js';
+import { buildProbePageTool, buildValidatedProbePageTool } from './probePage.js';
 import { buildSearchProjectsTool, buildValidatedSearchProjectsTool } from './searchProjects.js';
 import { buildSearchEnvironmentsTool, buildValidatedSearchEnvironmentsTool } from './searchEnvironments.js';
 import { buildSearchExecutionsTool, buildValidatedSearchExecutionsTool } from './searchExecutions.js';
@@ -24,6 +25,7 @@ export function initTools(ctx: ProjectContext | null): void {
   const tools: Tool[] = [
     buildTestPageChangesTool(ctx),
     buildTriggerCrawlTool(ctx),
+    buildProbePageTool(),
     buildSearchProjectsTool(),
     buildSearchEnvironmentsTool(),
     buildCreateEnvironmentTool(),
@@ -37,6 +39,7 @@ export function initTools(ctx: ProjectContext | null): void {
   const validated: ValidatedTool[] = [
     buildValidatedTestPageChangesTool(ctx),
     buildValidatedTriggerCrawlTool(ctx),
+    buildValidatedProbePageTool(),
     buildValidatedSearchProjectsTool(),
     buildValidatedSearchEnvironmentsTool(),
     buildValidatedCreateEnvironmentTool(),

@@ -9,6 +9,7 @@
 const EXPECTED_TOOLS = [
   'check_app_in_browser',
   'trigger_crawl',
+  'probe_page',
   'search_projects',
   'search_environments',
   'create_environment',

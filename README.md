@@ -34,7 +34,7 @@ docker run -i --rm --init -e DEBUGGAI_API_KEY=your_api_key quinnosha/debugg-ai-m
 
 ## Tools
 
-The server exposes **11** tools grouped into Browser (2), Search (3), Projects (3), and Environments (3). The headline tool is `check_app_in_browser`; the rest manage projects, environments + their credentials, and execution history through a uniform `search_*` + CRUD pattern.
+The server exposes **12** tools grouped into Browser (3), Search (3), Projects (3), and Environments (3). The headline tools are `check_app_in_browser` (full AI agent) and `probe_page` (lightweight no-LLM page probe); the rest manage projects, environments + their credentials, and execution history through a uniform `search_*` + CRUD pattern.
 
 ### Browser
 
@@ -74,6 +74,26 @@ URLs are short-lived presigned S3 — refetch the parent execution via `search_e
 #### `trigger_crawl`
 
 Fires a server-side browser-agent crawl to populate the project's knowledge graph. Localhost URLs tunnel automatically. Returns `{executionId, status, targetUrl, durationMs, outcome?, crawlSummary?, knowledgeGraph?, browserSession?}` with `knowledgeGraph.imported === true` on successful ingestion. The `browserSession` block (HAR + console-log URLs, same shape as above) is also present on completed crawls.
+
+#### `probe_page`
+
+**Lightweight no-LLM batch page probe.** Pass 1-20 URLs; each navigates, waits for load, and returns rendered state — screenshot + page metadata + structured console errors + network summary. No agent loop, no LLM cost, no scenario assertions. Use it for "did I just break /settings?", multi-route smoke after a refactor, CI per-PR sweeps, and quick is-it-up checks where `check_app_in_browser`'s 60-150s agent loop is overkill.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `targets` | array **required** | 1-20 entries: `[{url, waitForSelector?, waitForLoadState?, timeoutMs?}]` |
+| `targets[].url` | string **required** | Public URL or localhost (auto-tunneled) |
+| `targets[].waitForLoadState` | enum | `'load'` (default) / `'domcontentloaded'` / `'networkidle'` |
+| `targets[].waitForSelector` | string | Optional CSS selector to wait for after navigation |
+| `targets[].timeoutMs` | number | Per-URL timeout, 1000-30000 (default 10000) |
+| `includeHtml` | boolean | Return raw HTML in each result (default false) |
+| `captureScreenshots` | boolean | Return one PNG per target (default true) |
+
+The whole batch shares a single backend execution + browser session + tunnel — 5 URLs in one call is dramatically faster than 5 parallel single-URL calls. Per-URL `error` field preserves batch resilience: a single failed target doesn't fail the others.
+
+**`networkSummary` aggregation key is `origin + pathname`** — refetch loops (`?n=0..4` repeatedly hitting the same endpoint) collapse into a single entry with the count, so `/api/poll` showing up with `count: 47` is the actionable "infinite refetch loop" signal users originally asked for.
+
+Performance budget: <10s for 1 URL, <25s for 20. Localhost dead-port returns `LocalServerUnreachable` in <2s without burning a workflow execution.
 
 ### Search (dual-mode: uuid detail OR filtered list)
 

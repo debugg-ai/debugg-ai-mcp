@@ -1,5 +1,6 @@
 export * from './testPageChangesHandler.js';
 export * from './triggerCrawlHandler.js';
+export * from './probePageHandler.js';
 export * from './searchProjectsHandler.js';
 export * from './searchEnvironmentsHandler.js';
 export * from './searchExecutionsHandler.js';

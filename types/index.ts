@@ -277,3 +277,63 @@ export interface LogContext {
   userId?: string;
   [key: string]: any;
 }
+
+// ── probe-page ────────────────────────────────────────────────────────────
+// Lightweight no-LLM page-probe tool. Each target gets its own wait config;
+// targets[] is the batch — one workflow execution covers up to 20 URLs sharing
+// browser session + tunnel. Strict schema: forbidden agent fields like
+// `description` and `credentialId` reject (zero-LLM contract).
+
+export const ProbePageTargetSchema = z.object({
+  url: z.preprocess(
+    normalizeUrl,
+    z.string().url('Invalid URL. Pass a full URL like "http://localhost:3000" or "https://example.com". Localhost URLs are auto-tunneled to the remote browser.'),
+  ),
+  waitForSelector: z.string().optional(),
+  waitForLoadState: z.enum(['load', 'domcontentloaded', 'networkidle']).default('load'),
+  timeoutMs: z.number().int().min(1000, 'timeoutMs minimum is 1000 (1s)').max(30000, 'timeoutMs maximum is 30000 (30s) — longer probes should use check_app_in_browser').default(10000),
+}).strict();
+
+export const ProbePageInputSchema = z.object({
+  targets: z.array(ProbePageTargetSchema).min(1, 'targets must have at least one URL').max(20, 'targets capped at 20 per call — split larger sweeps across multiple calls'),
+  includeHtml: z.boolean().default(false),
+  captureScreenshots: z.boolean().default(true),
+  repoName: z.string().optional(),
+}).strict();
+
+export type ProbePageTarget = z.infer<typeof ProbePageTargetSchema>;
+export type ProbePageInput = z.infer<typeof ProbePageInputSchema>;
+
+export interface NetworkSummaryEntry {
+  url: string;
+  count: number;
+  statuses: Record<string, number>;
+  totalBytes: number;
+  mimeType?: string;
+}
+
+export interface ConsoleErrorEntry {
+  level: string;
+  text: string;
+  source?: string;
+  lineNumber?: number;
+  timestamp?: number;
+}
+
+export interface ProbePageResult {
+  url: string;
+  finalUrl: string;
+  statusCode: number;
+  title: string | null;
+  loadTimeMs: number;
+  consoleErrors: ConsoleErrorEntry[];
+  networkSummary: NetworkSummaryEntry[];
+  html?: string;
+  error?: string;
+}
+
+export interface ProbePageResponse {
+  executionId: string;
+  durationMs: number;
+  results: ProbePageResult[];
+}
