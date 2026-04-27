@@ -55,9 +55,25 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 
 One focused check per call. The agent has a ~25-step internal budget; split broader suites across multiple calls.
 
+Every successful run returns a `browserSession` block alongside the screenshot — presigned S3 URLs for the captured **HAR** (full network trace) and **console log** (every JS console message). Use them to detect refetch loops, hydration errors, and other runtime issues that pass type-checks and unit tests:
+
+```json
+"browserSession": {
+  "harUrl": "https://...session_18139.har?X-Amz-...",
+  "consoleLogUrl": "https://...session_18139_console.json?X-Amz-...",
+  "recordingUrl": "https://...session_18139_recording.webm?X-Amz-...",
+  "harStatus": "downloaded",
+  "consoleLogStatus": "downloaded",
+  "harRedactionStatus": "redacted",
+  "consoleLogRedactionStatus": "redacted"
+}
+```
+
+URLs are short-lived presigned S3 — refetch the parent execution via `search_executions` to renew. `harStatus` / `consoleLogStatus` disambiguate `'downloaded'` (URL fetchable), `'not_available'` (page emitted nothing), `'failed'` (capture broke). On a fresh run the URLs are commonly `null` because capture uploads async after the agent finishes — poll `search_executions` with the returned `executionId` until status reaches `'downloaded'`. Authorization / Cookie / `token`/`secret`/`api_key` headers are scrubbed server-side before the artifacts are persisted.
+
 #### `trigger_crawl`
 
-Fires a server-side browser-agent crawl to populate the project's knowledge graph. Localhost URLs tunnel automatically. Returns `{executionId, status, targetUrl, durationMs, outcome?, crawlSummary?, knowledgeGraph?}` with `knowledgeGraph.imported === true` on successful ingestion.
+Fires a server-side browser-agent crawl to populate the project's knowledge graph. Localhost URLs tunnel automatically. Returns `{executionId, status, targetUrl, durationMs, outcome?, crawlSummary?, knowledgeGraph?, browserSession?}` with `knowledgeGraph.imported === true` on successful ingestion. The `browserSession` block (HAR + console-log URLs, same shape as above) is also present on completed crawls.
 
 ### Search (dual-mode: uuid detail OR filtered list)
 
@@ -128,8 +144,40 @@ Response-shape changes: the bare `count` field on list responses is gone — use
 
 ## Configuration
 
+| Env var | Required | Purpose |
+|---|---|---|
+| `DEBUGGAI_API_KEY` | yes | Backend API key. Aliases: `DEBUGGAI_API_TOKEN`, `DEBUGGAI_JWT_TOKEN`. |
+| `DEBUGGAI_API_URL` | no | Backend base URL. Defaults to `https://api.debugg.ai`. |
+| `DEBUGGAI_TOKEN_TYPE` | no | `token` (default) or `bearer`. |
+| `LOG_LEVEL` | no | `error` / `warn` / `info` (default) / `debug`. |
+| `POSTHOG_API_KEY` | no | Override the embedded telemetry project key (e.g. private fork). |
+| `DEBUGGAI_TELEMETRY_DISABLED` | no | Set to `1` / `true` / `yes` / `on` to disable telemetry entirely. |
+
 ```bash
 DEBUGGAI_API_KEY=your_api_key
+```
+
+## Telemetry
+
+The MCP server ships with telemetry enabled by default — an embedded write-only PostHog project key (`phc_*`) so the team can observe cache hit rates, poll cadence, tunnel reliability, and other operational metrics across the install base. Captured events:
+
+| Event | When |
+|---|---|
+| `tool.executed` / `tool.failed` | Per tool call |
+| `workflow.executed` | Per browser-agent execution (carries `pollCount`, `durationMs`, `finalIntervalMs`) |
+| `tunnel.provisioned` / `tunnel.provision_retry` / `tunnel.stopped` | Per tunnel lifecycle event |
+| `template.lookup` / `project.lookup` | Cache hit/miss with `durationMs` on cold-call |
+
+Privacy posture:
+- The distinct ID is `SHA-256(api_key).slice(0, 16)` — never the raw key, no PII.
+- `phc_*` keys are write-only by PostHog convention; safe to embed in source.
+- Set `DEBUGGAI_TELEMETRY_DISABLED=1` to opt out entirely (resolves to a no-op provider; no events leave the process).
+
+The active mode is logged at boot:
+```
+Telemetry enabled (PostHog, DebuggAI default project). Set DEBUGGAI_TELEMETRY_DISABLED=1 to opt out.
+Telemetry enabled (PostHog, custom POSTHOG_API_KEY)
+Telemetry disabled (DEBUGGAI_TELEMETRY_DISABLED is set)
 ```
 
 ## Local Development
