@@ -208,14 +208,24 @@ async function main(): Promise<void> {
       );
     }
 
-    // Initialize telemetry (PostHog when key is set, Noop otherwise)
+    // Initialize telemetry: PostHog by default (public project key embedded
+    // in config so the team can observe cache hit rates, poll cadence, etc.
+    // across all installs). Falls back to Noop when DEBUGGAI_TELEMETRY_DISABLED
+    // is set. Distinct ID is SHA-256(apiKey) — never the raw key.
     Telemetry.setDistinctId(config.api.key);
     if (config.telemetry.posthogApiKey) {
       const { PostHogProvider } = await import('./services/posthogProvider.js');
       Telemetry.configure(new PostHogProvider(config.telemetry.posthogApiKey, {
         host: config.telemetry.posthogHost,
       }));
-      logger.info('Telemetry enabled (PostHog)');
+      const usingDefault = !process.env.POSTHOG_API_KEY;
+      logger.info(
+        usingDefault
+          ? 'Telemetry enabled (PostHog, DebuggAI default project). Set DEBUGGAI_TELEMETRY_DISABLED=1 to opt out.'
+          : 'Telemetry enabled (PostHog, custom POSTHOG_API_KEY)',
+      );
+    } else {
+      logger.info('Telemetry disabled (DEBUGGAI_TELEMETRY_DISABLED is set)');
     }
 
     // No API calls at boot. Project context is resolved lazily on first tool

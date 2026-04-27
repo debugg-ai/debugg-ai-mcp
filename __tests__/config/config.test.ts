@@ -132,4 +132,63 @@ describe('config env var precedence', () => {
     expect(cfg.api.baseUrl).toBe('https://api.debugg.ai');
   });
 
+  describe('telemetry posthogApiKey resolution', () => {
+    let saved: Record<string, string | undefined>;
+    beforeEach(() => {
+      saved = {
+        POSTHOG_API_KEY: process.env.POSTHOG_API_KEY,
+        DEBUGGAI_TELEMETRY_DISABLED: process.env.DEBUGGAI_TELEMETRY_DISABLED,
+      };
+      delete process.env.POSTHOG_API_KEY;
+      delete process.env.DEBUGGAI_TELEMETRY_DISABLED;
+    });
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+
+    test('defaults to embedded public phc_* key when no env vars set', () => {
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toMatch(/^phc_/);
+    });
+
+    test('POSTHOG_API_KEY env override takes precedence over default', () => {
+      process.env.POSTHOG_API_KEY = 'phc_custom_test_key';
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toBe('phc_custom_test_key');
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED=1 disables telemetry (returns undefined)', () => {
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '1';
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toBeUndefined();
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED accepts true / yes / on (case-insensitive)', () => {
+      for (const v of ['true', 'TRUE', 'yes', 'YES', 'on', 'On']) {
+        process.env.DEBUGGAI_TELEMETRY_DISABLED = v;
+        const cfg = loadConfig();
+        expect(cfg.telemetry.posthogApiKey).toBeUndefined();
+      }
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED=0 / empty does NOT disable (defaults still apply)', () => {
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '0';
+      let cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toMatch(/^phc_/);
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '';
+      cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toMatch(/^phc_/);
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED overrides POSTHOG_API_KEY', () => {
+      process.env.POSTHOG_API_KEY = 'phc_user_custom';
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '1';
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toBeUndefined();
+    });
+  });
+
 });
