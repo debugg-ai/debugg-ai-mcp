@@ -528,4 +528,63 @@ describe('triggerCrawlHandler', () => {
       expect(body.status).toBe('completed');
     });
   });
+
+  // ── Bead kbo9: bounded retry on transient backend errors (mirror of kbxy) ──
+  describe('transient-error retry (bead kbo9)', () => {
+    const TRANSIENT_FINAL = {
+      ...COMPLETED_EXECUTION,
+      status: 'failed',
+      state: {
+        outcome: 'fail',
+        success: false,
+        stepsTaken: 0,
+        error: 'Invalid JSON: EOF while parsing a value at line 1 column 0',
+      },
+      errorMessage: '',
+    };
+
+    test('transient error on first crawl attempt → retries → succeeds on attempt 2', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll
+        .mockResolvedValueOnce(TRANSIENT_FINAL)
+        .mockResolvedValueOnce(COMPLETED_EXECUTION);
+
+      const result = await triggerCrawlHandler(publicInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(mockExecute.mock.calls.length).toBe(2);
+      expect(mockPoll.mock.calls.length).toBe(2);
+      // Attempt 2's executionUuid is what reaches the response
+      expect(body.status).toBe('completed');
+    });
+
+    test('non-transient error → NO retry, returns first attempt', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const NON_TRANSIENT = {
+        ...COMPLETED_EXECUTION,
+        status: 'completed',
+        state: {
+          outcome: 'fail',
+          success: false,
+          stepsTaken: 5,
+          error: 'crawl bailed: max-pages reached without exit condition',
+        },
+      };
+      mockPoll.mockResolvedValue(NON_TRANSIENT);
+
+      await triggerCrawlHandler(publicInput, defaultContext);
+      expect(mockExecute.mock.calls.length).toBe(1);
+      expect(mockPoll.mock.calls.length).toBe(1);
+    });
+
+    test('persistent transient → exhausts default 1 retry, surfaces failure', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue(TRANSIENT_FINAL);
+
+      await triggerCrawlHandler(publicInput, defaultContext);
+      // Default MAX_RETRIES = 1 → 2 total attempts
+      expect(mockExecute.mock.calls.length).toBe(2);
+      expect(mockPoll.mock.calls.length).toBe(2);
+    });
+  });
 });

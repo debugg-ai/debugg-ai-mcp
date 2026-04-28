@@ -34,10 +34,21 @@ import {
   touchTunnelById,
 } from '../utils/tunnelContext.js';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
+import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
+import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const logger = new Logger({ module: 'triggerCrawlHandler' });
 
 const TEMPLATE_KEYWORD = 'raw crawl';
+
+// Bead kbo9: same env-driven retry budget as testPageChangesHandler (kbxy).
+function getMaxTransientRetries(): number {
+  const raw = process.env.DEBUGGAI_TRANSIENT_RETRIES;
+  if (raw === undefined || raw === '') return 1;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 1;
+  return Math.min(n, 3);
+}
 
 export async function triggerCrawlHandler(
   input: TriggerCrawlInput,
@@ -186,35 +197,72 @@ export async function triggerCrawlHandler(
       await progressCallback({ progress: 3, total: 4, message: 'Queuing crawl execution...' });
     }
 
-    const executeResponse = await client.workflows!.executeWorkflow(
-      templateUuid,
-      contextData,
-      Object.keys(env).length > 0 ? env : undefined,
-    );
-    const executionUuid = executeResponse.executionUuid;
-    logger.info(`Crawl execution queued: ${executionUuid}`);
-
-    // --- Poll ---
-    // Bead 0bq: emit the final progress (4/4 "Complete:...") INSIDE onUpdate
-    // when terminal status detected, so there's no post-resolve emission that
-    // could race the response and cause stale-progressToken transport tear-down.
+    // --- Execute + Poll (with bounded retry on transient errors, bead kbo9) ---
     const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-    const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
-      if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
-      if (!progressCallback) return;
-      const nodeCount = (exec.nodeExecutions ?? []).length;
-      if (TERMINAL_STATUSES.has(exec.status)) {
+    const MAX_RETRIES = getMaxTransientRetries();
+
+    let executeResponse: import('../services/workflows.js').WorkflowExecuteResponse | undefined;
+    let executionUuid = '';
+    let finalExecution: import('../services/workflows.js').WorkflowExecution | undefined;
+    let attempt = 0;
+
+    while (true) {
+      attempt++;
+
+      if (attempt > 1) {
+        Telemetry.capture(TelemetryEvents.WORKFLOW_TRANSIENT_RETRY, {
+          tool: 'trigger_crawl',
+          attempt,
+          reason: transientReasonTag(finalExecution),
+          previousExecutionId: executionUuid,
+          previousErrorMessage: finalExecution?.errorMessage?.slice(0, 200),
+          previousStateError: finalExecution?.state?.error?.slice(0, 200),
+        });
+        if (progressCallback) {
+          await progressCallback({
+            progress: 3, total: 4,
+            message: `Transient backend error — retrying crawl (attempt ${attempt}/${MAX_RETRIES + 1})...`,
+          });
+        }
+        await new Promise(r => setTimeout(r, 1000 * (attempt - 1)));
+      }
+
+      executeResponse = await client.workflows!.executeWorkflow(
+        templateUuid,
+        contextData,
+        Object.keys(env).length > 0 ? env : undefined,
+      );
+      executionUuid = executeResponse.executionUuid;
+      logger.info(`Crawl execution queued: ${executionUuid}${attempt > 1 ? ` (retry ${attempt - 1}/${MAX_RETRIES})` : ''}`);
+
+      // --- Poll ---
+      // Bead 0bq: emit the final progress (4/4 "Complete:...") INSIDE onUpdate
+      // when terminal status detected, so there's no post-resolve emission that
+      // could race the response and cause stale-progressToken transport tear-down.
+      finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
+        if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
+        if (!progressCallback) return;
+        const nodeCount = (exec.nodeExecutions ?? []).length;
+        if (TERMINAL_STATUSES.has(exec.status)) {
+          await progressCallback({
+            progress: 4, total: 4,
+            message: `Crawl ${exec.status} (${nodeCount} nodes)`,
+          });
+          return;
+        }
         await progressCallback({
           progress: 4, total: 4,
           message: `Crawl ${exec.status} (${nodeCount} nodes)`,
         });
-        return;
-      }
-      await progressCallback({
-        progress: 4, total: 4,
-        message: `Crawl ${exec.status} (${nodeCount} nodes)`,
-      });
-    }, abortController.signal);
+      }, abortController.signal);
+
+      if (attempt > MAX_RETRIES) break;
+      if (!isTransientWorkflowError(finalExecution)) break;
+      logger.warn(
+        `Transient backend error detected on crawl (${transientReasonTag(finalExecution) ?? 'unknown'}) — ` +
+        `retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1})`,
+      );
+    }
 
     const duration = Date.now() - startTime;
     const nodes = finalExecution.nodeExecutions ?? [];
