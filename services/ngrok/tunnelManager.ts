@@ -390,7 +390,6 @@ class TunnelManager {
     //   (existing "agent died" recovery path)
     // - Attempt 3: after 1500ms backoff, retry with the already-reset agent
     // Auth-token errors short-circuit at any attempt — no point looping.
-    const self = this;
     // Bead 42g: fault injection + trace. Only active when NODE_ENV !== 'production'
     // AND DEBUGG_TUNNEL_FAULT_MODE env var is set. Zero overhead when disabled.
     const faultMode = getFaultModeFromEnv();
@@ -400,7 +399,7 @@ class TunnelManager {
 
     const connectWithRetry = async (): Promise<string> => {
       const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-      const BACKOFF_MS = self.connectBackoffMs; // bead ixh: test-overridable
+      const BACKOFF_MS = this.connectBackoffMs; // bead ixh: test-overridable
       const MAX_ATTEMPTS = BACKOFF_MS.length + 1; // N sleeps between N+1 attempts
       const connectOpts = {
         proto: 'http' as const,

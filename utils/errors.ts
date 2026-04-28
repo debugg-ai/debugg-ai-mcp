@@ -119,8 +119,6 @@ export function handleExternalServiceError(
   serviceName: string,
   operation?: string
 ): MCPError {
-  const context = `${serviceName}${operation ? `:${operation}` : ''}`;
-  
   if (error instanceof Error) {
     logger.error('External service error', { 
       serviceName, 

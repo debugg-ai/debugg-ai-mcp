@@ -113,7 +113,7 @@ export function sanitizeFilePath(filePath: string): string {
 export function validatePort(port: unknown): number {
   try {
     return commonSchemas.port.parse(port);
-  } catch (error) {
+  } catch {
     throw new MCPError(
       MCPErrorCode.VALIDATION_ERROR,
       `Invalid port number: ${port}. Port must be between 1 and 65535.`,

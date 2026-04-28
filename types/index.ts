@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { CallToolRequest, Tool } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { normalizeUrl } from '../utils/urlParser.js';
 
 /**

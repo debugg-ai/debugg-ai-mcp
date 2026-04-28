@@ -110,6 +110,35 @@ describe('searchEnvironmentsHandler', () => {
       const body = JSON.parse(res.content[0].text!);
       expect(body.error).toBe('NoProjectResolved');
     });
+
+    // Bead gb4n: project field omits null name/repoName when projectUuid is
+    // provided directly (caller skipped git auto-resolution). Old behavior
+    // emitted `{name: null, repoName: null}` which surprised callers.
+    test('projectUuid override: project field has uuid only, no null name/repoName (bead gb4n)', async () => {
+      mockListEnvironmentsPaginated.mockResolvedValue({
+        pageInfo: { page: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasMore: false },
+        environments: [],
+      });
+      const res = await searchEnvironmentsHandler({ projectUuid: PROJECT_UUID }, ctx);
+      const body = JSON.parse(res.content[0].text!);
+      expect(body.project).toEqual({ uuid: PROJECT_UUID });
+      expect(body.project).not.toHaveProperty('name');
+      expect(body.project).not.toHaveProperty('repoName');
+    });
+
+    test('git auto-resolved: project field includes name + repoName when known', async () => {
+      mockDetectRepoName.mockReturnValue('debugg-ai/app');
+      mockFindProjectByRepoName.mockResolvedValue(PROJECT);
+      mockListEnvironmentsPaginated.mockResolvedValue({
+        pageInfo: { page: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasMore: false },
+        environments: [],
+      });
+      const res = await searchEnvironmentsHandler({}, ctx);
+      const body = JSON.parse(res.content[0].text!);
+      expect(body.project.uuid).toBe(PROJECT_UUID);
+      expect(typeof body.project.name).toBe('string');
+      expect(typeof body.project.repoName).toBe('string');
+    });
   });
 
   describe('uuid mode (single env)', () => {

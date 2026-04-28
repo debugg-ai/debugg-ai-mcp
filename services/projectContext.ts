@@ -6,7 +6,6 @@
 
 import { config } from '../config/index.js';
 import { DebuggAIServerClient, ProjectInfo } from './index.js';
-import { AxiosTransport } from '../utils/axiosTransport.js';
 import { detectRepoName } from '../utils/gitContext.js';
 import { Logger } from '../utils/logger.js';
 

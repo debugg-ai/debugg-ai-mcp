@@ -38,7 +38,6 @@ import {
   TelemetryEvents,
 } from "./utils/index.js";
 import {
-  TypedCallToolRequest,
   ToolContext,
   ProgressCallback,
   MCPErrorCode,

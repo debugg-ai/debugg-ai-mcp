@@ -14,7 +14,6 @@ export type TunnelsResponse = {
   uri: string;
 };
 
-/* eslint-disable @typescript-eslint/naming-convention */
 export type NgrokConfig = {
   authtoken?: string;
   region?: string;
@@ -33,4 +32,3 @@ export type NgrokConfig = {
   web_addr?: string | false;
   tunnels?: { [key: string]: Ngrok.Options };
 };
-/* eslint-enable */

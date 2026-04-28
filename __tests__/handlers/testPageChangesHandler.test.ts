@@ -949,4 +949,98 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(body.executionId).toBe('exec-uuid-1');
     });
   });
+
+  // ── Bead jqmj: failureCategory disambiguates 'fail' meanings ──────────────
+  // ── Bead qmdd: stepsRemaining + stepsBudget on every response ─────────────
+  describe('failureCategory + stepsBudget / stepsRemaining (beads jqmj + qmdd)', () => {
+    test('success: failureCategory OMITTED; stepsBudget=25, stepsRemaining matches', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.success).toBe(true);
+      expect(body).not.toHaveProperty('failureCategory');
+      expect(body.stepsBudget).toBe(25);
+      // mockFinalExecution has stepsTaken: 3, so 25 - 3 = 22
+      expect(body.stepsRemaining).toBe(22);
+    });
+
+    test('non-success with state.error set → failureCategory: "agent-error"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        status: 'failed',
+        state: {
+          outcome: 'fail',
+          success: false,
+          stepsTaken: 5,
+          error: 'Pydantic JSON parse error: EOF while parsing a value',
+        },
+        errorMessage: '',
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('agent-error');
+      expect(body.stepsRemaining).toBe(20);  // 25 - 5
+    });
+
+    test('non-success with errorMessage set → failureCategory: "agent-error"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        status: 'failed',
+        state: { outcome: 'fail', success: false, stepsTaken: 0, error: '' },
+        errorMessage: 'transport-level: connection reset by peer',
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.failureCategory).toBe('agent-error');
+    });
+
+    test('non-success with NO infra error → failureCategory: "assertion-mismatch"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        status: 'completed',  // workflow ran to completion
+        state: {
+          outcome: 'fail',
+          success: false,
+          stepsTaken: 7,
+          error: '',
+        },
+        errorMessage: '',
+        errorInfo: null,
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('assertion-mismatch');
+      expect(body.stepsRemaining).toBe(18);  // 25 - 7
+    });
+
+    test('stepsRemaining clamps to 0 when agent ran past budget', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        state: {
+          outcome: 'pass',
+          success: true,
+          stepsTaken: 30, // past the 25 budget — clamp to 0, don't go negative
+          error: '',
+        },
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.stepsTaken).toBe(30);
+      expect(body.stepsRemaining).toBe(0);
+    });
+  });
 });

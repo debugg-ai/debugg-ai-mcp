@@ -431,15 +431,38 @@ async function testPageChangesHandlerInner(
       };
     }
 
+    const stepsTaken = finalExecution.state?.stepsTaken ?? subworkflowNode?.outputData?.stepsTaken ?? actionTrace.length;
+    const success = finalExecution.state?.success ?? subworkflowNode?.outputData?.success ?? false;
+
     const responsePayload: Record<string, any> = {
       outcome,
-      success: finalExecution.state?.success ?? subworkflowNode?.outputData?.success ?? false,
+      success,
       status: finalExecution.status,
-      stepsTaken: finalExecution.state?.stepsTaken ?? subworkflowNode?.outputData?.stepsTaken ?? actionTrace.length,
+      stepsTaken,
+      stepsBudget: MAX_EXEC_STEPS,                                      // bead qmdd
+      stepsRemaining: Math.max(0, MAX_EXEC_STEPS - (stepsTaken ?? 0)),  // bead qmdd
       targetUrl: originalUrl,
       executionId: executionUuid,
       durationMs: finalExecution.durationMs ?? duration,
     };
+
+    // Bead jqmj: failureCategory disambiguates the three meanings of 'fail':
+    //   'agent-error'        — workflow/infra failure (Pydantic parse error,
+    //                          backend exception, transport issue). Caller's
+    //                          right move: retry-with-backoff.
+    //   'assertion-mismatch' — agent ran the scenario but page state didn't
+    //                          match expectations. Caller's right move: fix
+    //                          code or update the test description.
+    //   ('page-error' is reserved for v2 — needs a structured signal from
+    //   backend to distinguish from assertion-mismatch reliably; today's
+    //   inferrable info is too fragile.)
+    // Field is OMITTED on success (no failure to categorize).
+    if (!success) {
+      const hasAgentError = finalExecution.status === 'failed'
+        || !!finalExecution.errorMessage
+        || !!finalExecution.state?.error;
+      responsePayload.failureCategory = hasAgentError ? 'agent-error' : 'assertion-mismatch';
+    }
 
     if (actionTrace.length > 0) responsePayload.actionTrace = actionTrace;
     if (evaluation) responsePayload.evaluation = evaluation;

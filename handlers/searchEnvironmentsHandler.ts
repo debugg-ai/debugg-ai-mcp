@@ -79,8 +79,13 @@ export async function searchEnvironmentsHandler(
     await client.init();
 
     // ── Resolve projectUuid ──
+    // Bead gb4n: when projectUuid is provided directly (caller skips git
+    // auto-resolution), `name` and `repoName` are unknown. OMIT those fields
+    // rather than emitting nulls — null fields surprised callers and
+    // muddied the contract. If a caller needs them, they fetch via
+    // search_projects.
     let projectUuid = input.projectUuid;
-    let project: { uuid: string; name: string | null; repoName: string | null } | null = null;
+    let project: { uuid: string; name?: string; repoName?: string } | null = null;
 
     if (!projectUuid) {
       const repoName = detectRepoName();
@@ -94,9 +99,12 @@ export async function searchEnvironmentsHandler(
           `No DebuggAI project found for repo "${repoName}". Pass projectUuid explicitly.`);
       }
       projectUuid = resolved.uuid;
-      project = { uuid: resolved.uuid, name: resolved.name, repoName: resolved.repo?.name ?? repoName };
+      project = { uuid: resolved.uuid };
+      if (resolved.name) project.name = resolved.name;
+      const rn = resolved.repo?.name ?? repoName;
+      if (rn) project.repoName = rn;
     } else {
-      project = { uuid: projectUuid, name: null, repoName: null };
+      project = { uuid: projectUuid };
     }
 
     // ── uuid mode ──
