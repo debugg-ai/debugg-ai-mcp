@@ -24,6 +24,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { FaultInjector, TunnelTrace, getFaultModeFromEnv } from './tunnelFaultInjection.js';
 import {
   RegistryStore,
+  RegistryEntry,
   getDefaultRegistry,
 } from './tunnelRegistry.js';
 
@@ -83,13 +84,47 @@ class TunnelManager {
   private initialized = false;
   private readonly TUNNEL_TIMEOUT_MS = 55 * 60 * 1000;
   /**
+   * Bead `3th`: registry-entry freshness window. An entry not touched within
+   * this many ms is treated as stale even if its owner PID is alive — defends
+   * against PID-reuse (OS reassigns dead-owner's PID to a different process).
+   */
+  private readonly REGISTRY_FRESHNESS_TTL_MS = 30 * 60 * 1000;
+  /**
+   * Bead `mdp`: prune-on-startup eviction window. Entries older than this OR
+   * with dead owner PID get swept out when TunnelManager initializes.
+   */
+  private readonly REGISTRY_PRUNE_THRESHOLD_MS = 60 * 60 * 1000;
+  /**
    * Backoff schedule (ms) between ngrok.connect() retry attempts. Bead ixh.
    * Exposed on the class so tests can override with short delays without
    * changing the public API or depending on jest fake timers.
    */
   public connectBackoffMs: number[] = [500, 1500];
 
-  constructor(private readonly reg: RegistryStore = getDefaultRegistry()) {}
+  constructor(private readonly reg: RegistryStore = getDefaultRegistry()) {
+    // Bead `mdp`: sweep stale entries on startup so the registry doesn't grow
+    // unboundedly across MCP processes that exited without stopAllTunnels
+    // (SIGKILL / crash). Best-effort — no-op registries don't actually prune.
+    try {
+      const result = this.reg.prune({ staleAfterMs: this.REGISTRY_PRUNE_THRESHOLD_MS });
+      if (result.pruned > 0) {
+        logger.info(`Pruned ${result.pruned} stale registry entries on startup (${result.remaining} remaining)`);
+      }
+    } catch (err) {
+      logger.warn(`Registry prune-on-startup failed (non-fatal): ${err}`);
+    }
+  }
+
+  /**
+   * Bead `3th`: freshness check used at borrow sites. Returns true if the
+   * entry is BOTH owner-alive AND touched recently enough to trust.
+   */
+  private isEntryUsable(entry: RegistryEntry, nowMs: number = Date.now()): boolean {
+    return (
+      this.reg.isPidAlive(entry.ownerPid) &&
+      (nowMs - entry.lastAccessedAt) <= this.REGISTRY_FRESHNESS_TTL_MS
+    );
+  }
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
@@ -126,11 +161,18 @@ class TunnelManager {
     if (!existing) return undefined;
 
     if (!existing.isOwned) {
-      // Verify the owning process is still alive
+      // Verify the owning process is still alive AND the entry is fresh
+      // (lastAccessedAt within REGISTRY_FRESHNESS_TTL_MS — defends against
+      // PID-reuse per bead 3th).
       const entry = this.reg.read()[String(port)];
-      if (!entry || !this.reg.isPidAlive(entry.ownerPid)) {
+      if (!entry || !this.isEntryUsable(entry)) {
         this.activeTunnels.delete(existing.tunnelId);
-        logger.info(`Evicted stale borrowed tunnel ${existing.tunnelId} (owner PID ${entry?.ownerPid} dead)`);
+        const reason = !entry
+          ? 'no registry entry'
+          : !this.reg.isPidAlive(entry.ownerPid)
+            ? `owner PID ${entry.ownerPid} dead`
+            : `entry stale (last accessed ${Math.round((Date.now() - entry.lastAccessedAt) / 1000)}s ago)`;
+        logger.info(`Evicted stale borrowed tunnel ${existing.tunnelId} (${reason})`);
         return undefined;
       }
     }
@@ -307,10 +349,12 @@ class TunnelManager {
       return { url: info.publicUrl, tunnelId: info.tunnelId, isLocalhost: true };
     }
 
-    // 3. Check cross-process registry — another MCP instance may own a tunnel
+    // 3. Check cross-process registry — another MCP instance may own a tunnel.
+    //    Borrow only if the entry is fresh (PID alive AND touched within
+    //    REGISTRY_FRESHNESS_TTL_MS — defends against PID-reuse, bead 3th).
     const registry = this.reg.read();
     const regEntry = registry[String(port)];
-    if (regEntry && this.reg.isPidAlive(regEntry.ownerPid)) {
+    if (regEntry && this.isEntryUsable(regEntry)) {
       logger.info(`Borrowing tunnel from PID ${regEntry.ownerPid} for port ${port}: ${regEntry.publicUrl}`);
       const now = Date.now();
       const borrowed: TunnelInfo = {

@@ -344,6 +344,86 @@ describe('cross-process tunnel sharing', () => {
     expect(result.url).toContain('t1.ngrok.debugg.ai');
   });
 
+  // ── Bead `3th`: PID-reuse vulnerability — freshness check overrides PID liveness ──
+  test('PID-reuse defense: stale entry rejected even when PID is "alive" (bead 3th)', async () => {
+    // Simulate: Process A died, OS reassigned its PID to Process Z (unrelated).
+    // isPidAlive returns true (Z is running), but no one is touching the
+    // registry entry — so it's older than the freshness TTL and we reject.
+    const reg = createInMemoryRegistry(() => true); // PID "alive"
+    const veryOld = Date.now() - (31 * 60 * 1000); // 31 min ago — past 30 min TTL
+    reg.write({
+      '3000': {
+        tunnelId: 'reused-pid-t1',
+        publicUrl: 'https://reused-pid-t1.ngrok.debugg.ai/',
+        tunnelUrl: 'http://reused-pid-t1.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 99999,
+        lastAccessedAt: veryOld,
+      },
+    });
+
+    mockNgrokConnect.mockResolvedValueOnce('http://fresh-t.ngrok.debugg.ai' as any);
+
+    const tm = new TunnelManagerClass(reg);
+    const result = await tm.processUrl('http://localhost:3000', 'auth-b', 'fresh-t');
+
+    // Despite alive PID, stale entry was NOT borrowed — fresh tunnel created
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(result.tunnelId).toBe('fresh-t');
+  });
+
+  test('PID-reuse defense: fresh entry borrowed normally (alive PID + recent access)', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    reg.write({
+      '3000': {
+        tunnelId: 'fresh-t1',
+        publicUrl: 'https://fresh-t1.ngrok.debugg.ai/',
+        tunnelUrl: 'http://fresh-t1.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 99999,
+        lastAccessedAt: Date.now() - 1000, // 1 sec ago — well within freshness
+      },
+    });
+
+    const tm = new TunnelManagerClass(reg);
+    const result = await tm.processUrl('http://localhost:3000', 'auth-b', 'unused');
+
+    // Borrowed — no fresh ngrok.connect needed
+    expect(mockNgrokConnect).not.toHaveBeenCalled();
+    expect(result.tunnelId).toBe('fresh-t1');
+  });
+
+  // ── Bead `mdp`: prune-on-startup ─────────────────────────────────────────
+  test('startup prune: removes dead-PID and stale entries from registry (bead mdp)', () => {
+    let aliveSet = new Set<number>([42]); // only PID 42 is alive
+    const reg = createInMemoryRegistry((pid) => aliveSet.has(pid));
+    const now = Date.now();
+    reg.write({
+      '3000': { // alive PID + fresh — keep
+        tunnelId: 'keep-1', publicUrl: '', tunnelUrl: '', port: 3000,
+        ownerPid: 42, lastAccessedAt: now - 1000,
+      },
+      '4000': { // dead PID — prune
+        tunnelId: 'dead-pid', publicUrl: '', tunnelUrl: '', port: 4000,
+        ownerPid: 99999, lastAccessedAt: now - 1000,
+      },
+      '5000': { // alive PID but stale (61 min) — prune
+        tunnelId: 'stale-1', publicUrl: '', tunnelUrl: '', port: 5000,
+        ownerPid: 42, lastAccessedAt: now - (61 * 60 * 1000),
+      },
+      '6000': { // dead AND stale — prune
+        tunnelId: 'double-bad', publicUrl: '', tunnelUrl: '', port: 6000,
+        ownerPid: 99998, lastAccessedAt: now - (61 * 60 * 1000),
+      },
+    });
+
+    new TunnelManagerClass(reg); // constructor calls reg.prune()
+
+    const after = reg.read();
+    expect(Object.keys(after).sort()).toEqual(['3000']);
+    expect(after['3000'].tunnelId).toBe('keep-1');
+  });
+
   test('Process B creates its own tunnel when Process A is dead', async () => {
     const reg = createInMemoryRegistry(() => false); // all PIDs "dead"
     // Seed a stale registry entry from a "dead" process
