@@ -1043,4 +1043,120 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(body.stepsRemaining).toBe(0);
     });
   });
+
+  // ── Bead kbxy: bounded retry on transient backend errors ─────────────────
+  describe('transient-error retry (bead kbxy)', () => {
+    const TRANSIENT_FINAL = {
+      ...mockFinalExecution,
+      status: 'failed',
+      state: {
+        outcome: 'fail',
+        success: false,
+        stepsTaken: 0,
+        error: 'Invalid JSON: EOF while parsing a value at line 1 column 0',
+      },
+      errorMessage: '',
+    };
+
+    test('transient error on first attempt → retries → succeeds on attempt 2', async () => {
+      setupHappyPath({ isLocalhost: false });
+      // Attempt 1: transient. Attempt 2: success.
+      mockPoll
+        .mockResolvedValueOnce(TRANSIENT_FINAL)
+        .mockResolvedValueOnce(mockFinalExecution);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      // executeWorkflow + pollExecution both called twice — full retry
+      expect(mockExecute.mock.calls.length).toBe(2);
+      expect(mockPoll.mock.calls.length).toBe(2);
+
+      // Final response reflects attempt 2 (success), not attempt 1's transient
+      expect(body.outcome).toBe('pass');
+      expect(body.success).toBe(true);
+      expect(body).not.toHaveProperty('failureCategory');
+    });
+
+    test('non-transient error → NO retry, returns first attempt', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const NON_TRANSIENT = {
+        ...mockFinalExecution,
+        status: 'completed',
+        state: {
+          outcome: 'fail',
+          success: false,
+          stepsTaken: 5,
+          error: 'Assertion failed: heading does not contain "Welcome"',
+        },
+      };
+      mockPoll.mockResolvedValue(NON_TRANSIENT);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      // No retry — only 1 execute + 1 poll
+      expect(mockExecute.mock.calls.length).toBe(1);
+      expect(mockPoll.mock.calls.length).toBe(1);
+
+      // Surfaces as assertion-mismatch, not retried
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('assertion-mismatch');
+    });
+
+    test('persistent transient error → exhausts retries, surfaces failure', async () => {
+      setupHappyPath({ isLocalhost: false });
+      // ALL attempts return transient — should retry once then give up.
+      mockPoll.mockResolvedValue(TRANSIENT_FINAL);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      // Default MAX_RETRIES = 1, so total attempts = 2
+      expect(mockExecute.mock.calls.length).toBe(2);
+      expect(mockPoll.mock.calls.length).toBe(2);
+
+      // Surfaces as agent-error after retry exhaustion
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('agent-error');
+    });
+
+    test('DEBUGGAI_TRANSIENT_RETRIES=0 → retry disabled, surfaces first transient immediately', async () => {
+      const saved = process.env.DEBUGGAI_TRANSIENT_RETRIES;
+      process.env.DEBUGGAI_TRANSIENT_RETRIES = '0';
+      try {
+        setupHappyPath({ isLocalhost: false });
+        mockPoll.mockResolvedValue(TRANSIENT_FINAL);
+
+        await testPageChangesHandler(defaultInput, defaultContext);
+
+        // No retry — only 1 attempt
+        expect(mockExecute.mock.calls.length).toBe(1);
+        expect(mockPoll.mock.calls.length).toBe(1);
+      } finally {
+        if (saved === undefined) delete process.env.DEBUGGAI_TRANSIENT_RETRIES;
+        else process.env.DEBUGGAI_TRANSIENT_RETRIES = saved;
+      }
+    });
+
+    // Backoff sleeps add up (1s + 2s + 3s = 6s for the 4-attempt clamp case),
+    // exceeding Jest's 5s default. Bump per-test timeout to 15s.
+    test('DEBUGGAI_TRANSIENT_RETRIES is clamped to max 3', async () => {
+      const saved = process.env.DEBUGGAI_TRANSIENT_RETRIES;
+      process.env.DEBUGGAI_TRANSIENT_RETRIES = '99';  // request 99, should clamp to 3
+      try {
+        setupHappyPath({ isLocalhost: false });
+        mockPoll.mockResolvedValue(TRANSIENT_FINAL);
+
+        await testPageChangesHandler(defaultInput, defaultContext);
+
+        // 3 retries + 1 initial = 4 total attempts (clamped)
+        expect(mockExecute.mock.calls.length).toBe(4);
+        expect(mockPoll.mock.calls.length).toBe(4);
+      } finally {
+        if (saved === undefined) delete process.env.DEBUGGAI_TRANSIENT_RETRIES;
+        else process.env.DEBUGGAI_TRANSIENT_RETRIES = saved;
+      }
+    }, 15_000);
+  });
 });
