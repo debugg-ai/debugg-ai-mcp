@@ -330,6 +330,12 @@ export interface ProbePageResult {
   networkSummary: NetworkSummaryEntry[];
   html?: string;
   error?: string;
+  // Backend (post-154e1e69) stores screenshots on the SurferPage row.
+  // surferPageUuid lets callers fetch the presigned screenshot_url
+  // (and persistent title / visible_text) via the SurferPage endpoint
+  // without a second probe call. Absent when capture didn't produce
+  // a SurferPage (e.g. navigation error before capture).
+  surferPageUuid?: string;
 }
 
 export interface ProbePageResponse {

@@ -7,9 +7,9 @@
  * (c) MCP-side aggregates per-target HAR slices into NetworkSummary[].
  *
  * The backend "Page Probe" workflow template runs:
- *   browser.setup → loop[targets](page.navigate → page.capture) → done
+ *   browser.setup → loop[targets](browser.navigate → browser.capture) → done
  *
- * Each page.capture node emits per-iteration outputData with consoleSlice
+ * Each browser.capture node emits per-iteration outputData with consoleSlice
  * + harSlice windowed to that URL's load span — that's what makes per-URL
  * networkSummary attribution accurate.
  */
@@ -24,7 +24,6 @@ import {
 import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
-import { imageContentBlock } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
@@ -39,7 +38,7 @@ import {
   TunnelContext,
 } from '../utils/tunnelContext.js';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
-import { summarizeHar, summarizeConsole } from '../utils/harSummarizer.js';
+import { reaggregateByOriginPath, mapConsoleSlice } from '../utils/harSummarizer.js';
 
 const logger = new Logger({ module: 'probePageHandler' });
 
@@ -199,13 +198,35 @@ export async function probePageHandler(
     }
 
     // ── Build contextData (camelCase; axiosTransport snake_cases on the wire) ──
+    // Backend's browser.setup node (shared with App Evaluation + Raw Crawl
+    // templates) requires `target_url` (singular). The Page Probe template
+    // currently uses that node as-is — the per-target loop primitive is
+    // pending. Send BOTH:
+    //   - targetUrl: first target's tunneled URL (satisfies browser.setup
+    //     today; will keep working when the loop wraps it later)
+    //   - targets[]: the full per-URL config for when the loop primitive
+    //     ships and iterates over them
+    const firstTargetUrl = targetContexts[0]?.targetUrl ?? input.targets[0].url;
     const contextData: Record<string, any> = {
+      targetUrl: firstTargetUrl,
       targets: input.targets.map((t, i) => ({
         url: targetContexts[i].targetUrl ?? t.url,
-        waitForSelector: t.waitForSelector,
+        // Send null (not undefined) for optional fields so the field exists
+        // in the target object even when the caller didn't pass one. Backend
+        // placeholder resolver was fixed in commit 154e1e69 to type-preserve
+        // null in single-placeholder substitutions, so null flows through.
+        waitForSelector: t.waitForSelector ?? null,
         waitForLoadState: t.waitForLoadState,
         timeoutMs: t.timeoutMs,
       })),
+      // Backend's browser.capture template binds {{include_dom}} and
+      // {{include_screenshot}} from contextData (verified 2026-04-29).
+      // The MCP-facing schema keeps `includeHtml` / `captureScreenshots`
+      // for caller ergonomics; we just map them to what the template wants.
+      includeDom: input.includeHtml,
+      includeScreenshot: input.captureScreenshots,
+      // Keep the original keys too for any downstream node that reads them
+      // (cheap to send, future-proof against template field-name churn).
       includeHtml: input.includeHtml,
       captureScreenshots: input.captureScreenshots,
     };
@@ -230,7 +251,7 @@ export async function probePageHandler(
       if (!progressCallback) return;
 
       const completedNodes = (exec.nodeExecutions ?? []).filter(
-        n => n.nodeType === 'page.capture' && n.status === 'success',
+        n => n.nodeType === 'browser.capture' && n.status === 'success',
       ).length;
       if (completedNodes !== lastCompleted) {
         lastCompleted = completedNodes;
@@ -245,25 +266,38 @@ export async function probePageHandler(
     // ── Format response ────────────────────────────────────────────────────
     const duration = Date.now() - startTime;
     const captureNodes = (finalExecution.nodeExecutions ?? [])
-      .filter(n => n.nodeType === 'page.capture')
+      .filter(n => n.nodeType === 'browser.capture')
       .sort((a, b) => a.executionOrder - b.executionOrder);
 
     const results: ProbePageResult[] = [];
-    const screenshotBlocks: any[] = [];
 
     for (let i = 0; i < input.targets.length; i++) {
       const target = input.targets[i];
       const node = captureNodes[i];
       const data: any = node?.outputData ?? {};
 
+      // Backend (post-154e1e69) emits browser.capture output_data with:
+      //   captured_url, status_code, title, load_time_ms,
+      //   console_slice (already per-capture, in {text, level, location, timestamp} shape),
+      //   network_summary (already pre-aggregated by FULL URL,
+      //                    in {url, count, methods[], statuses{}, resource_types[]} shape),
+      //   surfer_page_uuid (reference to SurferPage row for screenshot/title/visible_text),
+      //   error
+      // axiosTransport snake→camel'd at the wire, so JS-side these are
+      // capturedUrl / consoleSlice / networkSummary / surferPageUuid / etc.
+      // Re-aggregate networkSummary by origin+pathname so refetch loops
+      // collapse (preserves the original client-feedback contract).
       const result: ProbePageResult = {
         url: target.url, // ORIGINAL caller URL — not the tunneled rewrite
-        finalUrl: typeof data.finalUrl === 'string' ? data.finalUrl : (typeof data.url === 'string' ? data.url : target.url),
+        finalUrl: typeof data.capturedUrl === 'string' ? data.capturedUrl
+                : typeof data.finalUrl === 'string' ? data.finalUrl
+                : typeof data.url === 'string' ? data.url
+                : target.url,
         statusCode: typeof data.statusCode === 'number' ? data.statusCode : 0,
         title: typeof data.title === 'string' ? data.title : null,
         loadTimeMs: typeof data.loadTimeMs === 'number' ? data.loadTimeMs : 0,
-        consoleErrors: summarizeConsole(Array.isArray(data.consoleSlice) ? data.consoleSlice : []),
-        networkSummary: summarizeHar(Array.isArray(data.harSlice) ? data.harSlice : []),
+        consoleErrors: mapConsoleSlice(Array.isArray(data.consoleSlice) ? data.consoleSlice : []),
+        networkSummary: reaggregateByOriginPath(Array.isArray(data.networkSummary) ? data.networkSummary : []),
       };
 
       if (input.includeHtml && typeof data.html === 'string') {
@@ -272,12 +306,18 @@ export async function probePageHandler(
       if (typeof data.error === 'string' && data.error) {
         result.error = data.error;
       }
+      if (typeof data.surferPageUuid === 'string' && data.surferPageUuid) {
+        result.surferPageUuid = data.surferPageUuid;
+      }
 
       results.push(result);
 
-      if (input.captureScreenshots && typeof data.screenshotB64 === 'string' && data.screenshotB64) {
-        screenshotBlocks.push(imageContentBlock(data.screenshotB64, 'image/png'));
-      }
+      // Backend stores screenshots on the SurferPage row referenced by
+      // surfer_page_uuid; the inline screenshotB64 is no longer in capture
+      // output. v1: skip the per-result image content block; the screenshot
+      // is reachable via search_executions detail's surfer_page_uuid → SurferPage.
+      // (Future enhancement: fetch the SurferPage's presigned screenshot_url
+      // when input.captureScreenshots is true.)
     }
 
     const responsePayload: Record<string, any> = {
@@ -308,7 +348,6 @@ export async function probePageHandler(
     return {
       content: [
         { type: 'text', text: JSON.stringify(sanitizedPayload, null, 2) },
-        ...screenshotBlocks,
       ],
     };
   } catch (error) {

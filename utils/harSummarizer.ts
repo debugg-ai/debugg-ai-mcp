@@ -10,6 +10,87 @@
 
 import { NetworkSummaryEntry, ConsoleErrorEntry } from '../types/index.js';
 
+/**
+ * Re-aggregate backend's pre-grouped network_summary entries by
+ * `origin + pathname` (vs backend's full-URL key). Collapses refetch loops:
+ * 5 separate `/api/poll?n=0..4` entries become 1 entry with count: 5.
+ *
+ * Backend `browser.capture` (commit 154e1e69) emits network_summary already
+ * grouped by full URL with shape `{url, count, methods[], statuses{}, resource_types[]}`.
+ * That preserves the per-request granularity but defeats the original
+ * client #1 use case ("endpoint hit N times" refetch detection). MCP-side
+ * re-aggregation runs once over the small pre-grouped list — cheap.
+ */
+export function reaggregateByOriginPath(entries: any[]): NetworkSummaryEntry[] {
+  if (!Array.isArray(entries)) return [];
+  const buckets = new Map<string, NetworkSummaryEntry>();
+
+  for (const e of entries) {
+    try {
+      const url = e?.url;
+      if (typeof url !== 'string') continue;
+      const parsed = new URL(url);
+      const key = `${parsed.origin}${parsed.pathname}`;
+      const count = typeof e.count === 'number' ? e.count : 0;
+      const statuses = e.statuses ?? {};
+
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.count += count;
+        for (const [code, n] of Object.entries(statuses)) {
+          if (typeof n === 'number') {
+            existing.statuses[code] = (existing.statuses[code] ?? 0) + n;
+          }
+        }
+      } else {
+        const out: NetworkSummaryEntry = {
+          url: key,
+          count,
+          statuses: { ...statuses } as Record<string, number>,
+          totalBytes: 0, // Backend's pre-grouped shape doesn't expose response bytes; placeholder until we wire fetched-bytes.
+        };
+        buckets.set(key, out);
+      }
+    } catch {
+      // malformed URL — skip
+    }
+  }
+
+  return [...buckets.values()].sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Map backend's console_slice entry shape to MCP's ConsoleErrorEntry.
+ * Backend shape: {text, level, location: {url, line}, timestamp}
+ * MCP shape:     {level, text, source?, lineNumber?, timestamp?}
+ */
+export function mapConsoleSlice(entries: any[]): ConsoleErrorEntry[] {
+  if (!Array.isArray(entries)) return [];
+  const out: ConsoleErrorEntry[] = [];
+  for (const e of entries) {
+    if (typeof e !== 'object' || e === null) continue;
+    const entry: ConsoleErrorEntry = {
+      level: typeof e.level === 'string' ? e.level : 'log',
+      text: typeof e.text === 'string' ? e.text : '',
+    };
+    const loc = e.location ?? {};
+    if (typeof loc.url === 'string' && loc.url) entry.source = loc.url;
+    else if (typeof e.source === 'string' && e.source) entry.source = e.source;
+    if (typeof loc.line === 'number') entry.lineNumber = loc.line;
+    else if (typeof e.lineNumber === 'number') entry.lineNumber = e.lineNumber;
+    // Backend timestamps are ISO strings; MCP type uses number (ms since epoch).
+    // Coerce when possible; otherwise pass through unchanged.
+    if (typeof e.timestamp === 'number') {
+      entry.timestamp = e.timestamp;
+    } else if (typeof e.timestamp === 'string') {
+      const parsed = Date.parse(e.timestamp);
+      if (!isNaN(parsed)) entry.timestamp = parsed;
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
 interface BucketState {
   url: string;
   count: number;

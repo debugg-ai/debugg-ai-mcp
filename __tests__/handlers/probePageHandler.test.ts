@@ -85,18 +85,20 @@ function setupHappyPath({ isLocalhost = false } = {}) {
     durationMs: 4200,
     nodeExecutions: [
       {
-        nodeType: 'page.capture',
+        nodeType: 'browser.capture',
         executionOrder: 1,
         status: 'success',
         outputData: {
-          url: 'https://example.com',
-          finalUrl: 'https://example.com',
+          // Backend v2 (post-154e1e69) shape: capturedUrl + surferPageUuid;
+          // network_summary pre-aggregated; console_slice in {text, level,
+          // location, timestamp} shape. Screenshot lives on SurferPage row.
+          capturedUrl: 'https://example.com',
           statusCode: 200,
           title: 'Example Domain',
           loadTimeMs: 1240,
           consoleSlice: [],
-          harSlice: [],
-          screenshotB64: 'iVBORw0KGgo=',
+          networkSummary: [],
+          surferPageUuid: 'page-uuid-1',
         },
       },
     ],
@@ -177,14 +179,22 @@ describe('probePageHandler — happy path', () => {
     expect(body.browserSession.harStatus).toBe('queued_for_download');
   });
 
-  test('captureScreenshots: true → image content block per target', async () => {
+  test('result exposes surferPageUuid so callers can fetch the screenshot from the SurferPage row', async () => {
+    // Backend v2 (post-154e1e69): screenshots live on the SurferPage row
+    // referenced by surfer_page_uuid, NOT inline as screenshotB64. The
+    // tool's `captureScreenshots` flag tells the backend to populate the
+    // SurferPage's screenshot_url; callers then GET that URL when they
+    // want the bytes.
     setupHappyPath();
     const result = await probePageHandler(singleInput, defaultContext);
+    const body = JSON.parse(result.content[0].text!);
+    expect(body.results[0].surferPageUuid).toBe('page-uuid-1');
+    // No inline image content block in v1 — caller fetches via SurferPage.
     const images = result.content.filter((b: any) => b.type === 'image');
-    expect(images).toHaveLength(1);
+    expect(images).toHaveLength(0);
   });
 
-  test('captureScreenshots: false → no image content blocks', async () => {
+  test('captureScreenshots: false → still no image content blocks (v1: never inline)', async () => {
     setupHappyPath();
     const result = await probePageHandler(
       { ...singleInput, captureScreenshots: false } as any,
@@ -216,13 +226,14 @@ describe('probePageHandler — batch behavior', () => {
       status: 'completed',
       durationMs: 8000,
       nodeExecutions: targets.map((t, i) => ({
-        nodeType: 'page.capture',
+        nodeType: 'browser.capture',
         executionOrder: i + 1,
         status: 'success',
         outputData: {
-          url: t.url, finalUrl: t.url, statusCode: 200, title: `T${i}`, loadTimeMs: 800,
-          consoleSlice: [], harSlice: [],
-          screenshotB64: 'iVBORw0KGgo=',
+          // v2 shape: capturedUrl + networkSummary (pre-aggregated)
+          capturedUrl: t.url, statusCode: 200, title: `T${i}`, loadTimeMs: 800,
+          consoleSlice: [], networkSummary: [],
+          surferPageUuid: `page-uuid-${i}`,
         },
       })),
       state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
@@ -245,14 +256,14 @@ describe('probePageHandler — batch behavior', () => {
       durationMs: 5000,
       nodeExecutions: [
         {
-          nodeType: 'page.capture', executionOrder: 1, status: 'success',
+          nodeType: 'browser.capture', executionOrder: 1, status: 'success',
           outputData: {
-            url: 'https://example.com/a', finalUrl: 'https://example.com/a',
-            statusCode: 200, title: 'A', loadTimeMs: 800, consoleSlice: [], harSlice: [],
+            capturedUrl: 'https://example.com/a',
+            statusCode: 200, title: 'A', loadTimeMs: 800, consoleSlice: [], networkSummary: [],
           },
         },
         {
-          nodeType: 'page.capture', executionOrder: 2, status: 'failed',
+          nodeType: 'browser.capture', executionOrder: 2, status: 'failed',
           outputData: {
             url: 'https://example.com/b', error: 'navigation timeout exceeded 10000ms',
           },
