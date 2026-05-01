@@ -11,7 +11,9 @@ import { ProjectContext } from '../services/projectContext.js';
 
 const BASE_DESCRIPTION = `Give an AI agent eyes on a live website or app. The agent browses it, interacts with it, and tells you whether a given task or check passed. Works on localhost or any URL. Use for visual QA, flow validation, regression checks, or anything that needs a real browser to verify.
 
-LOCALHOST SUPPORT: Pass any localhost URL (e.g. http://localhost:3000) and it Just Works. A secure tunnel is automatically created so the remote browser can reach your local dev server — no manual ngrok setup, no port forwarding, no config.`;
+LOCALHOST SUPPORT: Pass any localhost URL (e.g. http://localhost:3000) and it Just Works. A secure tunnel is automatically created so the remote browser can reach your local dev server — no manual ngrok setup, no port forwarding, no config.
+
+SCOPE PER CALL: Keep each call to ONE focused check — a single page or a short interaction on a single screen (login, submit a form, verify a heading). For anything spanning multiple pages or long multi-step flows, split into SEPARATE calls — the remote browser agent has a ~25-step internal budget per call, and long single calls risk client-side timeouts. Example: instead of "log in, then go to settings, then update profile, then verify," make three calls: (1) log in & verify dashboard, (2) update settings, (3) verify profile change.`;
 
 /**
  * Build the dynamic tool description including available environments/credentials.

@@ -7,51 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added — eval runner: tag-based filtering + response-structure flow
+### Fixed — MCP now validates local reachability BEFORE hitting the backend (fixes 5-min false-pass regression)
 
-- Runner now accepts `--tag=<name>`, `--skip-tag=<name>`, and `--flow=<a,b,c>` (comma-separated exact names). Every flow declares a `tags: []` array; `--list` prints all flows with tags without running anything.
-- Practical subsets: `--tag=fast` runs 11 non-browser flows in ~40s for iteration; `--tag=browser` runs the 7 heavy flows; `--skip-tag=browser` gives everything except the long runs.
-- New flow `20-response-structure.mjs` explicitly verifies the MCP response contract for `check_app_in_browser`: progress notifications must arrive via `notifications/progress`, be monotonic, and reach `total`; image content blocks (when present) must decode as valid base64 with correct PNG signature and mimeType; `actionTrace` must have monotonically-numbered steps agreeing with `stepsTaken`; `targetUrl` must echo the localhost URL with no tunnel leak.
-- Extended `MCPClient` in the runner with `onNotification(fn)` so flows can observe server→client events.
+- `check_app_in_browser` and `trigger_crawl` now do a pre-flight TCP probe to `127.0.0.1:<port>` before provisioning a backend tunnel key. If the dev server isn't listening, we return a structured `LocalServerUnreachable` error in ~ms instead of letting the browser agent burn its 5-minute step budget on `ERR_NGROK_8012`. Bead `1om`.
+- After the tunnel is established, we do a second `GET /` probe through the tunnel itself and parse the body for `ERR_NGROK_*` markers. If ngrok received traffic but couldn't dial our backend (e.g., the dev server binds to 0.0.0.0/::1 but not 127.0.0.1), we tear down the tunnel, revoke the key, and return `TunnelTrafficBlocked` — again, fast, with a message that points at the actual cause.
+- End-to-end proof: new eval flow `28-localhost-not-listening.mjs` against a guaranteed-free port, asserts response arrives in <10s with `error:'LocalServerUnreachable'`. Measured **9ms** in practice vs. the prior **5-minute false-pass**.
 
-### Added — `create_project` + helper tools (`list_teams`, `list_repos`)
+### Fixed — ngrok now dials IPv4 loopback explicitly (fixes ERR_NGROK_8012 on macOS Next.js)
 
-- `create_project({name, platform, teamUuid, repoUuid})` creates a new DebuggAI project. Requires a GitHub-linked repo UUID and a team UUID.
-- `list_teams` — paginated; optional `q` for server-side name search. Discovers `teamUuid` values for `create_project`.
-- `list_repos` — paginated; returns GitHub-linked repos with `isGithubAuthorized` flag. Discovers `repoUuid` values for `create_project`.
-- Eval flow `19-project-create.mjs` exercises end-to-end: list teams → list repos → create → get → delete → get-returns-NotFound.
+- `ngrok.connect({addr})` now passes `127.0.0.1:<port>` instead of the bare port number for plain-http localhost URLs. Bare port / `localhost` could resolve to IPv6 `[::1]` first on modern macOS, but Next.js / Vite / most Node dev servers bind to `127.0.0.1` only. Result was a successful tunnel that dialed `[::1]:<port>` and got `connection refused`, surfacing to users as `ERR_NGROK_8012` inside the browser agent trace. Bead `fhg`. Evidenced by real incident log 2026-04-24T19:37Z.
+- Docker (`DOCKER_CONTAINER=true`) and https-localhost paths unchanged.
 
-### Added — mid-flight `cancel_execution` eval coverage
+### Fixed — concurrent callers joining a pending tunnel revoke their redundant key
 
-- Flow `17-executions-history.mjs` gained a new step that fires `check_app_in_browser` in the background, polls `list_executions` until the new execution is visible (up to 45s), cancels it, and verifies the foregrounded response reflects `status: cancelled`. Previously only the 409-AlreadyCompleted and 404-NotFound error paths were tested.
+- When caller B's request for a localhost URL arrives while caller A's tunnel for the same port is still provisioning, B used to silently join A's promise and throw away B's own minted ngrok key (and its `revokeKey` callback) — an orphan-key-on-backend leak. B now revokes its redundant key immediately on join. Bead `7qh` finding 2.
 
-### Changed — pagination is now mandatory on every `list_*` tool
+### Added — tunnel fault-injection + trace harness for diagnosis
 
-- `list_projects`, `list_environments`, `list_credentials`, `list_executions` now accept optional `page` (1-indexed) and `pageSize` (default 20, max 200, oversized clamped).
-- Response shape unified: `{ filter, pageInfo: {page, pageSize, totalCount, totalPages, hasMore}, <items> }`. The bare `count` field is gone — use `pageInfo.totalCount`.
-- Removes silent first-page truncation. Previously accounts with more than ~10 of anything lost visibility into the rest.
-- Eval flow `18-pagination.mjs` verifies default shape, page-walk disjointness, and pageSize clamping for every list tool.
-- Reopened bead `hpo`: backend `?role=` filter on credentials list returns all creds regardless of filter value. MCP now applies client-side role filtering as defense.
+- New `DEBUGG_TUNNEL_FAULT_MODE` env var (dev/test only — inert when `NODE_ENV=production`) lets developers force specific ngrok-side failures without mocking, to reproduce client-reported transient "Tunnel setup failed" incidents. Modes: `fail-connect-N:<count>`, `empty-url-N:<count>`, `delay-connect:<ms>`, combinable with commas. Bead `42g`.
+- Structured `TunnelTrace` captures timestamped lifecycle events per tunnel-create call (start, each connect attempt, fault inject, agent reset, backoff, success/fail). Dumped to WARN logs on any tunnel creation failure so real-world flakes get a post-mortem trail instead of an opaque error message.
+
+### Fixed — tunnel provisioning flakiness surfaces as user-facing errors
+
+- `check_app_in_browser` / `trigger_crawl` now automatically retry transient tunnel-provision failures (5xx, 408, 429, network errors like ECONNRESET) with exponential backoff (500ms → 1500ms → 3000ms, 3 attempts). Previously a single ngrok/backend blip forced the caller to manually retry the tool call. Bead `7nx`.
+- **ngrok.connect() retry widened from 2 to 3 attempts** with 500ms / 1500ms backoff. A client still hit "Tunnel setup failed" after `7nx` shipped — the failure was in the ngrok-listener-bringup path, not the backend-provision path. Auth errors still fail fast. Bead `ixh`.
+- Tunnel-provision error messages now carry structured diagnostic context — HTTP status, ngrok error code, backend `x-request-id`, retryable flag — so users have something actionable to file bug reports against instead of opaque "Tunnel setup failed". Bead `5wz`.
+- 4xx auth/quota errors (401/403/404) fail fast without retry to avoid loops against a bad API key.
+- New posthog telemetry event `tunnel.provision_retry` fires per retry attempt with outcome, status, stage (`ngrok_connect` vs backend-provision), and diagnostic fields so flaky rates become measurable.
+
+## [2.0.0] - 2026-04-23
+
+> **Republish note:** Versions `1.0.64`, `1.0.65`, and `1.0.66` shipped with this
+> same breaking surface but were incorrectly versioned as patches (CI auto-bumped
+> patch regardless of commit type). All three are now deprecated on npm; consumers
+> should upgrade to `^2.0.0`. The underlying code in `2.0.0` is functionally
+> identical to `1.0.66`.
+
+This is a **breaking release**. The MCP surface collapsed from 22 tools to 11 through a uniform `search_*` pattern plus credential-management consolidation into the environment tools. The full old→new mapping is below.
+
+### ⚠️ BREAKING CHANGES — 14 tools removed, replaced by 11-tool surface
+
+| Removed tool | Replacement |
+|---|---|
+| `list_projects` | `search_projects({q?, page?, pageSize?})` (filter mode) |
+| `get_project` | `search_projects({uuid})` (uuid mode — returns the curated detail shape) |
+| `list_environments` | `search_environments({projectUuid?, q?, page?, pageSize?})` — credentials inlined per env |
+| `get_environment` | `search_environments({uuid, projectUuid})` |
+| `list_credentials` | `search_environments(...)` — credentials are inlined on each returned env (never include password) |
+| `get_credential` | `search_environments({uuid, projectUuid})` — pull from the env's `credentials[]` |
+| `create_credential` | `create_environment({name, url, credentials: [...]})` (seed on env create), or `update_environment({uuid, addCredentials: [...]})` |
+| `update_credential` | `update_environment({uuid, updateCredentials: [{uuid, ...patch}]})` |
+| `delete_credential` | `update_environment({uuid, removeCredentialIds: [uuid]})` |
+| `list_teams` | `create_project({teamName, ...})` — backend name-resolved with exact-match + ambiguity handling |
+| `list_repos` | `create_project({repoName, ...})` — same pattern |
+| `list_executions` | `search_executions({status?, projectUuid?, page?, pageSize?})` |
+| `get_execution` | `search_executions({uuid})` — full detail with `nodeExecutions` + state |
+| `cancel_execution` | Dropped — backend spin-down is now automatic; no client action needed |
+
+All `search_*` tools use a dual-mode signature: pass `{uuid}` for a single-record detail response, or pass filter params for a paginated summary list. 404 from the backend surfaces as `isError: true` with `{error: 'NotFound', message, uuid}`.
+
+Credential mutations on `update_environment` execute as `remove → update → add` in a single call, so a freed label can be re-bound in one request. Per-cred failures surface in `credentialWarnings[]` without blocking the env update.
 
 ### Added
 
-- **Eval harness** (`scripts/evals/`): real-server/real-backend test runner with per-flow artifact capture. 16 flows cover MCP protocol, input validation, browser automation on public + localhost URLs, full CRUD lifecycles for environments/credentials/projects, execution history, multi-step credential resolution, concurrent calls, raw-credential auth, and cross-process tunnel isolation. Exposed via `npm run test:e2e`.
-- **Project management tools**: `list_projects`, `get_project`, `update_project`, `delete_project`. (`create_project` deferred — backend requires `platform + repo + team` linkage.)
-- **Environment management tools**: `list_environments`, `create_environment`, `get_environment`, `update_environment`, `delete_environment`.
-- **Credential management tools**: `list_credentials`, `create_credential`, `get_credential`, `update_credential` (with password rotation), `delete_credential`. `password` is write-only across all paths; defensive stripper on update responses.
-- **Execution history tools**: `list_executions` (with `status` + `limit` filters), `get_execution` (full node-level detail), `cancel_execution` (maps backend 409 → `AlreadyCompleted`).
-- **Response sanitization**: `check_app_in_browser` now sanitizes the full response payload end-to-end — ngrok tunnel URLs no longer leak into agent-authored `actionTrace[*].intent` fields.
-- **Verification protocol** in `CLAUDE.md`: mandates running `npm run test:e2e` instead of ad-hoc MCP calls to validate behavior.
+- **`trigger_crawl` tool**: server-side browser-agent crawl to populate the project's knowledge graph. Returns `{executionId, status, targetUrl, durationMs, outcome?, crawlSummary?, knowledgeGraph?}` with `knowledgeGraph.imported` = true on successful KG ingestion. Supports localhost via automatic ngrok tunneling with per-process reuse.
+- **`create_project` name-based resolution**: pass `teamName` instead of `teamUuid`, or `repoName` instead of `repoUuid`. Backend-side search with case-insensitive exact match. Returns `AmbiguousMatch` with candidates if multiple hits, `NotFound` if none.
+- **`create_environment` credential seeding**: pass `credentials: [{label, username, password, role?}]` to create creds atomically with the env.
+- **`update_environment` credential sub-actions**: `addCredentials[]`, `updateCredentials[]`, `removeCredentialIds[]` in one call.
+- **`engines.node: ">=20.20.0"`** in `package.json`. Driven by `posthog-node@^5.26.0` requiring Node 20.20+.
+- **Boot-smoke CI** (`.github/workflows/boot-smoke.yml`): matrix `{ubuntu, macos} × {Node 20, 22}` verifies the MCP server boots + completes `tools/list` with published-style spawn.
+- **Eval runner tag filtering**: `--tag=<name>`, `--skip-tag=<name>`, `--flow=<csv>`; `--list` prints flows + tags. `--tag=fast` runs 12 non-browser flows in ~40s; `--tag=browser` runs heavy flows.
+- **27 eval flows total** (up from 16 in prior unreleased work). New flows since the last published version: response-structure (20), tunnel reuse (21), long-running check (22), crawl triggers public + localhost + with-project (23/24/26), published-boot-smoke (25), localhost deep-path (27).
+- **Response sanitization**: `check_app_in_browser` strips ngrok tunnel URLs from the full response including agent-authored `actionTrace[*].intent`.
 
 ### Changed
 
-- **Boot-time behavior**: removed the background `resolveProjectContext()` call from `index.ts`. The server no longer makes any API calls at startup; project context resolves lazily on the first tool call that needs it.
-- **`services/projectContext.ts`**: replaced the failure-caching singleton with a promise-dedup pattern. Concurrent callers share one in-flight promise; results are cached only on success, so transient network errors don't permanently disable context resolution.
-- **Axios error handling**: all handlers map `err.statusCode` (surfaced by the transport's response interceptor) to tool-level `NotFound` errors. Previously they checked only `err.response?.status` which the interceptor strips.
+- **Deferred API-key validation**: missing `DEBUGGAI_API_KEY` no longer crashes the subprocess at boot (the bug that surfaced in Claude Code as "Failed to reconnect to debugg-ai"). The server starts, `tools/list` succeeds, and the error surfaces only when a tool is actually invoked — as a structured `isError: true` response pointing the caller at the missing env var.
+- **Boot-time behavior**: `index.ts` no longer calls `resolveProjectContext()` at startup. Project context resolves lazily on first tool call that needs it.
+- **`services/projectContext.ts`**: promise-dedup pattern replaces the failure-caching singleton. Concurrent callers share one in-flight promise; results cached on success only, so transient network errors don't permanently disable context resolution.
+- **Pagination mandatory on every list response**: `search_projects` / `search_environments` / `search_executions` accept optional `page` (1-indexed) and `pageSize` (default 20, max 200, oversized clamped). Response shape: `{filter, pageInfo: {page, pageSize, totalCount, totalPages, hasMore}, <items>}`.
+- **Axios error handling**: handlers map `err.statusCode` (surfaced by the transport's response interceptor) to tool-level `NotFound` errors instead of checking `err.response?.status` which the interceptor strips.
+
+### Fixed
+
+- **Progress-notification race** (bead `0bq`) in both `testPageChangesHandler` and `triggerCrawlHandler`: a progress callback firing after the handler resolved could tear down the stdio transport. Circuit breaker suppresses subsequent callbacks after the first throw; terminal-status detection emits the final `progress === total` notification inside `onUpdate` before the poll loop exits.
+- **"Failed to reconnect to debugg-ai" UX** (bead `cma`): missing API key now surfaces as a per-tool-call error instead of a silent subprocess exit at boot. MCP clients see the server register normally and get a readable error only when a tool is actually invoked.
+- **Credential role filter** (bead `hpo`): backend `?role=` filter on credentials list was returning all creds regardless. MCP now applies client-side role filtering as defense-in-depth.
+
+### Security invariants
+
+- Passwords are write-only. No response body from any tool contains a password (verified by unit tests + eval flows 06/10/12/15).
+- Tunnel URLs (`*.ngrok.debugg.ai`) are stripped from all `check_app_in_browser` responses including agent-authored text (verified by flow 05).
+- 404s from the backend surface as `isError: true` with structured `{error: 'NotFound', ...}`, never as thrown exceptions.
 
 ### Tool count
 
-The server now registers **18** tools (was 1). Verify via eval flow `01-protocol.mjs`.
+The server registers **11** tools (was 22 pre-collapse, 18 in the previous unreleased snapshot). Verified by eval flow `01-protocol.mjs` which locks the roster.
 
 ## [1.0.15] - 2025-08-18
 

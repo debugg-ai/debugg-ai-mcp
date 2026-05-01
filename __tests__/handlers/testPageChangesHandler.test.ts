@@ -396,7 +396,7 @@ const mockTouchTunnelById = jest.fn<(id: string) => void>();
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
     init: mockInit,
-    tunnels: { provision: mockProvision },
+    tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
     workflows: {
       findEvaluationTemplate: mockFindTemplate,
       executeWorkflow: mockExecute,
@@ -418,6 +418,26 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
 jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
   fetchImageAsBase64: jest.fn().mockResolvedValue(null),
   imageContentBlock: jest.fn(),
+}));
+
+// Bead 1om: probes run against the real network by default — mock to always
+// return healthy so existing handler-flow tests (which use localhost:3000 with
+// nothing listening) still exercise the provision/execute path they're about.
+// Dedicated bead-1om tests override these mocks to exercise the failure paths.
+const mockProbeLocalPort = jest.fn<(...args: any[]) => Promise<any>>()
+  .mockResolvedValue({ reachable: true, elapsedMs: 1 });
+const mockProbeTunnelHealth = jest.fn<(...args: any[]) => Promise<any>>()
+  .mockResolvedValue({ healthy: true, status: 200, elapsedMs: 1 });
+jest.unstable_mockModule('../../utils/localReachability.js', () => ({
+  probeLocalPort: mockProbeLocalPort,
+  probeTunnelHealth: mockProbeTunnelHealth,
+}));
+
+// tunnelManager.stopTunnel is called on bead-1om health-probe failure.
+jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+  tunnelManager: {
+    stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(),
+  },
 }));
 
 // ── Dynamic import (picks up the mocks) ────────────────────────────────────
@@ -685,6 +705,82 @@ describe('testPageChangesHandler — full handler flow', () => {
     expect(contextData.targetUrl).toBe('https://existing-tid.ngrok.debugg.ai/');
   });
 
+  // ── Bead 1om: pre-flight local port + post-tunnel health checks ───────────
+  describe('bead 1om: pre-flight + health validation', () => {
+    test('pre-flight probe says port is NOT listening → returns LocalServerUnreachable; no provision/execute calls', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeLocalPort.mockResolvedValueOnce({
+        reachable: false,
+        code: 'ECONNREFUSED',
+        detail: 'connect ECONNREFUSED 127.0.0.1:3000',
+        elapsedMs: 3,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('LocalServerUnreachable');
+      expect(body.message).toContain('127.0.0.1:3000');
+      expect(body.message).toContain('ECONNREFUSED');
+      expect(body.detail.port).toBe(3000);
+
+      // Critical: no downstream work happened
+      expect(mockProvision).not.toHaveBeenCalled();
+      expect(mockEnsureTunnel).not.toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('pre-flight probe succeeds but tunnel health check fails → TunnelTrafficBlocked; no execute call', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeTunnelHealth.mockResolvedValueOnce({
+        healthy: false,
+        status: 502,
+        code: 'NGROK_ERROR',
+        ngrokErrorCode: 'ERR_NGROK_8012',
+        detail: 'ngrok returned ERR_NGROK_8012',
+        elapsedMs: 120,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('TunnelTrafficBlocked');
+      expect(body.message).toContain('traffic isn\'t reaching');
+      expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
+
+      // Provision + ensureTunnel ran (got us to the health check), but execute didn't
+      expect(mockProvision).toHaveBeenCalled();
+      expect(mockEnsureTunnel).toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('public URL path: probes NOT called (skip localhost-only checks)', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(mockProbeLocalPort).not.toHaveBeenCalled();
+      expect(mockProbeTunnelHealth).not.toHaveBeenCalled();
+    });
+
+    test('reused tunnel path: pre-flight still runs (catches a dev server that died since last use)', async () => {
+      setupHappyPath({ isLocalhost: true, reuseExisting: true });
+      mockProbeLocalPort.mockResolvedValueOnce({
+        reachable: false, code: 'ECONNREFUSED', elapsedMs: 1,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('LocalServerUnreachable');
+      // Reused path still bails out before execute
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
   // Test 7: pollExecution returns failed outcome
   test('pollExecution returns failed: result includes failure details', async () => {
     setupHappyPath({ isLocalhost: false });
@@ -735,5 +831,332 @@ describe('testPageChangesHandler — full handler flow', () => {
     // Second call — template NOT fetched again
     await testPageChangesHandler(defaultInput, defaultContext);
     expect(mockFindTemplate).not.toHaveBeenCalled();
+  });
+
+  // ── Bead 0bq: progress-notification race safety ──────────────────────────
+  //
+  // Stale progress notifications (for progressTokens the client has already
+  // forgotten) cause Claude Code's MCP SDK to reject them as protocol errors
+  // and tear down the stdio transport — killing ALL subsequent tool calls
+  // in the session, not just the one that hit the race.
+  //
+  // Invariants we enforce here:
+  //   1. No progressCallback call happens AFTER pollExecution returns — the
+  //      final "Complete:" progress must be emitted INSIDE pollExecution's
+  //      onUpdate (when terminal status is detected), so there's no
+  //      post-resolve emission that could race the response.
+  //   2. Circuit breaker: if progressCallback throws once, the handler stops
+  //      emitting further progress for this request.
+  //   3. A progressCallback throw never propagates up and aborts the handler.
+
+  describe('bead 0bq: progress-race safety', () => {
+    test('no progressCallback call happens AFTER pollExecution resolves', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressCallback = jest.fn<() => Promise<void>>().mockResolvedValue();
+      let pollResolvedAt: number | null = null;
+      let lastProgressAt: number | null = null;
+
+      progressCallback.mockImplementation(async () => {
+        lastProgressAt = Date.now();
+      });
+      mockPoll.mockImplementation(async (_uuid, onUpdate) => {
+        // Simulate one in-progress update + one terminal update
+        if (onUpdate) {
+          await onUpdate({
+            uuid: 'e', status: 'running', nodeExecutions: [],
+            state: { outcome: '', success: false, stepsTaken: 1, error: '' },
+          } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        pollResolvedAt = Date.now();
+        await new Promise(r => setTimeout(r, 5));
+        return COMPLETED_EXECUTION;
+      });
+
+      await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+
+      expect(progressCallback).toHaveBeenCalled();
+      expect(pollResolvedAt).not.toBeNull();
+      expect(lastProgressAt).not.toBeNull();
+      expect(lastProgressAt! <= pollResolvedAt!).toBe(true);
+    });
+
+    test('final progress reaches total inside onUpdate (UX invariant preserved)', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressEvents: Array<{ progress: number; total: number; message?: string }> = [];
+      const progressCallback = jest.fn<(u: any) => Promise<void>>().mockImplementation(async (u) => {
+        progressEvents.push(u);
+      });
+      mockPoll.mockImplementation(async (_uuid, onUpdate) => {
+        if (onUpdate) {
+          await onUpdate({ uuid: 'e', status: 'running', nodeExecutions: [], state: { outcome: '', success: false, stepsTaken: 1, error: '' } } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        return COMPLETED_EXECUTION;
+      });
+
+      await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+
+      const last = progressEvents[progressEvents.length - 1];
+      expect(last.progress).toBe(last.total);
+      expect(last.message).toMatch(/Complete|pass|fail/i);
+    });
+
+    test('circuit breaker: progressCallback throws once → subsequent calls suppressed', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      let callCount = 0;
+      const progressCallback = jest.fn<() => Promise<void>>().mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) throw new Error('client rejected progressToken');
+      });
+
+      mockPoll.mockImplementation(async (_uuid, onUpdate) => {
+        if (onUpdate) {
+          // Fire three onUpdate pulses — all would normally emit progress.
+          await onUpdate({ uuid: 'e', status: 'running', nodeExecutions: [], state: { stepsTaken: 1 } } as any);
+          await onUpdate({ uuid: 'e', status: 'running', nodeExecutions: [], state: { stepsTaken: 2 } } as any);
+          await onUpdate(COMPLETED_EXECUTION as any);
+        }
+        return COMPLETED_EXECUTION;
+      });
+
+      // Must not throw even though progressCallback threw mid-flow.
+      const result = await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+      expect(result.content).toBeDefined();
+
+      // After the first throw at callCount=1 (e.g. the Provisioning/Locating/Queuing
+      // pre-poll emissions), the breaker trips and no further calls happen.
+      // We expect exactly 1 progressCallback invocation.
+      expect(progressCallback).toHaveBeenCalledTimes(1);
+    });
+
+    test('progressCallback throw never aborts the handler — tool response still returned', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      const progressCallback = jest.fn<() => Promise<void>>().mockRejectedValue(
+        new Error('transport closed mid-progress'),
+      );
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext, progressCallback);
+
+      // Handler must complete cleanly despite every progressCallback throwing.
+      expect(result.content).toBeDefined();
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.outcome).toBeDefined();
+      expect(body.executionId).toBe('exec-uuid-1');
+    });
+  });
+
+  // ── Bead jqmj: failureCategory disambiguates 'fail' meanings ──────────────
+  // ── Bead qmdd: stepsRemaining + stepsBudget on every response ─────────────
+  describe('failureCategory + stepsBudget / stepsRemaining (beads jqmj + qmdd)', () => {
+    test('success: failureCategory OMITTED; stepsBudget=25, stepsRemaining matches', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.success).toBe(true);
+      expect(body).not.toHaveProperty('failureCategory');
+      expect(body.stepsBudget).toBe(25);
+      // mockFinalExecution has stepsTaken: 3, so 25 - 3 = 22
+      expect(body.stepsRemaining).toBe(22);
+    });
+
+    test('non-success with state.error set → failureCategory: "agent-error"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        status: 'failed',
+        state: {
+          outcome: 'fail',
+          success: false,
+          stepsTaken: 5,
+          error: 'Pydantic JSON parse error: EOF while parsing a value',
+        },
+        errorMessage: '',
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('agent-error');
+      expect(body.stepsRemaining).toBe(20);  // 25 - 5
+    });
+
+    test('non-success with errorMessage set → failureCategory: "agent-error"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        status: 'failed',
+        state: { outcome: 'fail', success: false, stepsTaken: 0, error: '' },
+        errorMessage: 'transport-level: connection reset by peer',
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.failureCategory).toBe('agent-error');
+    });
+
+    test('non-success with NO infra error → failureCategory: "assertion-mismatch"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        status: 'completed',  // workflow ran to completion
+        state: {
+          outcome: 'fail',
+          success: false,
+          stepsTaken: 7,
+          error: '',
+        },
+        errorMessage: '',
+        errorInfo: null,
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('assertion-mismatch');
+      expect(body.stepsRemaining).toBe(18);  // 25 - 7
+    });
+
+    test('stepsRemaining clamps to 0 when agent ran past budget', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        state: {
+          outcome: 'pass',
+          success: true,
+          stepsTaken: 30, // past the 25 budget — clamp to 0, don't go negative
+          error: '',
+        },
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.stepsTaken).toBe(30);
+      expect(body.stepsRemaining).toBe(0);
+    });
+  });
+
+  // ── Bead kbxy: bounded retry on transient backend errors ─────────────────
+  describe('transient-error retry (bead kbxy)', () => {
+    const TRANSIENT_FINAL = {
+      ...mockFinalExecution,
+      status: 'failed',
+      state: {
+        outcome: 'fail',
+        success: false,
+        stepsTaken: 0,
+        error: 'Invalid JSON: EOF while parsing a value at line 1 column 0',
+      },
+      errorMessage: '',
+    };
+
+    test('transient error on first attempt → retries → succeeds on attempt 2', async () => {
+      setupHappyPath({ isLocalhost: false });
+      // Attempt 1: transient. Attempt 2: success.
+      mockPoll
+        .mockResolvedValueOnce(TRANSIENT_FINAL)
+        .mockResolvedValueOnce(mockFinalExecution);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      // executeWorkflow + pollExecution both called twice — full retry
+      expect(mockExecute.mock.calls.length).toBe(2);
+      expect(mockPoll.mock.calls.length).toBe(2);
+
+      // Final response reflects attempt 2 (success), not attempt 1's transient
+      expect(body.outcome).toBe('pass');
+      expect(body.success).toBe(true);
+      expect(body).not.toHaveProperty('failureCategory');
+    });
+
+    test('non-transient error → NO retry, returns first attempt', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const NON_TRANSIENT = {
+        ...mockFinalExecution,
+        status: 'completed',
+        state: {
+          outcome: 'fail',
+          success: false,
+          stepsTaken: 5,
+          error: 'Assertion failed: heading does not contain "Welcome"',
+        },
+      };
+      mockPoll.mockResolvedValue(NON_TRANSIENT);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      // No retry — only 1 execute + 1 poll
+      expect(mockExecute.mock.calls.length).toBe(1);
+      expect(mockPoll.mock.calls.length).toBe(1);
+
+      // Surfaces as assertion-mismatch, not retried
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('assertion-mismatch');
+    });
+
+    test('persistent transient error → exhausts retries, surfaces failure', async () => {
+      setupHappyPath({ isLocalhost: false });
+      // ALL attempts return transient — should retry once then give up.
+      mockPoll.mockResolvedValue(TRANSIENT_FINAL);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      // Default MAX_RETRIES = 1, so total attempts = 2
+      expect(mockExecute.mock.calls.length).toBe(2);
+      expect(mockPoll.mock.calls.length).toBe(2);
+
+      // Surfaces as agent-error after retry exhaustion
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('agent-error');
+    });
+
+    test('DEBUGGAI_TRANSIENT_RETRIES=0 → retry disabled, surfaces first transient immediately', async () => {
+      const saved = process.env.DEBUGGAI_TRANSIENT_RETRIES;
+      process.env.DEBUGGAI_TRANSIENT_RETRIES = '0';
+      try {
+        setupHappyPath({ isLocalhost: false });
+        mockPoll.mockResolvedValue(TRANSIENT_FINAL);
+
+        await testPageChangesHandler(defaultInput, defaultContext);
+
+        // No retry — only 1 attempt
+        expect(mockExecute.mock.calls.length).toBe(1);
+        expect(mockPoll.mock.calls.length).toBe(1);
+      } finally {
+        if (saved === undefined) delete process.env.DEBUGGAI_TRANSIENT_RETRIES;
+        else process.env.DEBUGGAI_TRANSIENT_RETRIES = saved;
+      }
+    });
+
+    // Backoff sleeps add up (1s + 2s + 3s = 6s for the 4-attempt clamp case),
+    // exceeding Jest's 5s default. Bump per-test timeout to 15s.
+    test('DEBUGGAI_TRANSIENT_RETRIES is clamped to max 3', async () => {
+      const saved = process.env.DEBUGGAI_TRANSIENT_RETRIES;
+      process.env.DEBUGGAI_TRANSIENT_RETRIES = '99';  // request 99, should clamp to 3
+      try {
+        setupHappyPath({ isLocalhost: false });
+        mockPoll.mockResolvedValue(TRANSIENT_FINAL);
+
+        await testPageChangesHandler(defaultInput, defaultContext);
+
+        // 3 retries + 1 initial = 4 total attempts (clamped)
+        expect(mockExecute.mock.calls.length).toBe(4);
+        expect(mockPoll.mock.calls.length).toBe(4);
+      } finally {
+        if (saved === undefined) delete process.env.DEBUGGAI_TRANSIENT_RETRIES;
+        else process.env.DEBUGGAI_TRANSIENT_RETRIES = saved;
+      }
+    }, 15_000);
   });
 });

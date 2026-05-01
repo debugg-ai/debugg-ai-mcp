@@ -111,23 +111,22 @@ export const flow = {
         }
       });
 
-      await step('image content blocks — strict validation when present (bead 99c: backend not emitting)', async () => {
+      await step('response includes at least one image content block with valid image data', async () => {
         const blocks = response.content ?? [];
         const images = blocks.filter(b => b.type === 'image');
-        if (images.length === 0) {
-          console.log(`  \x1b[33mWARN\x1b[0m no image blocks in response — tracked under bead 99c (backend subworkflow.run not emitting screenshotB64). When the backend fix lands, this step auto-upgrades to strict validation.`);
-          return;
-        }
+        assert(
+          images.length >= 1,
+          `expected at least one image block; got ${images.length}. ` +
+          `Response content types: ${blocks.map(b => b.type).join(', ')}`,
+        );
         for (const img of images) {
           assert(typeof img.data === 'string' && img.data.length > 100, 'image.data empty or too small');
           assert(
             img.mimeType === 'image/png' || img.mimeType === 'image/gif' || img.mimeType === 'image/jpeg',
-            `unexpected mimeType: ${img.mimeType}`
+            `unexpected mimeType: ${img.mimeType}`,
           );
-          // Decode base64 — throws on invalid
           const decoded = Buffer.from(img.data, 'base64');
           assert(decoded.length > 500, `decoded image suspiciously small: ${decoded.length} bytes`);
-          // Validate PNG magic bytes if mime says PNG
           if (img.mimeType === 'image/png') {
             const sig = decoded.slice(0, 8);
             const pngSig = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
@@ -166,6 +165,26 @@ export const flow = {
         const body = JSON.parse(textBlock.text);
         assert(body.targetUrl === localUrl, `targetUrl mismatch: expected ${localUrl}, got ${body.targetUrl}`);
         assert(!textBlock.text.includes('ngrok.debugg.ai'), 'response leaks internal tunnel URL');
+      });
+
+      await step('response body carries browserSession with HAR/console URL + status keys (releases 2026-04-25 + 2026-04-26)', async () => {
+        const textBlock = response.content?.find(b => b.type === 'text');
+        const body = JSON.parse(textBlock.text);
+        assert('browserSession' in body, 'browserSession key missing on check_app_in_browser response');
+        const bs = body.browserSession;
+        assert(bs && typeof bs === 'object', `browserSession should be a non-null object on a successful run, got ${typeof bs} (${JSON.stringify(bs)?.slice(0, 80)})`);
+        // URL keys (release 2026-04-25)
+        for (const key of ['harUrl', 'consoleLogUrl', 'recordingUrl']) {
+          assert(key in bs, `browserSession.${key} key missing — backend release 2026-04-25 regressed. Got keys: [${Object.keys(bs).join(', ')}]`);
+          const v = bs[key];
+          assert(v === null || (typeof v === 'string' && v.length > 0), `browserSession.${key} should be string|null, got ${typeof v}`);
+        }
+        // Status keys (release 2026-04-26 — bead 3yw6)
+        for (const key of ['harStatus', 'consoleLogStatus', 'harRedactionStatus', 'consoleLogRedactionStatus']) {
+          assert(key in bs, `browserSession.${key} key missing — backend release 2026-04-26 (per-artifact status) regressed. Got keys: [${Object.keys(bs).join(', ')}]`);
+          const v = bs[key];
+          assert(v === null || typeof v === 'string', `browserSession.${key} should be string|null, got ${typeof v}`);
+        }
       });
     } finally {
       off();

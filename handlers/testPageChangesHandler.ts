@@ -15,6 +15,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
+import { TunnelProvisionError } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
   buildContext,
@@ -25,12 +26,32 @@ import {
 } from '../utils/tunnelContext.js';
 import { detectRepoName } from '../utils/gitContext.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
+import { extractLocalhostPort } from '../utils/urlParser.js';
+import {
+  getCachedTemplateUuid,
+  getCachedProjectUuid,
+  invalidateTemplateCache,
+  invalidateProjectCache,
+} from '../utils/handlerCaches.js';
+import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
+import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
-// Cache the template UUID and project UUIDs within a server session to avoid re-fetching
-let cachedTemplateUuid: string | null = null;
-const projectUuidCache = new Map<string, string>();
+const TEMPLATE_NAME = 'app evaluation';
+
+// Bead kbxy: bounded retry on known transient backend signatures (Pydantic
+// JSON parse errors, 502s, ECONNRESETs). Default 1 retry; env-overridable
+// up to 3 to balance reliability vs quota cost. Conservative: only retries
+// on documented transient patterns (utils/transientErrors.ts).
+function getMaxTransientRetries(): number {
+  const raw = process.env.DEBUGGAI_TRANSIENT_RETRIES;
+  if (raw === undefined || raw === '') return 1;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 1;
+  return Math.min(n, 3);
+}
 
 // Concurrency control — max 2 simultaneous browser checks.
 // Additional requests queue and run when a slot opens.
@@ -65,10 +86,30 @@ export async function testPageChangesHandler(
 async function testPageChangesHandlerInner(
   input: TestPageChangesInput,
   context: ToolContext,
-  progressCallback?: ProgressCallback
+  rawProgressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
   logger.toolStart('check_app_in_browser', input);
+
+  // Bead 0bq: wrap the progress callback in a circuit-breaker so a single
+  // client-side rejection of a stale progressToken (which would normally
+  // throw up the stack and abort the handler, or — worse — arrive post-response
+  // and tear down the stdio transport) is swallowed and disables further
+  // emissions in this request.
+  let progressDisabled = false;
+  const progressCallback: ProgressCallback | undefined = rawProgressCallback
+    ? async (update) => {
+        if (progressDisabled) return;
+        try {
+          await rawProgressCallback(update);
+        } catch (err) {
+          progressDisabled = true;
+          logger.warn('Progress emission failed; disabling further emissions for this request', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    : undefined;
 
   const client = new DebuggAIServerClient(config.api.key);
   await client.init();
@@ -78,7 +119,10 @@ async function testPageChangesHandlerInner(
   let keyId: string | undefined;
 
   const abortController = new AbortController();
-  const onStdinClose = () => abortController.abort();
+  const onStdinClose = () => {
+    abortController.abort();
+    progressDisabled = true; // client is gone — stop emitting
+  };
   process.stdin.once('close', onStdinClose);
 
   // Progress budget: 3 setup steps + 25 execution steps = 28 total
@@ -89,6 +133,29 @@ async function testPageChangesHandlerInner(
   try {
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
+      // Bead 1om: pre-flight local port probe BEFORE committing to backend
+      // provision + ngrok session. If the user's dev server isn't listening,
+      // fail in ~1.5s with a structured error instead of burning 5 minutes
+      // on a browser agent trying to reach a dead tunnel.
+      const localPort = extractLocalhostPort(ctx.originalUrl);
+      if (typeof localPort === 'number') {
+        const probe = await probeLocalPort(localPort);
+        if (!probe.reachable) {
+          const payload = {
+            error: 'LocalServerUnreachable',
+            message: `No server listening on 127.0.0.1:${localPort}. Start your dev server on that port before running check_app_in_browser. Probe result: ${probe.code} (${probe.detail ?? 'no detail'}).`,
+            detail: {
+              port: localPort,
+              probeCode: probe.code,
+              probeDetail: probe.detail,
+              elapsedMs: probe.elapsedMs,
+            },
+          };
+          logger.warn(`Pre-flight port probe failed for ${ctx.originalUrl}: ${probe.code} in ${probe.elapsedMs}ms`);
+          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+        }
+      }
+
       if (progressCallback) {
         await progressCallback({ progress: 1, total: TOTAL_STEPS, message: 'Provisioning secure tunnel for localhost...' });
       }
@@ -100,14 +167,15 @@ async function testPageChangesHandlerInner(
       } else {
         let tunnel;
         try {
-          tunnel = await client.tunnels!.provision();
+          tunnel = await client.tunnels!.provisionWithRetry();
         } catch (provisionError) {
           const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
+          const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
           throw new Error(
             `Failed to provision tunnel for ${ctx.originalUrl}. ` +
             `The remote browser needs a secure tunnel to reach your local dev server. ` +
             `Make sure your dev server is running on the specified port and try again. ` +
-            `(Detail: ${msg})`
+            `(Detail: ${msg})${diag}`
           );
         }
         keyId = tunnel.keyId;
@@ -130,45 +198,73 @@ async function testPageChangesHandlerInner(
         }
         logger.info(`Tunnel ready: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
       }
+
+      // Bead 1om: verify traffic actually flows through the tunnel. The
+      // tunnel can be established (ngrok.connect returns OK) yet refuse
+      // to forward traffic — e.g., IPv4/IPv6 bind mismatch, or the dev
+      // server died between the pre-flight probe and here. Catch it now,
+      // in ~1s, not via a 5-minute browser-agent false-pass.
+      if (ctx.targetUrl) {
+        const health = await probeTunnelHealth(ctx.targetUrl);
+        if (!health.healthy) {
+          const payload = {
+            error: 'TunnelTrafficBlocked',
+            message: `Tunnel was established but traffic isn't reaching the dev server. ${health.detail ?? ''} Common causes: dev server binds to 0.0.0.0 or ::1 but not 127.0.0.1; dev server crashed; firewall.`,
+            detail: {
+              code: health.code,
+              status: health.status,
+              ngrokErrorCode: health.ngrokErrorCode,
+              elapsedMs: health.elapsedMs,
+            },
+          };
+          logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
+          // Tear down the broken tunnel so a subsequent call doesn't reuse it.
+          // stopTunnel handles both owned (ngrok disconnect + key revoke) and
+          // borrowed (just drops local ref) cases.
+          if (ctx.tunnelId) {
+            tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
+              logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
+            );
+          }
+          // keyId is consumed by stopTunnel's revoke path; clear so the
+          // outer finally block doesn't double-revoke.
+          keyId = undefined;
+          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+        }
+      }
     }
 
-    // --- Find workflow template ---
+    // --- Resolve template + project in parallel (both independent post-tunnel) ---
     if (progressCallback) {
       await progressCallback({ progress: 2, total: TOTAL_STEPS, message: 'Locating evaluation workflow template...' });
     }
 
-    if (!cachedTemplateUuid) {
-      const template = await client.workflows!.findEvaluationTemplate();
-      if (!template) {
-        throw new Error(
-          'App Evaluation Workflow Template not found. ' +
-          'Ensure the template is seeded in the backend (GET /api/v1/workflows/?is_template=true).'
-        );
-      }
-      cachedTemplateUuid = template.uuid;
-      logger.info(`Using workflow template: ${template.name} (${template.uuid})`);
-    }
-
-    // --- Resolve project UUID (best-effort, non-blocking) ---
-    // Use explicit repoName if provided, otherwise auto-detect from git remote
     const repoName = input.repoName || detectRepoName();
-    let projectUuid: string | undefined;
-    if (repoName) {
-      projectUuid = projectUuidCache.get(repoName);
-      if (!projectUuid) {
-        try {
-          const project = await client.findProjectByRepoName(repoName);
-          if (project) {
-            projectUuid = project.uuid;
-            projectUuidCache.set(repoName, projectUuid);
-            logger.info(`Resolved project: ${project.name} (${project.uuid})`);
-          } else {
-            logger.info(`No project found for repo "${repoName}" — proceeding without project_id`);
-          }
-        } catch (err) {
-          logger.warn(`Failed to look up project for repo "${repoName}": ${err}`);
-        }
-      }
+
+    const [templateUuid, projectUuid] = await Promise.all([
+      getCachedTemplateUuid(TEMPLATE_NAME, async () => {
+        return client.workflows!.findEvaluationTemplate();
+      }),
+      repoName
+        ? getCachedProjectUuid(repoName, async (repo) => {
+            try {
+              return await client.findProjectByRepoName(repo);
+            } catch (err) {
+              logger.warn(`Failed to look up project for repo "${repo}": ${err}`);
+              return null;
+            }
+          })
+        : Promise.resolve(undefined),
+    ]);
+
+    if (!templateUuid) {
+      throw new Error(
+        'App Evaluation Workflow Template not found. ' +
+        'Ensure the template is seeded in the backend (GET /api/v1/workflows/?is_template=true).'
+      );
+    }
+    if (repoName && !projectUuid) {
+      logger.info(`No project found for repo "${repoName}" — proceeding without project_id`);
     }
 
     // --- Build context data (camelCase here — axiosTransport auto-converts to snake_case) ---
@@ -194,24 +290,58 @@ async function testPageChangesHandlerInner(
       await progressCallback({ progress: 3, total: TOTAL_STEPS, message: 'Queuing workflow execution...' });
     }
 
-    const executeResponse = await client.workflows!.executeWorkflow(
-      cachedTemplateUuid,
-      contextData,
-      Object.keys(env).length > 0 ? env : undefined
-    );
-    const executionUuid = executeResponse.executionUuid;
-    logger.info(`Execution queued: ${executionUuid}`);
-
-    // --- Poll ---
-    // Progress phases:
+    // --- Execute + Poll (with bounded retry on transient errors, bead kbxy) ---
+    // Progress phases (per attempt):
     //   1-3:   MCP setup (tunnel, template, queue) — already sent above
     //   4-6:   Backend setup (trigger, browser.setup, subworkflow starting)
     //   7-27:  Agent steps (mapped from state.stepsTaken)
     //   28:    Complete
     const BACKEND_SETUP_END = 6;
-    let lastStepsTaken = 0;
-    let observedMaxSteps = MAX_EXEC_STEPS;
-    const finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+    const MAX_RETRIES = getMaxTransientRetries();
+
+    let executeResponse: import('../services/workflows.js').WorkflowExecuteResponse | undefined;
+    let executionUuid = '';
+    let finalExecution: import('../services/workflows.js').WorkflowExecution | undefined;
+    let attempt = 0;
+
+    while (true) {
+      attempt++;
+
+      if (attempt > 1) {
+        // Retry path — emit telemetry + progress notification + brief backoff.
+        Telemetry.capture(TelemetryEvents.WORKFLOW_TRANSIENT_RETRY, {
+          tool: 'check_app_in_browser',
+          attempt,
+          reason: transientReasonTag(finalExecution),
+          previousExecutionId: executionUuid,
+          previousErrorMessage: finalExecution?.errorMessage?.slice(0, 200),
+          previousStateError: finalExecution?.state?.error?.slice(0, 200),
+        });
+        if (progressCallback) {
+          await progressCallback({
+            progress: SETUP_STEPS,
+            total: TOTAL_STEPS,
+            message: `Transient backend error — retrying (attempt ${attempt}/${MAX_RETRIES + 1})...`,
+          });
+        }
+        await new Promise(r => setTimeout(r, 1000 * (attempt - 1)));
+      }
+
+      executeResponse = await client.workflows!.executeWorkflow(
+        templateUuid,
+        contextData,
+        Object.keys(env).length > 0 ? env : undefined,
+      );
+      executionUuid = executeResponse.executionUuid;
+      logger.info(`Execution queued: ${executionUuid}${attempt > 1 ? ` (retry ${attempt - 1}/${MAX_RETRIES})` : ''}`);
+
+      // Closure state — reset PER ATTEMPT so progress numbers don't double-count
+      // across retries.
+      let lastStepsTaken = 0;
+      let observedMaxSteps = MAX_EXEC_STEPS;
+
+      finalExecution = await client.workflows!.pollExecution(executionUuid, async (exec) => {
       // Keep the tunnel alive while the workflow is actively running
       if (ctx.tunnelId) touchTunnelById(ctx.tunnelId);
 
@@ -227,6 +357,20 @@ async function testPageChangesHandlerInner(
       }
 
       if (!progressCallback) return;
+
+      // Bead 0bq: emit the final "Complete:" progress INSIDE this callback
+      // when terminal status is detected. pollExecution will return on the
+      // next line (line 183 in services/workflows.ts), so there's no
+      // post-pollExecution progress emission that could race the response.
+      if (TERMINAL_STATUSES.has(exec.status)) {
+        const terminalOutcome = exec.state?.outcome ?? exec.status;
+        await progressCallback({
+          progress: TOTAL_STEPS,
+          total: TOTAL_STEPS,
+          message: `Complete: ${terminalOutcome}`,
+        });
+        return;
+      }
 
       // --- Compute progress number ---
       let execProgress: number;
@@ -270,6 +414,17 @@ async function testPageChangesHandlerInner(
 
       await progressCallback({ progress: execProgress, total: TOTAL_STEPS, message });
     }, abortController.signal);
+
+      // Decide retry vs exit: only retry on documented transient signatures
+      // AND while we still have budget. Otherwise break and surface whatever
+      // result the agent reached.
+      if (attempt > MAX_RETRIES) break;
+      if (!isTransientWorkflowError(finalExecution)) break;
+      logger.warn(
+        `Transient backend error detected (${transientReasonTag(finalExecution) ?? 'unknown'}) — ` +
+        `retrying (attempt ${attempt + 1}/${MAX_RETRIES + 1})`,
+      );
+    }
 
     const duration = Date.now() - startTime;
 
@@ -334,15 +489,43 @@ async function testPageChangesHandlerInner(
       };
     }
 
+    const stepsTaken = finalExecution.state?.stepsTaken ?? subworkflowNode?.outputData?.stepsTaken ?? actionTrace.length;
+    const success = finalExecution.state?.success ?? subworkflowNode?.outputData?.success ?? false;
+
     const responsePayload: Record<string, any> = {
       outcome,
-      success: finalExecution.state?.success ?? subworkflowNode?.outputData?.success ?? false,
+      success,
       status: finalExecution.status,
-      stepsTaken: finalExecution.state?.stepsTaken ?? subworkflowNode?.outputData?.stepsTaken ?? actionTrace.length,
+      stepsTaken,
+      stepsBudget: MAX_EXEC_STEPS,                                      // bead qmdd
+      stepsRemaining: Math.max(0, MAX_EXEC_STEPS - (stepsTaken ?? 0)),  // bead qmdd
       targetUrl: originalUrl,
       executionId: executionUuid,
       durationMs: finalExecution.durationMs ?? duration,
     };
+
+    // Bead jqmj: failureCategory disambiguates the three meanings of 'fail':
+    //   'agent-error'        — workflow/infra failure (Pydantic parse error,
+    //                          backend exception, transport issue). Caller's
+    //                          right move: retry-with-backoff.
+    //   'assertion-mismatch' — agent ran the scenario but page state didn't
+    //                          match expectations. Caller's right move: fix
+    //                          code or update the test description.
+    //   ('page-error' is reserved for v2 — needs a structured signal from
+    //   backend to distinguish from assertion-mismatch reliably; today's
+    //   inferrable info is too fragile.)
+    // Field is OMITTED on success (no failure to categorize).
+    if (!success) {
+      // state.error is the AGENT's narrative — it can describe assertion
+      // failures ("expected heading to contain Welcome") OR infrastructure
+      // failures ("Pydantic JSON parse error"). Without a structured signal,
+      // we only count it as 'agent-error' when paired with workflow-level
+      // failure (status='failed') or transient signature.
+      // status='failed' or errorMessage set → workflow-level / transport error.
+      const hasInfraFailure = finalExecution.status === 'failed'
+        || !!finalExecution.errorMessage;
+      responsePayload.failureCategory = hasInfraFailure ? 'agent-error' : 'assertion-mismatch';
+    }
 
     if (actionTrace.length > 0) responsePayload.actionTrace = actionTrace;
     if (evaluation) responsePayload.evaluation = evaluation;
@@ -354,12 +537,22 @@ async function testPageChangesHandlerInner(
     if (surferNode?.outputData) {
       responsePayload.surferOutput = sanitizeResponseUrls(surferNode.outputData, ctx);
     }
+    // Backend release 2026-04-25: browser_session block on execution detail
+    // carries presigned S3 URLs for HAR + console log + recording. Pass through
+    // verbatim — sanitizeResponseUrls below only strips ngrok hosts so S3 URLs
+    // are preserved. Resolves client-feedback items #1 (network) + #7 (console).
+    if (finalExecution.browserSession) {
+      responsePayload.browserSession = finalExecution.browserSession;
+    }
 
     logger.toolComplete('check_app_in_browser', duration);
 
-    if (progressCallback) {
-      await progressCallback({ progress: TOTAL_STEPS, total: TOTAL_STEPS, message: `Complete: ${outcome}` });
-    }
+    // NOTE (bead 0bq): the final "Complete:" progress is emitted INSIDE
+    // pollExecution's onUpdate when terminal status is detected — see the
+    // TERMINAL_STATUSES block above. Emitting it here (post-resolve) creates
+    // a race where the progress can arrive AFTER the response on the wire,
+    // making the client reject it as an unknown progressToken and close the
+    // transport, breaking ALL subsequent tool calls.
 
     // Sanitize the whole payload so no tunnel URL leaks anywhere — including
     // agent-authored strings in actionTrace[*].intent, evaluation.reason, etc.
@@ -423,7 +616,8 @@ async function testPageChangesHandlerInner(
     logger.toolError('check_app_in_browser', error as Error, duration);
 
     if (error instanceof Error && (error.message.includes('not found') || error.message.includes('401'))) {
-      cachedTemplateUuid = null;
+      invalidateTemplateCache();
+      invalidateProjectCache();
     }
 
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');

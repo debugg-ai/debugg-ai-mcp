@@ -56,9 +56,9 @@ export const flow = {
         projectUuid = body.projectUuid;
       });
 
-      await step('new env appears in list_environments (filtered by q)', async () => {
+      await step('new env appears in search_environments (filtered by q)', async () => {
         const r = await client.request('tools/call', {
-          name: 'list_environments',
+          name: 'search_environments',
           arguments: { q: name },
         }, 30_000);
         await writeArtifact('list-after-create.json', r);

@@ -5,7 +5,7 @@
 
 import winston from 'winston';
 import { config } from '../config/index.js';
-import { LogLevel, LogContext } from '../types/index.js';
+import { LogContext } from '../types/index.js';
 
 /**
  * Create winston logger instance

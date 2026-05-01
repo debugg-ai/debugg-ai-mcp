@@ -60,9 +60,13 @@ import type {
             const newErr = new Error(String(msg));
             (newErr as any).statusCode = err.response?.status;
             (newErr as any).responseData = data;
+            (newErr as any).responseHeaders = err.response?.headers;
             return Promise.reject(newErr);
           }
-          return Promise.reject(new Error(err.message || 'Unknown Axios error'));
+          // Network-class error (no response received) — preserve err.code (ECONNRESET, etc.)
+          const networkErr = new Error(err.message || 'Unknown Axios error');
+          if (err.code) (networkErr as any).networkCode = err.code;
+          return Promise.reject(networkErr);
         },
       );
   

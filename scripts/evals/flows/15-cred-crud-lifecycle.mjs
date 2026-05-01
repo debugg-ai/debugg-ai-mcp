@@ -46,160 +46,163 @@ export const flow = {
     let credUuid = null;
 
     try {
-      await step('setup: create env + credential via existing tools', async () => {
+      await step('setup: create env WITH credential seeded in one call (bead 65m)', async () => {
         const er = await client.request('tools/call', {
           name: 'create_environment',
-          arguments: { name: envName, url: 'https://example.invalid/cred-crud' },
-        }, 30_000);
-        assert(!er.isError, `env create: ${er.content?.[0]?.text?.slice(0, 300)}`);
-        const eb = JSON.parse(er.content[0].text);
-        projectUuid = eb.projectUuid; envUuid = eb.environment.uuid;
-
-        const cr = await client.request('tools/call', {
-          name: 'create_credential',
           arguments: {
-            environmentId: envUuid,
-            label: initialLabel,
-            username: initialUsername,
-            password: initialPassword,
+            name: envName,
+            url: 'https://example.invalid/cred-crud',
+            credentials: [{
+              label: initialLabel,
+              username: initialUsername,
+              password: initialPassword,
+            }],
           },
         }, 30_000);
-        assert(!cr.isError, `cred create: ${cr.content?.[0]?.text?.slice(0, 300)}`);
-        credUuid = JSON.parse(cr.content[0].text).credential.uuid;
+        assert(!er.isError, `env+cred create: ${er.content?.[0]?.text?.slice(0, 300)}`);
+        const eb = JSON.parse(er.content[0].text);
+        projectUuid = eb.projectUuid;
+        envUuid = eb.environment.uuid;
+        assert(eb.credentials && eb.credentials.length === 1, 'seed cred missing from response');
+        credUuid = eb.credentials[0].uuid;
+        // Defensive: the initial password must NEVER appear in response
+        assert(!er.content[0].text.includes(initialPassword), 'initial password leaked in create response');
       });
 
-      await step('get_credential returns full cred by uuid; no password field', async () => {
+      await step('search_environments(uuid) returns the cred inline; no password field', async () => {
         const r = await client.request('tools/call', {
-          name: 'get_credential',
-          arguments: { uuid: credUuid, environmentId: envUuid },
+          name: 'search_environments',
+          arguments: { projectUuid, uuid: envUuid },
         }, 30_000);
         await writeArtifact('get.json', r);
-        assert(!r.isError, `get_credential error: ${r.content?.[0]?.text?.slice(0, 300)}`);
+        assert(!r.isError, `search_environments: ${r.content?.[0]?.text?.slice(0, 300)}`);
         const text = r.content[0].text;
-        assert(!text.includes(initialPassword), 'get_credential leaked initial password value');
-        assert(!/"password"/.test(text), 'get_credential response has a password key');
+        assert(!text.includes(initialPassword), 'search leaked initial password value');
+        assert(!/"password"\s*:/.test(text), 'search response has a password key');
         const body = JSON.parse(text);
-        assert(body.credential.uuid === credUuid, `uuid mismatch: ${body.credential.uuid}`);
-        assert(body.credential.label === initialLabel, `label mismatch: ${body.credential.label}`);
-        assert(body.credential.username === initialUsername, `username mismatch: ${body.credential.username}`);
-        assert(body.credential.environmentUuid === envUuid, `envUuid mismatch: ${body.credential.environmentUuid}`);
+        const env = body.environments[0];
+        const cred = env.credentials.find(c => c.uuid === credUuid);
+        assert(cred, `cred ${credUuid} not found in env.credentials`);
+        assert(cred.label === initialLabel, `label mismatch: ${cred.label}`);
+        assert(cred.username === initialUsername, `username mismatch: ${cred.username}`);
       });
 
-      await step('create_credential with role, round-trip via get + filter by role (hpo backend fix)', async () => {
+      await step('seed a role-tagged cred via create_environment path (fresh env, fresh cred)', async () => {
         const roleLabel = `mcp-eval-role-${ts}`;
         const roleValue = `role-${ts}`;
         const created = await client.request('tools/call', {
-          name: 'create_credential',
+          name: 'create_environment',
           arguments: {
-            environmentId: envUuid,
-            label: roleLabel,
-            username: `role-user-${ts}@example.invalid`,
-            password: 'role-probe-pw',
-            role: roleValue,
+            name: `mcp-eval-role-env-${ts}`,
+            url: 'https://example.invalid/role-env',
+            credentials: [{
+              label: roleLabel,
+              username: `role-user-${ts}@example.invalid`,
+              password: 'role-probe-pw',
+              role: roleValue,
+            }],
           },
         }, 30_000);
-        assert(!created.isError, `create with role: ${created.content?.[0]?.text?.slice(0, 300)}`);
+        assert(!created.isError, `env+role cred create: ${created.content?.[0]?.text?.slice(0, 300)}`);
         const createdBody = JSON.parse(created.content[0].text);
-        const roleCredUuid = createdBody.credential.uuid;
+        const roleEnvUuid = createdBody.environment.uuid;
+        const roleCredUuid = createdBody.credentials[0].uuid;
         assert(
-          createdBody.credential.role === roleValue,
-          `create response should echo role. Got: ${createdBody.credential.role}`
+          createdBody.credentials[0].role === roleValue,
+          `create response should echo role. Got: ${createdBody.credentials[0].role}`,
         );
 
-        const got = await client.request('tools/call', {
-          name: 'get_credential',
-          arguments: { uuid: roleCredUuid, environmentId: envUuid },
+        const search = await client.request('tools/call', {
+          name: 'search_environments',
+          arguments: { projectUuid, uuid: roleEnvUuid },
         }, 30_000);
-        const gotBody = JSON.parse(got.content[0].text);
-        assert(
-          gotBody.credential.role === roleValue,
-          `get should round-trip role. Got: ${gotBody.credential.role}`
-        );
+        const searchBody = JSON.parse(search.content[0].text);
+        const cred = searchBody.environments[0].credentials.find(c => c.uuid === roleCredUuid);
+        assert(cred, `new role cred not found in env.credentials`);
+        assert(cred.role === roleValue, `cred.role should persist as ${roleValue}; got ${cred.role}`);
 
-        const filtered = await client.request('tools/call', {
-          name: 'list_credentials',
-          arguments: { environmentId: envUuid, role: roleValue },
-        }, 30_000);
-        const filteredBody = JSON.parse(filtered.content[0].text);
-        assert(
-          filteredBody.credentials.some(c => c.uuid === roleCredUuid),
-          `list_credentials role=${roleValue} should include the new cred`
-        );
-        assert(
-          filteredBody.credentials.every(c => c.role === roleValue),
-          `list_credentials role filter returned non-matching creds`
-        );
-
-        await deleteDirect(`/api/v1/projects/${projectUuid}/environments/${envUuid}/credentials/${roleCredUuid}/`);
+        await deleteDirect(`/api/v1/projects/${projectUuid}/environments/${roleEnvUuid}/`);
       });
 
-      await step('update_credential patches label; response echoes uuid + new label; no password leak', async () => {
+      await step('update_environment w/ updateCredentials label patch — echoes cred + no password leak', async () => {
         const r = await client.request('tools/call', {
-          name: 'update_credential',
-          arguments: { uuid: credUuid, environmentId: envUuid, label: updatedLabel },
+          name: 'update_environment',
+          arguments: {
+            uuid: envUuid,
+            projectUuid,
+            updateCredentials: [{ uuid: credUuid, label: updatedLabel }],
+          },
         }, 30_000);
         await writeArtifact('update-label.json', r);
         assert(!r.isError, `update: ${r.content?.[0]?.text?.slice(0, 300)}`);
         const text = r.content[0].text;
         assert(!text.includes(initialPassword), 'update leaked password');
-        assert(!/"password"/.test(text), 'update has password key');
+        assert(!/"password"\s*:/.test(text), 'update has password key');
         const body = JSON.parse(text);
-        assert(body.updated === true, 'missing updated:true');
-        assert(body.credential.uuid === credUuid, 'uuid not echoed');
-        assert(body.credential.label === updatedLabel, `label not updated: ${body.credential.label}`);
+        assert(body.updatedCredentials && body.updatedCredentials.length === 1,
+          `expected updatedCredentials[1]; got ${JSON.stringify(body.updatedCredentials)}`);
+        const cred = body.updatedCredentials[0];
+        assert(cred.uuid === credUuid, 'uuid not echoed');
+        assert(cred.label === updatedLabel, `label not updated: ${cred.label}`);
       });
 
-      await step('update_credential rotating password — response never contains plaintext password', async () => {
+      await step('update_environment w/ updateCredentials password rotation — no plaintext leak', async () => {
         const r = await client.request('tools/call', {
-          name: 'update_credential',
-          arguments: { uuid: credUuid, environmentId: envUuid, password: rotatedPassword },
+          name: 'update_environment',
+          arguments: {
+            uuid: envUuid,
+            projectUuid,
+            updateCredentials: [{ uuid: credUuid, password: rotatedPassword }],
+          },
         }, 30_000);
         await writeArtifact('update-password.json', r);
         assert(!r.isError, `rotate: ${r.content?.[0]?.text?.slice(0, 300)}`);
         const text = r.content[0].text;
         assert(!text.includes(rotatedPassword), 'rotated password value leaked in response');
         assert(!text.includes(initialPassword), 'old password leaked in response');
-        assert(!/"password"/.test(text), 'response has password key');
+        assert(!/"password"\s*:/.test(text), 'response has password key');
       });
 
-      await step('get_credential after rotation — updated label persists, still no password', async () => {
+      await step('search_environments after rotation — updated label persists, still no password', async () => {
         const r = await client.request('tools/call', {
-          name: 'get_credential',
-          arguments: { uuid: credUuid, environmentId: envUuid },
+          name: 'search_environments',
+          arguments: { projectUuid, uuid: envUuid },
         }, 30_000);
         const text = r.content[0].text;
-        assert(!text.includes(rotatedPassword), 'password leaked on subsequent get');
+        assert(!text.includes(rotatedPassword), 'password leaked on subsequent search');
         const body = JSON.parse(text);
-        assert(body.credential.label === updatedLabel, `label regression: ${body.credential.label}`);
+        const cred = body.environments[0].credentials.find(c => c.uuid === credUuid);
+        assert(cred, 'cred disappeared from env after update');
+        assert(cred.label === updatedLabel, `label regression: ${cred.label}`);
       });
 
-      await step('delete_credential removes cred and returns {deleted:true, uuid}', async () => {
+      await step('update_environment w/ removeCredentialIds: cred is removed from env', async () => {
         const r = await client.request('tools/call', {
-          name: 'delete_credential',
-          arguments: { uuid: credUuid, environmentId: envUuid },
-        }, 30_000);
-        await writeArtifact('delete.json', r);
-        assert(!r.isError, `delete: ${r.content?.[0]?.text?.slice(0, 300)}`);
-        const body = JSON.parse(r.content[0].text);
-        assert(body.deleted === true, 'missing deleted:true');
-        assert(body.uuid === credUuid, `uuid mismatch: ${body.uuid}`);
-        credUuid = null; // skip cleanup
-      });
-
-      await step('get_credential on deleted uuid returns NotFound (isError:true)', async () => {
-        const r = await client.request('tools/call', {
-          name: 'get_credential',
+          name: 'update_environment',
           arguments: {
-            uuid: credUuid ?? '00000000-0000-0000-0000-000000000000',
-            environmentId: envUuid,
+            uuid: envUuid,
+            projectUuid,
+            removeCredentialIds: [credUuid],
           },
         }, 30_000);
-        assert(r.isError === true, 'expected isError:true on deleted uuid');
+        await writeArtifact('delete.json', r);
+        assert(!r.isError, `remove: ${r.content?.[0]?.text?.slice(0, 300)}`);
         const body = JSON.parse(r.content[0].text);
-        assert(
-          /not.?found/i.test((body.error ?? '') + ' ' + (body.message ?? '')),
-          `expected NotFound, got: ${JSON.stringify(body).slice(0, 200)}`
-        );
+        assert(Array.isArray(body.removedCredentialIds) && body.removedCredentialIds.includes(credUuid),
+          `expected removedCredentialIds to include ${credUuid}`);
+        credUuid = null; // skip fallback direct-delete cleanup
+      });
+
+      await step('search_environments after delete — cred not in env.credentials', async () => {
+        const r = await client.request('tools/call', {
+          name: 'search_environments',
+          arguments: { projectUuid, uuid: envUuid },
+        }, 30_000);
+        assert(!r.isError, `search_environments after delete: ${r.content?.[0]?.text?.slice(0, 300)}`);
+        const body = JSON.parse(r.content[0].text);
+        const creds = body.environments[0].credentials;
+        const found = creds.find(c => c.uuid === (credUuid ?? '00000000-0000-0000-0000-000000000000'));
+        assert(!found, `deleted cred still present in env.credentials: ${JSON.stringify(found)}`);
       });
     } finally {
       if (credUuid && projectUuid && envUuid) {

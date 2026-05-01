@@ -3,8 +3,8 @@
  * Simplified version of the project analyzer for file system-based analysis
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
-import { join, extname, dirname, resolve } from 'path';
+import { existsSync, readFileSync, readdirSync } from 'fs';
+import { join, extname } from 'path';
 import { Logger } from './logger.js';
 
 const logger = new Logger({ module: 'projectAnalyzer' });
@@ -93,7 +93,7 @@ export class ProjectAnalyzer {
     repoPath: string,
     repoName: string,
     branchName: string,
-    includeChanges: boolean = true
+    _includeChanges: boolean = true
   ): Promise<CodebaseContext | null> {
     try {
       logger.info('Starting codebase analysis', { repoPath, repoName, branchName });
@@ -467,7 +467,7 @@ export class ProjectAnalyzer {
             count++;
           }
         }
-      } catch (error) {
+      } catch {
         // Skip directories we can't read
       }
     };

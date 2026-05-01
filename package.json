@@ -1,13 +1,19 @@
 {
   "name": "@debugg-ai/debugg-ai-mcp",
-  "version": "1.0.61",
+  "version": "2.6.0",
   "description": "Zero-Config, Fully AI-Managed End-to-End Testing for all code gen platforms.",
   "type": "module",
   "bin": {
     "debugg-ai-mcp": "dist/index.js"
   },
+  "engines": {
+    "node": ">=20.20.0"
+  },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "lint": "eslint .",

@@ -71,7 +71,7 @@ export function parseUrl(urlString: string): ParsedUrl {
       search: url.search,
       hash: url.hash
     };
-  } catch (error) {
+  } catch {
     throw new Error(`Invalid URL format: ${urlString}`);
   }
 }

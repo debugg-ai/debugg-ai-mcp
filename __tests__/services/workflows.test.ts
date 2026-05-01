@@ -90,10 +90,10 @@ describe('findEvaluationTemplate()', () => {
     mockGet.mockResolvedValue({ results: templates });
 
     await expect(service.findEvaluationTemplate()).rejects.toThrow(
-      /No "App Evaluation" workflow template found/
+      /No workflow template matching "app evaluation" found/,
     );
     await expect(service.findEvaluationTemplate()).rejects.toThrow(
-      /Smoke Test Runner/
+      /Smoke Test Runner/,
     );
   });
 
@@ -108,6 +108,74 @@ describe('findEvaluationTemplate()', () => {
     const result = await service.findEvaluationTemplate();
 
     expect(result!.uuid).toBe('t2');
+  });
+});
+
+// ── findTemplateByName ───────────────────────────────────────────────────────
+
+describe('findTemplateByName()', () => {
+  test('case-insensitive substring match: finds "Raw Crawl Workflow Template" by "raw crawl"', async () => {
+    const template = makeTemplate({ uuid: 'tmpl-raw-crawl', name: 'Raw Crawl Workflow Template' });
+    mockGet.mockResolvedValue({ results: [template] });
+
+    const result = await service.findTemplateByName('raw crawl');
+
+    expect(mockGet).toHaveBeenCalledWith('api/v1/workflows/', { isTemplate: true });
+    expect(result).toEqual(template);
+  });
+
+  test('case-insensitive: uppercase keyword still matches lowercase template name', async () => {
+    const template = makeTemplate({ uuid: 'tmpl-raw-crawl', name: 'raw crawl template' });
+    mockGet.mockResolvedValue({ results: [template] });
+
+    const result = await service.findTemplateByName('RAW CRAWL');
+
+    expect(result).toEqual(template);
+  });
+
+  test('picks first match when multiple templates contain the keyword', async () => {
+    const templates = [
+      makeTemplate({ uuid: 't1', name: 'Something Unrelated' }),
+      makeTemplate({ uuid: 't2', name: 'Raw Crawl Workflow Template' }),
+      makeTemplate({ uuid: 't3', name: 'Another Raw Crawl Thing' }),
+    ];
+    mockGet.mockResolvedValue({ results: templates });
+
+    const result = await service.findTemplateByName('raw crawl');
+
+    expect(result!.uuid).toBe('t2');
+  });
+
+  test('empty results: returns null', async () => {
+    mockGet.mockResolvedValue({ results: [] });
+
+    const result = await service.findTemplateByName('raw crawl');
+
+    expect(result).toBeNull();
+  });
+
+  test('templates exist but none match: throws clear error listing available names', async () => {
+    const templates = [
+      makeTemplate({ uuid: 't1', name: 'App Evaluation Workflow Template' }),
+      makeTemplate({ uuid: 't2', name: 'Smoke Test Runner' }),
+    ];
+    mockGet.mockResolvedValue({ results: templates });
+
+    await expect(service.findTemplateByName('raw crawl')).rejects.toThrow(
+      /No workflow template matching "raw crawl" found/,
+    );
+    await expect(service.findTemplateByName('raw crawl')).rejects.toThrow(
+      /App Evaluation Workflow Template/,
+    );
+  });
+
+  test('findEvaluationTemplate remains functional (backwards compat wrapper)', async () => {
+    const template = makeTemplate({ uuid: 'tmpl-eval', name: 'App Evaluation Workflow Template' });
+    mockGet.mockResolvedValue({ results: [template] });
+
+    const result = await service.findEvaluationTemplate();
+
+    expect(result).toEqual(template);
   });
 });
 

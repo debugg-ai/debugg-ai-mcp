@@ -23,13 +23,41 @@ function findPackageVersion(): string {
 
 const _version = findPackageVersion();
 
+/**
+ * Public PostHog project key (write-only). Embedded so every MCP install
+ * sends telemetry by default — lets the team observe cache hit rates,
+ * poll cadence, tunnel reliability, etc. across the whole install base
+ * without requiring users to configure anything.
+ *
+ * Safe to embed: this is a `phc_*` project key (PostHog's client-side
+ * convention), not a personal API key. It can only write events, not
+ * read them.
+ *
+ * Override with POSTHOG_API_KEY (e.g. for a private fork pointing at a
+ * different PostHog project). Disable with DEBUGGAI_TELEMETRY_DISABLED=1.
+ */
+const DEBUGGAI_DEFAULT_POSTHOG_KEY = 'phc_4h2Yov2P0Vc9UMqfKf3dYKSQ6THOs7N6LZR0VKYopZN';
+
+function isTelemetryDisabled(): boolean {
+  const v = (process.env.DEBUGGAI_TELEMETRY_DISABLED || '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+function resolvePosthogKey(): string | undefined {
+  if (isTelemetryDisabled()) return undefined;
+  return process.env.POSTHOG_API_KEY || DEBUGGAI_DEFAULT_POSTHOG_KEY;
+}
+
 const configSchema = z.object({
   server: z.object({
     name: z.string().default('DebuggAI MCP Server'),
     version: z.string(),
   }),
   api: z.object({
-    key: z.string().min(1, 'API key is required (set DEBUGGAI_API_KEY)'),
+    // key is validated at tool-call time (not at boot) so MCP clients can surface
+    // a proper error message instead of seeing the subprocess die → "Failed to
+    // reconnect". See bead cma + flow 25.
+    key: z.string(),
     tokenType: z.enum(['token', 'bearer']).default('token'),
     baseUrl: z.string().url().default('https://api.debugg.ai'),
   }),
@@ -64,7 +92,7 @@ export function loadConfig(): Config {
       format: (process.env.LOG_FORMAT as any) || 'simple',
     },
     telemetry: {
-      posthogApiKey: process.env.POSTHOG_API_KEY || undefined,
+      posthogApiKey: resolvePosthogKey(),
       posthogHost: process.env.POSTHOG_HOST || undefined,
     },
   };

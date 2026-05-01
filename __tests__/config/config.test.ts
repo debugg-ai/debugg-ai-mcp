@@ -31,17 +31,24 @@ describe('Configuration Management', () => {
     expect(config.defaults).toBeDefined();
   });
 
-  test('config should throw error for missing API key', () => {
-    const originalApiKey = process.env.DEBUGGAI_API_KEY;
+  test('config loads with empty key when DEBUGGAI_API_KEY is missing (bead cma: deferred validation)', () => {
+    const saved = {
+      DEBUGGAI_API_KEY: process.env.DEBUGGAI_API_KEY,
+      DEBUGGAI_API_TOKEN: process.env.DEBUGGAI_API_TOKEN,
+      DEBUGGAI_JWT_TOKEN: process.env.DEBUGGAI_JWT_TOKEN,
+    };
     delete process.env.DEBUGGAI_API_KEY;
+    delete process.env.DEBUGGAI_API_TOKEN;
+    delete process.env.DEBUGGAI_JWT_TOKEN;
 
-    expect(() => {
-      loadConfig();
-    }).toThrow('Configuration validation failed');
+    // Must NOT throw — validation is deferred to first tool call so MCP
+    // clients get a proper initialize + structured tool error instead of
+    // "Failed to reconnect".
+    const cfg = loadConfig();
+    expect(cfg.api.key).toBe('');
 
-    // Restore the API key
-    if (originalApiKey) {
-      process.env.DEBUGGAI_API_KEY = originalApiKey;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v !== undefined) process.env[k] = v;
     }
   });
 });
@@ -94,8 +101,9 @@ describe('config env var precedence', () => {
     expect(cfg.api.key).toBe('token-third');
   });
 
-  test('throws when no API key env var is set', () => {
-    expect(() => loadConfig()).toThrow('Configuration validation failed');
+  test('loads with empty key when no API key env var is set (bead cma: deferred validation)', () => {
+    const cfg = loadConfig();
+    expect(cfg.api.key).toBe('');
   });
 
   test('tokenType is bearer when DEBUGGAI_TOKEN_TYPE=bearer', () => {
@@ -122,6 +130,65 @@ describe('config env var precedence', () => {
     process.env.DEBUGGAI_API_KEY = 'some-key';
     const cfg = loadConfig();
     expect(cfg.api.baseUrl).toBe('https://api.debugg.ai');
+  });
+
+  describe('telemetry posthogApiKey resolution', () => {
+    let saved: Record<string, string | undefined>;
+    beforeEach(() => {
+      saved = {
+        POSTHOG_API_KEY: process.env.POSTHOG_API_KEY,
+        DEBUGGAI_TELEMETRY_DISABLED: process.env.DEBUGGAI_TELEMETRY_DISABLED,
+      };
+      delete process.env.POSTHOG_API_KEY;
+      delete process.env.DEBUGGAI_TELEMETRY_DISABLED;
+    });
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+
+    test('defaults to embedded public phc_* key when no env vars set', () => {
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toMatch(/^phc_/);
+    });
+
+    test('POSTHOG_API_KEY env override takes precedence over default', () => {
+      process.env.POSTHOG_API_KEY = 'phc_custom_test_key';
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toBe('phc_custom_test_key');
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED=1 disables telemetry (returns undefined)', () => {
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '1';
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toBeUndefined();
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED accepts true / yes / on (case-insensitive)', () => {
+      for (const v of ['true', 'TRUE', 'yes', 'YES', 'on', 'On']) {
+        process.env.DEBUGGAI_TELEMETRY_DISABLED = v;
+        const cfg = loadConfig();
+        expect(cfg.telemetry.posthogApiKey).toBeUndefined();
+      }
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED=0 / empty does NOT disable (defaults still apply)', () => {
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '0';
+      let cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toMatch(/^phc_/);
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '';
+      cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toMatch(/^phc_/);
+    });
+
+    test('DEBUGGAI_TELEMETRY_DISABLED overrides POSTHOG_API_KEY', () => {
+      process.env.POSTHOG_API_KEY = 'phc_user_custom';
+      process.env.DEBUGGAI_TELEMETRY_DISABLED = '1';
+      const cfg = loadConfig();
+      expect(cfg.telemetry.posthogApiKey).toBeUndefined();
+    });
   });
 
 });

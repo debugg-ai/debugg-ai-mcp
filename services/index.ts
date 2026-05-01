@@ -232,7 +232,7 @@ export class DebuggAIServerClient  {
    * List environments for a project. Paginated.
    * Optional q filters by name via backend ?search=.
    * The bare-array variant (no pagination) is still used internally by
-   * list_credentials when iterating across all envs.
+   * search_environments when iterating across all envs to inline credentials.
    */
   public async listEnvironmentsForProject(
     projectUuid: string,
@@ -361,8 +361,8 @@ export class DebuggAIServerClient  {
   /**
    * List credentials for a specific environment. Unpaginated (fetches up to
    * backend max pageSize). q filters label/username server-side via ?search=;
-   * role filters server-side. Used internally by list_credentials when
-   * iterating across envs.
+   * role filters server-side. Used internally by search_environments when
+   * inlining credentials on each env in a page.
    */
   public async listCredentialsForEnvironment(
     projectUuid: string,

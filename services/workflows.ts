@@ -7,7 +7,13 @@ import { AxiosTransport } from '../utils/axiosTransport.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-const POLL_INTERVAL_MS = 3000;
+// Exponential backoff polling: short executions (10-15s crawls) detect terminal
+// status quickly via the early polls; long executions (60-150s browser runs)
+// avoid hammering the backend with 20+ roundtrips. Cap at 5s so we never wait
+// more than 5s past terminal-state achievement.
+const POLL_INTERVAL_INITIAL_MS = 1000;
+const POLL_INTERVAL_MAX_MS = 5000;
+const POLL_BACKOFF_MULTIPLIER = 1.5;
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
 export interface WorkflowTemplate {
@@ -29,6 +35,39 @@ export interface NodeExecution {
   error?: string;
 }
 
+/**
+ * Per-execution browser session metadata.
+ *
+ * Backend release 2026-04-25 added harUrl + consoleLogUrl as presigned S3
+ * URLs alongside the existing recordingUrl. URLs are short-lived — refetch
+ * the parent execution to renew.
+ *
+ * Backend follow-up 2026-04-26 (bead 3yw6) added per-artifact status fields
+ * that disambiguate "not produced" from "produced and failed":
+ *   harStatus / consoleLogStatus            — known values include 'downloaded',
+ *                                             'not_available', 'failed', 'queued'
+ *   harRedactionStatus / consoleLogRedactionStatus
+ *                                           — known values include 'redacted',
+ *                                             'redaction_failed'; null when not
+ *                                             applicable (no auth headers, etc.)
+ *
+ * All fields are nullable. Until backend deploy lands, the new status fields
+ * may be absent from older sessions.
+ */
+export interface BrowserSession {
+  uuid?: string;
+  status?: string;
+  vncWsPath?: string | null;
+  recordingUrl?: string | null;
+  recordingStatus?: string | null;
+  harUrl?: string | null;
+  consoleLogUrl?: string | null;
+  harStatus?: string | null;
+  consoleLogStatus?: string | null;
+  harRedactionStatus?: string | null;
+  consoleLogRedactionStatus?: string | null;
+}
+
 export interface WorkflowExecution {
   uuid: string;
   status: string;
@@ -44,6 +83,7 @@ export interface WorkflowExecution {
   errorMessage: string;
   errorInfo: { message?: string; failedNodeId?: string } | null;
   nodeExecutions: NodeExecution[];
+  browserSession?: BrowserSession | null;
 }
 
 export interface WorkflowEnv {
@@ -61,6 +101,7 @@ export interface WorkflowExecuteResponse {
 }
 
 export interface WorkflowsService {
+  findTemplateByName(keyword: string): Promise<WorkflowTemplate | null>;
   findEvaluationTemplate(): Promise<WorkflowTemplate | null>;
   executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse>;
   getExecution(executionUuid: string): Promise<WorkflowExecution>;
@@ -75,25 +116,28 @@ export interface WorkflowsService {
 
 export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => {
   const service: WorkflowsService = {
-    async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
+    async findTemplateByName(keyword: string): Promise<WorkflowTemplate | null> {
       const response = await tx.get<{ results: WorkflowTemplate[] }>(
         'api/v1/workflows/',
-        { isTemplate: true }
+        { isTemplate: true },
       );
       const templates = response?.results ?? [];
       if (templates.length === 0) return null;
 
-      const evalTemplate = templates.find(t =>
-        t.name.toLowerCase().includes('app evaluation')
-      );
-      if (!evalTemplate) {
+      const needle = keyword.toLowerCase();
+      const match = templates.find(t => t.name.toLowerCase().includes(needle));
+      if (!match) {
         throw new Error(
-          `No "App Evaluation" workflow template found. ` +
+          `No workflow template matching "${keyword}" found. ` +
           `Available templates: ${templates.map(t => `"${t.name}"`).join(', ')}. ` +
-          `Ensure the backend has a template with "App Evaluation" in its name.`
+          `Ensure the backend has a template with "${keyword}" in its name.`,
         );
       }
-      return evalTemplate;
+      return match;
+    },
+
+    async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
+      return service.findTemplateByName('app evaluation');
     },
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {
@@ -171,6 +215,7 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       const deadline = Date.now() + EXECUTION_TIMEOUT_MS;
       const pollStart = Date.now();
       let pollCount = 0;
+      let intervalMs = POLL_INTERVAL_INITIAL_MS;
       while (Date.now() < deadline) {
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
@@ -188,6 +233,7 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
             stepsTaken: execution.state?.stepsTaken ?? 0,
             durationMs: Date.now() - pollStart,
             pollCount,
+            finalIntervalMs: intervalMs,
           });
           return execution;
         }
@@ -195,14 +241,18 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
         }
+        const sleepMs = intervalMs;
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, POLL_INTERVAL_MS);
+          const timer = setTimeout(resolve, sleepMs);
           if (signal) {
             const onAbort = () => { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); };
             if (signal.aborted) { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); return; }
             signal.addEventListener('abort', onAbort, { once: true });
           }
         });
+        // Backoff for next iteration — capped at MAX so we don't wait too long
+        // past terminal-state achievement on the longest runs.
+        intervalMs = Math.min(Math.round(intervalMs * POLL_BACKOFF_MULTIPLIER), POLL_INTERVAL_MAX_MS);
       }
       throw new Error(
         `Execution ${executionUuid} timed out after ${EXECUTION_TIMEOUT_MS / 1000}s`

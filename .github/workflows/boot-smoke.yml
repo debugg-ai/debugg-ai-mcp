@@ -1,0 +1,65 @@
+name: Boot Smoke (Node matrix)
+
+# Runs flow 25's Path 0 (local dist boot) across the supported Node matrix.
+# Catches platform/Node-version-specific publish-time breakage BEFORE it
+# reaches published npm artifacts — the gap that manifested as "Failed to
+# reconnect" on a fresh machine (2026-04-22 incident).
+#
+# Path 0 exercises: install + build from source → spawn node <dist>/index.js →
+# MCP initialize succeeds + tools/list returns roster + missing DEBUGGAI_API_KEY
+# yields a structured ConfigurationError (bead cma).
+#
+# Path A/B (npx / direct-node against the PUBLISHED npm artifact) are NOT run
+# here — they always test whatever is currently on npm, not the PR's code.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'index.ts'
+      - 'config/**'
+      - 'handlers/**'
+      - 'tools/**'
+      - 'services/**'
+      - 'utils/**'
+      - 'types/**'
+      - 'scripts/ci-boot-smoke.mjs'
+      - 'scripts/evals/flows/25-published-boot-smoke.mjs'
+      - '.github/workflows/boot-smoke.yml'
+
+jobs:
+  boot-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Bead rmu: extended from {ubuntu, macos} × {20, 22} to add Windows
+        # (catches PowerShell-incompatible scripts) and Node 24 (current
+        # stable; default GitHub runner default from 2026-06).
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ['20.x', '22.x', '24.x']
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build local dist
+        run: npm run build
+
+      - name: Smoke — boot local dist (missing-key path, bead cma)
+        # Portable: scripts/ci-boot-smoke.mjs is a standalone node script that
+        # works on bash, PowerShell, and cmd.exe. Spawns dist/index.js with
+        # DEBUGGAI_API_KEY scrubbed from the child's env, sends initialize +
+        # tools/call via stdin, and asserts a structured -32001
+        # ConfigurationError that mentions DEBUGGAI_API_KEY.
+        run: node scripts/ci-boot-smoke.mjs
