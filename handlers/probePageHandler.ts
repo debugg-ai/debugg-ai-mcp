@@ -39,6 +39,7 @@ import {
 } from '../utils/tunnelContext.js';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
 import { reaggregateByOriginPath, mapConsoleSlice } from '../utils/harSummarizer.js';
+import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 
 const logger = new Logger({ module: 'probePageHandler' });
 
@@ -311,13 +312,6 @@ export async function probePageHandler(
       }
 
       results.push(result);
-
-      // Backend stores screenshots on the SurferPage row referenced by
-      // surfer_page_uuid; the inline screenshotB64 is no longer in capture
-      // output. v1: skip the per-result image content block; the screenshot
-      // is reachable via search_executions detail's surfer_page_uuid → SurferPage.
-      // (Future enhancement: fetch the SurferPage's presigned screenshot_url
-      // when input.captureScreenshots is true.)
     }
 
     const responsePayload: Record<string, any> = {
@@ -345,11 +339,35 @@ export async function probePageHandler(
 
     logger.toolComplete('probe_page', duration);
 
-    return {
-      content: [
-        { type: 'text', text: JSON.stringify(sanitizedPayload, null, 2) },
-      ],
-    };
+    const responseContent: ToolResponse['content'] = [
+      { type: 'text', text: JSON.stringify(sanitizedPayload, null, 2) },
+    ];
+
+    // Embed screenshots when captureScreenshots is true. The backend may return
+    // screenshotB64 or a URL-keyed field on browser.capture outputData.
+    if (input.captureScreenshots) {
+      const SCREENSHOT_URL_KEYS = ['screenshotB64', 'screenshot', 'screenshotUrl', 'screenshotUri', 'finalScreenshot'];
+      for (const node of captureNodes) {
+        const data: any = node?.outputData ?? {};
+        if (typeof data.screenshotB64 === 'string' && data.screenshotB64) {
+          responseContent.push(imageContentBlock(data.screenshotB64, 'image/png'));
+        } else {
+          let screenshotUrl: string | null = null;
+          for (const key of SCREENSHOT_URL_KEYS) {
+            if (key !== 'screenshotB64' && typeof data[key] === 'string' && data[key]) {
+              screenshotUrl = data[key] as string;
+              break;
+            }
+          }
+          if (screenshotUrl) {
+            const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
+            if (img) responseContent.push(imageContentBlock(img.data, img.mimeType));
+          }
+        }
+      }
+    }
+
+    return { content: responseContent };
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('probe_page', error as Error, duration);

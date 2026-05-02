@@ -19,6 +19,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { config } from '../config/index.js';
 import { toPaginationParams } from '../utils/pagination.js';
+import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 
 const logger = new Logger({ module: 'searchExecutionsHandler' });
 
@@ -52,7 +53,57 @@ export async function searchExecutionsHandler(
           executions: [execution],
         };
         logger.toolComplete('search_executions', Date.now() - start);
-        return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
+
+        const content: ToolResponse['content'] = [
+          { type: 'text', text: JSON.stringify(payload, null, 2) },
+        ];
+
+        const SCREENSHOT_URL_KEYS = ['finalScreenshot', 'screenshot', 'screenshotUrl', 'screenshotUri'];
+        const GIF_KEYS = ['runGif', 'gifUrl', 'gif', 'videoUrl', 'recordingUrl'];
+        const nodes: any[] = execution.nodeExecutions ?? [];
+        const subworkflowNode = nodes.find((n: any) => n.nodeType === 'subworkflow.run');
+
+        let screenshotEmbedded = false;
+        let screenshotUrl: string | null = null;
+        let gifUrl: string | null = null;
+
+        const screenshotB64 = subworkflowNode?.outputData?.screenshotB64;
+        if (typeof screenshotB64 === 'string' && screenshotB64) {
+          content.push(imageContentBlock(screenshotB64, 'image/png'));
+          screenshotEmbedded = true;
+        }
+
+        for (const node of nodes) {
+          const data = node.outputData ?? {};
+          if (!screenshotEmbedded && !screenshotUrl) {
+            for (const key of SCREENSHOT_URL_KEYS) {
+              if (typeof data[key] === 'string' && data[key]) {
+                screenshotUrl = data[key] as string;
+                break;
+              }
+            }
+          }
+          if (!gifUrl) {
+            for (const key of GIF_KEYS) {
+              if (typeof data[key] === 'string' && data[key]) {
+                gifUrl = data[key] as string;
+                break;
+              }
+            }
+          }
+          if ((screenshotEmbedded || screenshotUrl) && gifUrl) break;
+        }
+
+        if (!screenshotEmbedded && screenshotUrl) {
+          const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
+          if (img) content.push(imageContentBlock(img.data, img.mimeType));
+        }
+        if (gifUrl) {
+          const gif = await fetchImageAsBase64(gifUrl).catch(() => null);
+          if (gif) content.push(imageContentBlock(gif.data, 'image/gif'));
+        }
+
+        return { content };
       } catch (err: any) {
         if (err?.statusCode === 404 || err?.response?.status === 404) return notFound(input.uuid);
         throw err;
