@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — E2E test suite management (8 new MCP tools)
+
+Eight new tools for building and managing automated E2E test suites directly via MCP:
+
+- `create_test_suite` — Create a named test suite for a project
+- `search_test_suites` — List/search suites for a project with pagination and text filter
+- `delete_test_suite` — Soft-delete (disable) a test suite
+- `create_test_case` — Create a test case assigned to a suite (no auto-run)
+- `update_test_case` — Update a test case's name, description, or agent task description
+- `delete_test_case` — Soft-delete (disable) a test case
+- `run_test_suite` — Trigger all test cases in a suite asynchronously
+- `get_test_suite_results` — Fetch suite with per-test pass/fail outcomes and run history
+
+All tools support name-based resolution (projectName, suiteName) with the same case-insensitive exact-match + ambiguity handling as existing tools. All backed by `/api/v1/test-suites/` and `/api/v1/e2e-tests/` endpoints on the DebuggAI backend. 80 new unit + integration tests added.
+
 ### Fixed — MCP now validates local reachability BEFORE hitting the backend (fixes 5-min false-pass regression)
 
 - `check_app_in_browser` and `trigger_crawl` now do a pre-flight TCP probe to `127.0.0.1:<port>` before provisioning a backend tunnel key. If the dev server isn't listening, we return a structured `LocalServerUnreachable` error in ~ms instead of letting the browser agent burn its 5-minute step budget on `ERR_NGROK_8012`. Bead `1om`.

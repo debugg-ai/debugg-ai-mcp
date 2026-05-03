@@ -343,3 +343,81 @@ export interface ProbePageResponse {
   durationMs: number;
   results: ProbePageResult[];
 }
+
+// ── E2E Suite Management ──────────────────────────────────────────────────────
+
+const projectIdentifier = {
+  projectUuid: z.string().uuid().optional(),
+  projectName: z.string().min(1).optional(),
+};
+
+const suiteIdentifier = {
+  suiteUuid: z.string().uuid().optional(),
+  suiteName: z.string().min(1).optional(),
+};
+
+export const CreateTestSuiteInputSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  ...projectIdentifier,
+}).strict();
+
+export type CreateTestSuiteInput = z.infer<typeof CreateTestSuiteInputSchema>;
+
+export const SearchTestSuitesInputSchema = z.object({
+  ...projectIdentifier,
+  search: z.string().optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+}).strict();
+
+export type SearchTestSuitesInput = z.infer<typeof SearchTestSuitesInputSchema>;
+
+export const DeleteTestSuiteInputSchema = z.object({
+  ...suiteIdentifier,
+  ...projectIdentifier,
+}).strict();
+
+export type DeleteTestSuiteInput = z.infer<typeof DeleteTestSuiteInputSchema>;
+
+export const CreateTestCaseInputSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  agentTaskDescription: z.string().min(1),
+  ...suiteIdentifier,
+  ...projectIdentifier,
+  relativeUrl: z.string().regex(/^\//, 'Must start with /').optional(),
+  maxSteps: z.number().int().min(1).max(100).optional(),
+}).strict();
+
+export type CreateTestCaseInput = z.infer<typeof CreateTestCaseInputSchema>;
+
+export const UpdateTestCaseInputSchema = z.object({
+  testUuid: z.string().uuid(),
+  name: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  agentTaskDescription: z.string().min(1).optional(),
+}).strict();
+
+export type UpdateTestCaseInput = z.infer<typeof UpdateTestCaseInputSchema>;
+
+export const DeleteTestCaseInputSchema = z.object({
+  testUuid: z.string().uuid(),
+}).strict();
+
+export type DeleteTestCaseInput = z.infer<typeof DeleteTestCaseInputSchema>;
+
+export const RunTestSuiteInputSchema = z.object({
+  ...suiteIdentifier,
+  ...projectIdentifier,
+  targetUrl: z.string().url().optional(),
+}).strict();
+
+export type RunTestSuiteInput = z.infer<typeof RunTestSuiteInputSchema>;
+
+export const GetTestSuiteResultsInputSchema = z.object({
+  ...suiteIdentifier,
+  ...projectIdentifier,
+}).strict();
+
+export type GetTestSuiteResultsInput = z.infer<typeof GetTestSuiteResultsInputSchema>;

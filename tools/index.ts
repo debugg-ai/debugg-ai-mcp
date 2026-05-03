@@ -12,6 +12,16 @@ import { buildDeleteEnvironmentTool, buildValidatedDeleteEnvironmentTool } from 
 import { buildUpdateProjectTool, buildValidatedUpdateProjectTool } from './updateProject.js';
 import { buildDeleteProjectTool, buildValidatedDeleteProjectTool } from './deleteProject.js';
 import { buildCreateProjectTool, buildValidatedCreateProjectTool } from './createProject.js';
+import {
+  buildCreateTestSuiteTool, buildValidatedCreateTestSuiteTool,
+  buildSearchTestSuitesTool, buildValidatedSearchTestSuitesTool,
+  buildDeleteTestSuiteTool, buildValidatedDeleteTestSuiteTool,
+  buildCreateTestCaseTool, buildValidatedCreateTestCaseTool,
+  buildUpdateTestCaseTool, buildValidatedUpdateTestCaseTool,
+  buildDeleteTestCaseTool, buildValidatedDeleteTestCaseTool,
+  buildRunTestSuiteTool, buildValidatedRunTestSuiteTool,
+  buildGetTestSuiteResultsTool, buildValidatedGetTestSuiteResultsTool,
+} from './testSuiteTools.js';
 import { ProjectContext } from '../services/projectContext.js';
 
 let _tools: Tool[] | null = null;
@@ -35,6 +45,14 @@ export function initTools(ctx: ProjectContext | null): void {
     buildDeleteProjectTool(),
     buildSearchExecutionsTool(),
     buildCreateProjectTool(),
+    buildCreateTestSuiteTool(),
+    buildSearchTestSuitesTool(),
+    buildDeleteTestSuiteTool(),
+    buildCreateTestCaseTool(),
+    buildUpdateTestCaseTool(),
+    buildDeleteTestCaseTool(),
+    buildRunTestSuiteTool(),
+    buildGetTestSuiteResultsTool(),
   ];
   const validated: ValidatedTool[] = [
     buildValidatedTestPageChangesTool(ctx),
@@ -49,6 +67,14 @@ export function initTools(ctx: ProjectContext | null): void {
     buildValidatedDeleteProjectTool(),
     buildValidatedSearchExecutionsTool(),
     buildValidatedCreateProjectTool(),
+    buildValidatedCreateTestSuiteTool(),
+    buildValidatedSearchTestSuitesTool(),
+    buildValidatedDeleteTestSuiteTool(),
+    buildValidatedCreateTestCaseTool(),
+    buildValidatedUpdateTestCaseTool(),
+    buildValidatedDeleteTestCaseTool(),
+    buildValidatedRunTestSuiteTool(),
+    buildValidatedGetTestSuiteResultsTool(),
   ];
 
   _tools = tools;

@@ -520,6 +520,188 @@ export class DebuggAIServerClient  {
     await this.tx.post('api/v1/ngrok/revoke/', { ngrokKeyId });
   }
 
+  // ── E2E Suite Management ──────────────────────────────────────────────────
+
+  public async createTestSuite(input: {
+    name: string;
+    description: string;
+    projectUuid: string;
+  }): Promise<{ uuid: string; name: string; description: string | null; runStatus: string; testsCount: number }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const s = await this.tx.post<any>('api/v1/test-suites/', {
+      name: input.name,
+      description: input.description,
+      project: input.projectUuid,
+    });
+    return this.mapTestSuite(s);
+  }
+
+  public async listTestSuites(params: {
+    projectUuid: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; suites: Array<{ uuid: string; name: string; description: string | null; runStatus: string; testsCount: number; passRate: number | null; lastRunAt: string | null }> }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const { makePageInfo } = await import('../utils/pagination.js');
+    const page = params.page ?? 1;
+    const pageSize = params.pageSize ?? 20;
+    const query: Record<string, any> = { project: params.projectUuid, page, pageSize };
+    if (params.search) query.search = params.search;
+    const response = await this.tx.get<{ count: number; next: string | null; results: any[] }>(
+      'api/v1/test-suites/',
+      query,
+    );
+    return {
+      pageInfo: makePageInfo(page, pageSize, response?.count ?? 0, response?.next),
+      suites: (response?.results ?? []).map((s: any) => ({
+        uuid: s.uuid,
+        name: s.name,
+        description: s.description ?? null,
+        runStatus: s.runStatus ?? s.run_status ?? 'NEVER_RUN',
+        testsCount: s.testsCount ?? s.tests_count ?? 0,
+        passRate: s.passRate ?? s.pass_rate ?? null,
+        lastRunAt: s.lastRunAt ?? s.last_run_at ?? null,
+      })),
+    };
+  }
+
+  public async disableTestSuite(suiteUuid: string): Promise<{ uuid: string; isDisabled: boolean }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    await this.tx.post<any>(`api/v1/test-suites/${suiteUuid}/disable/`, {});
+    return { uuid: suiteUuid, isDisabled: true };
+  }
+
+  public async createTestCase(input: {
+    name: string;
+    description: string;
+    agentTaskDescription: string;
+    suiteUuid: string;
+    projectUuid: string;
+    relativeUrl?: string;
+    maxSteps?: number;
+  }): Promise<{ uuid: string; name: string; description: string; agentTaskDescription: string; suite: string; project: string; runCount: number }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const body: Record<string, any> = {
+      name: input.name,
+      description: input.description,
+      agent_task_description: input.agentTaskDescription,
+      suite: input.suiteUuid,
+      project: input.projectUuid,
+      run: false,
+    };
+    if (input.relativeUrl) body.relative_url = input.relativeUrl;
+    if (input.maxSteps) body.max_steps = input.maxSteps;
+    const t = await this.tx.post<any>('api/v1/e2e-tests/', body);
+    return {
+      uuid: t.uuid,
+      name: t.name,
+      description: t.description,
+      agentTaskDescription: t.agentTaskDescription ?? t.agent_task_description ?? '',
+      suite: t.suite ?? input.suiteUuid,
+      project: t.project ?? input.projectUuid,
+      runCount: t.runCount ?? t.run_count ?? 0,
+    };
+  }
+
+  public async updateTestCase(
+    testUuid: string,
+    patch: { name?: string; description?: string; agentTaskDescription?: string },
+  ): Promise<{ uuid: string; name: string; description: string; agentTaskDescription: string }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const body: Record<string, any> = {};
+    if (patch.name !== undefined) body.name = patch.name;
+    if (patch.description !== undefined) body.description = patch.description;
+    if (patch.agentTaskDescription !== undefined) body.agent_task_description = patch.agentTaskDescription;
+    const t = await this.tx.patch<any>(`api/v1/e2e-tests/${testUuid}/`, body);
+    return {
+      uuid: t.uuid,
+      name: t.name,
+      description: t.description,
+      agentTaskDescription: t.agentTaskDescription ?? t.agent_task_description ?? '',
+    };
+  }
+
+  public async disableTestCase(testUuid: string): Promise<{ uuid: string; isDisabled: boolean }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    await this.tx.post<any>(`api/v1/e2e-tests/${testUuid}/disable/`, {});
+    return { uuid: testUuid, isDisabled: true };
+  }
+
+  public async runTestSuite(
+    suiteUuid: string,
+    params: { targetUrl?: string },
+  ): Promise<{ suiteUuid: string; runStatus: string; testsTriggered: number }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const body: Record<string, any> = {};
+    if (params.targetUrl) body.target_url = params.targetUrl;
+    const s = await this.tx.post<any>(`api/v1/test-suites/${suiteUuid}/run/`, body);
+    return {
+      suiteUuid,
+      runStatus: s?.runStatus ?? s?.run_status ?? 'PENDING',
+      testsTriggered: (s?.tests ?? []).length,
+    };
+  }
+
+  public async getTestSuiteDetail(suiteUuid: string): Promise<{
+    uuid: string;
+    name: string;
+    runStatus: string;
+    testsCount: number;
+    passRate: number | null;
+    lastRunAt: string | null;
+    tests: Array<{
+      uuid: string;
+      name: string;
+      runCount: number;
+      passedRunsCount: number;
+      failedRunsCount: number;
+      passRate: number | null;
+      lastRun: { uuid: string; status: string; outcome: string; executionTime: number | null; timestamp: string } | null;
+    }>;
+  }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const s = await this.tx.get<any>(`api/v1/test-suites/${suiteUuid}/`);
+    const tests = s.tests ?? [];
+    return {
+      uuid: s.uuid,
+      name: s.name,
+      runStatus: s.runStatus ?? s.run_status ?? 'NEVER_RUN',
+      testsCount: tests.length,
+      passRate: s.passRate ?? s.pass_rate ?? null,
+      lastRunAt: s.lastRunAt ?? s.last_run_at ?? null,
+      tests: tests.map((t: any) => {
+        // Backend returns cur_run (latest run) per test in the suite detail view
+        const lastRun = t.curRun ?? t.cur_run ?? t.lastRun ?? t.last_run ?? null;
+        return {
+          uuid: t.uuid,
+          name: t.name,
+          runCount: t.runCount ?? t.run_count ?? 0,
+          passedRunsCount: t.passedRunsCount ?? t.passed_runs_count ?? 0,
+          failedRunsCount: t.failedRunsCount ?? t.failed_runs_count ?? 0,
+          passRate: t.passRate ?? t.pass_rate ?? null,
+          lastRun: lastRun ? {
+            uuid: lastRun.uuid,
+            status: lastRun.status,
+            outcome: lastRun.outcome,
+            executionTime: lastRun.executionTime ?? lastRun.execution_time ?? null,
+            timestamp: lastRun.timestamp,
+          } : null,
+        };
+      }),
+    };
+  }
+
+  private mapTestSuite(s: any): { uuid: string; name: string; description: string | null; runStatus: string; testsCount: number } {
+    return {
+      uuid: s.uuid,
+      name: s.name,
+      description: s.description ?? null,
+      runStatus: s.runStatus ?? s.run_status ?? 'NEVER_RUN',
+      testsCount: s.testsCount ?? s.tests_count ?? 0,
+    };
+  }
+
 }
 
 /**
