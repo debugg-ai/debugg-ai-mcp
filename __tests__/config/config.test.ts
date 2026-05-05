@@ -132,6 +132,64 @@ describe('config env var precedence', () => {
     expect(cfg.api.baseUrl).toBe('https://api.debugg.ai');
   });
 
+  describe('DEBUGGAI_DEV_MODE', () => {
+    beforeEach(() => {
+      savedEnv['DEBUGGAI_DEV_MODE'] = process.env.DEBUGGAI_DEV_MODE;
+      delete process.env.DEBUGGAI_DEV_MODE;
+    });
+    afterEach(() => {
+      if (savedEnv['DEBUGGAI_DEV_MODE'] !== undefined) {
+        process.env.DEBUGGAI_DEV_MODE = savedEnv['DEBUGGAI_DEV_MODE'];
+      } else {
+        delete process.env.DEBUGGAI_DEV_MODE;
+      }
+    });
+
+    test('devMode is false by default', () => {
+      process.env.DEBUGGAI_API_KEY = 'some-key';
+      const cfg = loadConfig();
+      expect(cfg.devMode).toBe(false);
+    });
+
+    test('DEBUGGAI_DEV_MODE=true enables dev mode', () => {
+      process.env.DEBUGGAI_API_KEY = 'some-key';
+      process.env.DEBUGGAI_DEV_MODE = 'true';
+      const cfg = loadConfig();
+      expect(cfg.devMode).toBe(true);
+    });
+
+    test('DEBUGGAI_DEV_MODE=1 enables dev mode', () => {
+      process.env.DEBUGGAI_API_KEY = 'some-key';
+      process.env.DEBUGGAI_DEV_MODE = '1';
+      const cfg = loadConfig();
+      expect(cfg.devMode).toBe(true);
+    });
+
+    test('DEBUGGAI_DEV_MODE accepts yes / on (case-insensitive)', () => {
+      process.env.DEBUGGAI_API_KEY = 'some-key';
+      for (const v of ['yes', 'YES', 'on', 'ON']) {
+        process.env.DEBUGGAI_DEV_MODE = v;
+        const cfg = loadConfig();
+        expect(cfg.devMode).toBe(true);
+      }
+    });
+
+    test('dev mode defaults baseUrl to http://localhost:8012', () => {
+      process.env.DEBUGGAI_API_KEY = 'some-key';
+      process.env.DEBUGGAI_DEV_MODE = 'true';
+      const cfg = loadConfig();
+      expect(cfg.api.baseUrl).toBe('http://localhost:8012');
+    });
+
+    test('explicit DEBUGGAI_API_URL overrides dev mode default baseUrl', () => {
+      process.env.DEBUGGAI_API_KEY = 'some-key';
+      process.env.DEBUGGAI_DEV_MODE = 'true';
+      process.env.DEBUGGAI_API_URL = 'http://localhost:3000';
+      const cfg = loadConfig();
+      expect(cfg.api.baseUrl).toBe('http://localhost:3000');
+    });
+  });
+
   describe('telemetry posthogApiKey resolution', () => {
     let saved: Record<string, string | undefined>;
     beforeEach(() => {

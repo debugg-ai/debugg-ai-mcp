@@ -43,6 +43,11 @@ function isTelemetryDisabled(): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
+function isDevMode(): boolean {
+  const v = (process.env.DEBUGGAI_DEV_MODE || '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
 function resolvePosthogKey(): string | undefined {
   if (isTelemetryDisabled()) return undefined;
   return process.env.POSTHOG_API_KEY || DEBUGGAI_DEFAULT_POSTHOG_KEY;
@@ -53,6 +58,7 @@ const configSchema = z.object({
     name: z.string().default('DebuggAI MCP Server'),
     version: z.string(),
   }),
+  devMode: z.boolean().default(false),
   api: z.object({
     // key is validated at tool-call time (not at boot) so MCP clients can surface
     // a proper error message instead of seeing the subprocess die → "Failed to
@@ -80,11 +86,12 @@ export function loadConfig(): Config {
       name: 'DebuggAI MCP Server',
       version: _version,
     },
+    devMode: isDevMode(),
     api: {
       // Priority: DEBUGGAI_API_TOKEN → DEBUGGAI_JWT_TOKEN → DEBUGGAI_API_KEY
       key: process.env.DEBUGGAI_API_TOKEN || process.env.DEBUGGAI_JWT_TOKEN || process.env.DEBUGGAI_API_KEY || '',
       tokenType: (process.env.DEBUGGAI_TOKEN_TYPE as 'token' | 'bearer') || 'token',
-      baseUrl: process.env.DEBUGGAI_API_URL || 'https://api.debugg.ai',
+      baseUrl: process.env.DEBUGGAI_API_URL || (isDevMode() ? 'http://localhost:8012' : 'https://api.debugg.ai'),
     },
     defaults: {},
     logging: {
@@ -114,6 +121,7 @@ let _config: Config | undefined;
 
 export const config = {
   get server() { return getConfig().server; },
+  get devMode() { return getConfig().devMode; },
   get api() { return getConfig().api; },
   get defaults() { return getConfig().defaults; },
   get logging() { return getConfig().logging; },
@@ -125,4 +133,8 @@ function getConfig(): Config {
     _config = loadConfig();
   }
   return _config;
+}
+
+export function _resetConfigForTest(): void {
+  _config = undefined;
 }

@@ -62,63 +62,68 @@ export async function runTestSuiteHandler(
           }
         }
 
-        // Reuse an existing tunnel for this port if one is already active.
-        const reused = findExistingTunnel(ctx);
-        if (reused) {
-          effectiveTargetUrl = reused.targetUrl ?? input.targetUrl;
-          tunnelId = reused.tunnelId;
+        if (config.devMode) {
+          // Dev mode: local backend can reach localhost directly — no tunnel needed.
+          logger.info(`run_test_suite: dev mode — using localhost URL directly: ${input.targetUrl}`);
         } else {
-          // Provision a new tunnel.
-          let tunnel;
-          try {
-            tunnel = await client.tunnels!.provisionWithRetry();
-          } catch (provisionError) {
-            const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
-            const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
-            return errorResp(
-              'TunnelProvisionFailed',
-              `Failed to provision tunnel for ${input.targetUrl}. (Detail: ${msg})${diag}`,
-            );
-          }
-          acquiredKeyId = tunnel.keyId;
-
-          let tunneled;
-          try {
-            tunneled = await ensureTunnel(
-              ctx,
-              tunnel.tunnelKey,
-              tunnel.tunnelId,
-              tunnel.keyId,
-              () => client.revokeNgrokKey(tunnel.keyId),
-            );
-          } catch (tunnelError) {
-            const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
-            return errorResp('TunnelCreationFailed', `Tunnel creation failed for ${input.targetUrl}. (Detail: ${msg})`);
-          }
-
-          // Health probe — catches ERR_NGROK_8012 and bind mismatches before
-          // the remote agent wastes steps trying to reach the server.
-          if (tunneled.targetUrl) {
-            const health = await probeTunnelHealth(tunneled.targetUrl);
-            if (!health.healthy) {
-              if (tunneled.tunnelId) {
-                tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
-                  logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
-                );
-              }
+          // Reuse an existing tunnel for this port if one is already active.
+          const reused = findExistingTunnel(ctx);
+          if (reused) {
+            effectiveTargetUrl = reused.targetUrl ?? input.targetUrl;
+            tunnelId = reused.tunnelId;
+          } else {
+            // Provision a new tunnel.
+            let tunnel;
+            try {
+              tunnel = await client.tunnels!.provisionWithRetry();
+            } catch (provisionError) {
+              const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
+              const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
               return errorResp(
-                'TunnelTrafficBlocked',
-                `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,
-                { code: health.code, ngrokErrorCode: health.ngrokErrorCode, elapsedMs: health.elapsedMs },
+                'TunnelProvisionFailed',
+                `Failed to provision tunnel for ${input.targetUrl}. (Detail: ${msg})${diag}`,
               );
             }
+            acquiredKeyId = tunnel.keyId;
+
+            let tunneled;
+            try {
+              tunneled = await ensureTunnel(
+                ctx,
+                tunnel.tunnelKey,
+                tunnel.tunnelId,
+                tunnel.keyId,
+                () => client.revokeNgrokKey(tunnel.keyId),
+              );
+            } catch (tunnelError) {
+              const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
+              return errorResp('TunnelCreationFailed', `Tunnel creation failed for ${input.targetUrl}. (Detail: ${msg})`);
+            }
+
+            // Health probe — catches ERR_NGROK_8012 and bind mismatches before
+            // the remote agent wastes steps trying to reach the server.
+            if (tunneled.targetUrl) {
+              const health = await probeTunnelHealth(tunneled.targetUrl);
+              if (!health.healthy) {
+                if (tunneled.tunnelId) {
+                  tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
+                    logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
+                  );
+                }
+                return errorResp(
+                  'TunnelTrafficBlocked',
+                  `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,
+                  { code: health.code, ngrokErrorCode: health.ngrokErrorCode, elapsedMs: health.elapsedMs },
+                );
+              }
+            }
+
+            effectiveTargetUrl = tunneled.targetUrl ?? input.targetUrl;
+            tunnelId = tunneled.tunnelId;
           }
 
-          effectiveTargetUrl = tunneled.targetUrl ?? input.targetUrl;
-          tunnelId = tunneled.tunnelId;
+          logger.info(`run_test_suite: localhost detected, tunneled ${input.targetUrl} → ${effectiveTargetUrl}`);
         }
-
-        logger.info(`run_test_suite: localhost detected, tunneled ${input.targetUrl} → ${effectiveTargetUrl}`);
       }
     }
 

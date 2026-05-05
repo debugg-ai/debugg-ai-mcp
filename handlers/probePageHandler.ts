@@ -118,64 +118,70 @@ export async function probePageHandler(
           }
         }
 
-        // Reuse existing tunnel for this port if any; otherwise provision.
-        const reused = findExistingTunnel(ctx);
-        if (reused) {
-          targetContexts.push(reused);
+        if (config.devMode) {
+          // Dev mode: local backend can reach localhost directly — no tunnel needed.
+          logger.info(`probe_page: dev mode — using localhost URL directly: ${ctx.originalUrl}`);
+          targetContexts.push(ctx);
         } else {
-          let tunnel;
-          try {
-            tunnel = await client.tunnels!.provisionWithRetry();
-          } catch (provisionError) {
-            const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
-            const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
-            throw new Error(
-              `Failed to provision tunnel for ${ctx.originalUrl}. ` +
-              `(Detail: ${msg})${diag}`
-            );
-          }
-          acquiredKeyIds.push(tunnel.keyId);
-          let tunneled: TunnelContext;
-          try {
-            tunneled = await ensureTunnel(
-              ctx,
-              tunnel.tunnelKey,
-              tunnel.tunnelId,
-              tunnel.keyId,
-              () => client.revokeNgrokKey(tunnel.keyId),
-            );
-          } catch (tunnelError) {
-            const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
-            throw new Error(
-              `Tunnel creation failed for ${ctx.originalUrl}. (Detail: ${msg})`
-            );
-          }
-
-          // Tunnel health probe: catch the IPv4/IPv6 bind / dead-server case
-          // before committing to a full backend execution.
-          if (tunneled.targetUrl) {
-            const health = await probeTunnelHealth(tunneled.targetUrl);
-            if (!health.healthy) {
-              const payload = {
-                error: 'TunnelTrafficBlocked',
-                message: `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,
-                detail: {
-                  code: health.code,
-                  status: health.status,
-                  ngrokErrorCode: health.ngrokErrorCode,
-                  elapsedMs: health.elapsedMs,
-                },
-              };
-              if (tunneled.tunnelId) {
-                tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
-                  logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
-                );
-              }
-              return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+          // Reuse existing tunnel for this port if any; otherwise provision.
+          const reused = findExistingTunnel(ctx);
+          if (reused) {
+            targetContexts.push(reused);
+          } else {
+            let tunnel;
+            try {
+              tunnel = await client.tunnels!.provisionWithRetry();
+            } catch (provisionError) {
+              const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
+              const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
+              throw new Error(
+                `Failed to provision tunnel for ${ctx.originalUrl}. ` +
+                `(Detail: ${msg})${diag}`
+              );
             }
-          }
+            acquiredKeyIds.push(tunnel.keyId);
+            let tunneled: TunnelContext;
+            try {
+              tunneled = await ensureTunnel(
+                ctx,
+                tunnel.tunnelKey,
+                tunnel.tunnelId,
+                tunnel.keyId,
+                () => client.revokeNgrokKey(tunnel.keyId),
+              );
+            } catch (tunnelError) {
+              const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
+              throw new Error(
+                `Tunnel creation failed for ${ctx.originalUrl}. (Detail: ${msg})`
+              );
+            }
 
-          targetContexts.push(tunneled);
+            // Tunnel health probe: catch the IPv4/IPv6 bind / dead-server case
+            // before committing to a full backend execution.
+            if (tunneled.targetUrl) {
+              const health = await probeTunnelHealth(tunneled.targetUrl);
+              if (!health.healthy) {
+                const payload = {
+                  error: 'TunnelTrafficBlocked',
+                  message: `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,
+                  detail: {
+                    code: health.code,
+                    status: health.status,
+                    ngrokErrorCode: health.ngrokErrorCode,
+                    elapsedMs: health.elapsedMs,
+                  },
+                };
+                if (tunneled.tunnelId) {
+                  tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
+                    logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
+                  );
+                }
+                return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+              }
+            }
+
+            targetContexts.push(tunneled);
+          }
         }
       } else {
         // Public URL — no tunnel needed.

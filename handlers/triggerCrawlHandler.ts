@@ -106,58 +106,63 @@ export async function triggerCrawlHandler(
         }
       }
 
-      if (progressCallback) {
-        await progressCallback({ progress: 1, total: 4, message: 'Provisioning secure tunnel for localhost...' });
-      }
-
-      const reused = findExistingTunnel(ctx);
-      if (reused) {
-        ctx = reused;
+      if (config.devMode) {
+        // Dev mode: local backend can reach localhost directly — no tunnel needed.
+        logger.info(`trigger_crawl: dev mode — using localhost URL directly: ${ctx.originalUrl}`);
       } else {
-        let tunnel;
-        try {
-          tunnel = await client.tunnels!.provisionWithRetry();
-        } catch (provisionError) {
-          const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
-          const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
-          throw new Error(
-            `Failed to provision tunnel for ${ctx.originalUrl}. ` +
-            `The remote browser needs a secure tunnel to reach your local dev server. ` +
-            `(Detail: ${msg})${diag}`,
-          );
+        if (progressCallback) {
+          await progressCallback({ progress: 1, total: 4, message: 'Provisioning secure tunnel for localhost...' });
         }
-        keyId = tunnel.keyId;
-        ctx = await ensureTunnel(
-          ctx,
-          tunnel.tunnelKey,
-          tunnel.tunnelId,
-          tunnel.keyId,
-          () => client.revokeNgrokKey(tunnel.keyId),
-        );
-      }
 
-      // Bead 1om: post-tunnel health check — verify traffic actually flows.
-      if (ctx.targetUrl) {
-        const health = await probeTunnelHealth(ctx.targetUrl);
-        if (!health.healthy) {
-          const payload = {
-            error: 'TunnelTrafficBlocked',
-            message: `Tunnel was established but traffic isn't reaching the dev server. ${health.detail ?? ''} Common causes: dev server binds to 0.0.0.0 or ::1 but not 127.0.0.1; dev server crashed; firewall.`,
-            detail: {
-              code: health.code,
-              status: health.status,
-              ngrokErrorCode: health.ngrokErrorCode,
-              elapsedMs: health.elapsedMs,
-            },
-          };
-          logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
-          if (ctx.tunnelId) {
-            tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
-              logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
+        const reused = findExistingTunnel(ctx);
+        if (reused) {
+          ctx = reused;
+        } else {
+          let tunnel;
+          try {
+            tunnel = await client.tunnels!.provisionWithRetry();
+          } catch (provisionError) {
+            const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
+            const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
+            throw new Error(
+              `Failed to provision tunnel for ${ctx.originalUrl}. ` +
+              `The remote browser needs a secure tunnel to reach your local dev server. ` +
+              `(Detail: ${msg})${diag}`,
             );
           }
-          keyId = undefined;
-          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+          keyId = tunnel.keyId;
+          ctx = await ensureTunnel(
+            ctx,
+            tunnel.tunnelKey,
+            tunnel.tunnelId,
+            tunnel.keyId,
+            () => client.revokeNgrokKey(tunnel.keyId),
+          );
+        }
+
+        // Bead 1om: post-tunnel health check — verify traffic actually flows.
+        if (ctx.targetUrl) {
+          const health = await probeTunnelHealth(ctx.targetUrl);
+          if (!health.healthy) {
+            const payload = {
+              error: 'TunnelTrafficBlocked',
+              message: `Tunnel was established but traffic isn't reaching the dev server. ${health.detail ?? ''} Common causes: dev server binds to 0.0.0.0 or ::1 but not 127.0.0.1; dev server crashed; firewall.`,
+              detail: {
+                code: health.code,
+                status: health.status,
+                ngrokErrorCode: health.ngrokErrorCode,
+                elapsedMs: health.elapsedMs,
+              },
+            };
+            logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
+            if (ctx.tunnelId) {
+              tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
+                logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
+              );
+            }
+            keyId = undefined;
+            return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+          }
         }
       }
     }
