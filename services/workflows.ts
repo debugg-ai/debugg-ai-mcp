@@ -137,7 +137,22 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
     },
 
     async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
-      return service.findTemplateByName('app evaluation');
+      // Try keywords in priority order — allows prod ('app evaluation') and
+      // dev backends with different naming ('Browser Use Evaluation Workflow Template')
+      // to both resolve without config changes. 'evaluation workflow' is specific
+      // enough to exclude 'Browser Use Evaluation Brain'.
+      const envOverride = process.env.DEBUGGAI_EVAL_TEMPLATE;
+      const keywords = envOverride
+        ? [envOverride]
+        : ['app evaluation', 'evaluation workflow'];
+      for (const keyword of keywords) {
+        try {
+          return await service.findTemplateByName(keyword);
+        } catch {
+          // keyword not matched on this backend, try next
+        }
+      }
+      return null;
     },
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {
