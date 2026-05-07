@@ -137,22 +137,33 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
     },
 
     async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
-      // Try keywords in priority order — allows prod ('app evaluation') and
-      // dev backends with different naming ('Browser Use Evaluation Workflow Template')
-      // to both resolve without config changes. 'evaluation workflow' is specific
-      // enough to exclude 'Browser Use Evaluation Brain'.
+      // Fetch once, try keywords in-memory so we only hit the API once and
+      // preserve the full available-templates list for the error message.
+      const response = await tx.get<{ results: WorkflowTemplate[] }>(
+        'api/v1/workflows/',
+        { isTemplate: true },
+      );
+      const templates = response?.results ?? [];
+      if (templates.length === 0) return null;
+
       const envOverride = process.env.DEBUGGAI_EVAL_TEMPLATE;
       const keywords = envOverride
         ? [envOverride]
         : ['app evaluation', 'evaluation workflow'];
+
       for (const keyword of keywords) {
-        try {
-          return await service.findTemplateByName(keyword);
-        } catch {
-          // keyword not matched on this backend, try next
-        }
+        const match = templates.find(t => t.name.toLowerCase().includes(keyword.toLowerCase()));
+        if (match) return match;
       }
-      return null;
+
+      // No keyword matched — throw with full list so the caller can diagnose
+      // which templates exist and add the right one.
+      const names = templates.map(t => `"${t.name}"`).join(', ');
+      throw new Error(
+        `No evaluation workflow template found (tried: ${keywords.map(k => `"${k}"`).join(', ')}). ` +
+        `Available templates: ${names}. ` +
+        `Add a template whose name contains one of the tried keywords, or set DEBUGGAI_EVAL_TEMPLATE=<keyword>.`,
+      );
     },
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {

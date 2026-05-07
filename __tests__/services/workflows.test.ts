@@ -82,17 +82,17 @@ describe('findEvaluationTemplate()', () => {
     expect(result).toBeNull();
   });
 
-  test('results exist but none match any evaluation keyword: returns null', async () => {
+  test('results exist but none match any evaluation keyword: throws with available-templates list', async () => {
     const templates = [
       makeTemplate({ uuid: 't1', name: 'Smoke Test Runner' }),
       makeTemplate({ uuid: 't2', name: 'Performance Benchmark' }),
     ];
     mockGet.mockResolvedValue({ results: templates });
 
-    // All fallback keywords exhausted — returns null so the handler can
-    // surface "template not found" instead of an unhandled exception.
-    const result = await service.findEvaluationTemplate();
-    expect(result).toBeNull();
+    // Must throw — preserves the full available-templates list for diagnosis.
+    await expect(service.findEvaluationTemplate()).rejects.toThrow(/No evaluation workflow template found/);
+    await expect(service.findEvaluationTemplate()).rejects.toThrow(/Smoke Test Runner/);
+    await expect(service.findEvaluationTemplate()).rejects.toThrow(/DEBUGGAI_EVAL_TEMPLATE/);
   });
 
   test('multiple templates: picks the correct one', async () => {
