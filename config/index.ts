@@ -91,7 +91,7 @@ export function loadConfig(): Config {
       // Priority: DEBUGGAI_API_TOKEN → DEBUGGAI_JWT_TOKEN → DEBUGGAI_API_KEY
       key: process.env.DEBUGGAI_API_TOKEN || process.env.DEBUGGAI_JWT_TOKEN || process.env.DEBUGGAI_API_KEY || '',
       tokenType: (process.env.DEBUGGAI_TOKEN_TYPE as 'token' | 'bearer') || 'token',
-      baseUrl: process.env.DEBUGGAI_API_URL || (isDevMode() ? 'http://localhost:8012' : 'https://api.debugg.ai'),
+      baseUrl: process.env.DEBUGGAI_API_URL || 'https://api.debugg.ai',
     },
     defaults: {},
     logging: {

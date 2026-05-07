@@ -174,19 +174,19 @@ describe('config env var precedence', () => {
       }
     });
 
-    test('dev mode defaults baseUrl to http://localhost:8012', () => {
+    test('dev mode does NOT change baseUrl — prod is always the default', () => {
       process.env.DEBUGGAI_API_KEY = 'some-key';
       process.env.DEBUGGAI_DEV_MODE = 'true';
       const cfg = loadConfig();
-      expect(cfg.api.baseUrl).toBe('http://localhost:8012');
+      expect(cfg.api.baseUrl).toBe('https://api.debugg.ai');
     });
 
-    test('explicit DEBUGGAI_API_URL overrides dev mode default baseUrl', () => {
+    test('DEBUGGAI_API_URL overrides the prod default even in dev mode', () => {
       process.env.DEBUGGAI_API_KEY = 'some-key';
       process.env.DEBUGGAI_DEV_MODE = 'true';
-      process.env.DEBUGGAI_API_URL = 'http://localhost:3000';
+      process.env.DEBUGGAI_API_URL = 'http://localhost:8012';
       const cfg = loadConfig();
-      expect(cfg.api.baseUrl).toBe('http://localhost:3000');
+      expect(cfg.api.baseUrl).toBe('http://localhost:8012');
     });
   });
 
