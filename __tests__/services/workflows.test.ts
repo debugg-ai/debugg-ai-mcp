@@ -82,17 +82,15 @@ describe('findEvaluationTemplate()', () => {
     expect(result).toBeNull();
   });
 
-  test('results exist but none match any evaluation keyword: throws with available-templates list', async () => {
+  test('results exist but none match "app evaluation": throws with available-templates list', async () => {
     const templates = [
       makeTemplate({ uuid: 't1', name: 'Smoke Test Runner' }),
       makeTemplate({ uuid: 't2', name: 'Performance Benchmark' }),
     ];
     mockGet.mockResolvedValue({ results: templates });
 
-    // Must throw — preserves the full available-templates list for diagnosis.
-    await expect(service.findEvaluationTemplate()).rejects.toThrow(/No evaluation workflow template found/);
+    await expect(service.findEvaluationTemplate()).rejects.toThrow(/No workflow template matching "app evaluation"/);
     await expect(service.findEvaluationTemplate()).rejects.toThrow(/Smoke Test Runner/);
-    await expect(service.findEvaluationTemplate()).rejects.toThrow(/DEBUGGAI_EVAL_TEMPLATE/);
   });
 
   test('multiple templates: picks the correct one', async () => {
@@ -106,22 +104,6 @@ describe('findEvaluationTemplate()', () => {
     const result = await service.findEvaluationTemplate();
 
     expect(result!.uuid).toBe('t2');
-  });
-
-  test('fallback keyword matches dev-backend template when prod keyword absent', async () => {
-    // Dev backends may name the template 'Browser Use Evaluation Workflow Template'
-    // rather than 'App Evaluation ...'. The fallback keyword 'evaluation workflow'
-    // should match it without matching 'Browser Use Evaluation Brain'.
-    const templates = [
-      makeTemplate({ uuid: 'brain-1', name: 'Browser Use Evaluation Brain' }),
-      makeTemplate({ uuid: 'eval-wf', name: 'Browser Use Evaluation Workflow Template' }),
-      makeTemplate({ uuid: 'crawl-1', name: 'Raw Crawl Workflow Template' }),
-    ];
-    mockGet.mockResolvedValue({ results: templates });
-
-    const result = await service.findEvaluationTemplate();
-
-    expect(result!.uuid).toBe('eval-wf');
   });
 });
 
