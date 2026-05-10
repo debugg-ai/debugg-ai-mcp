@@ -56,14 +56,14 @@ function makeExecution(overrides: Partial<WorkflowExecution> = {}): WorkflowExec
 // ── findEvaluationTemplate ───────────────────────────────────────────────────
 
 describe('findEvaluationTemplate()', () => {
-  test('happy path: returns template whose name contains "app evaluation" (case-insensitive)', async () => {
-    const template = makeTemplate({ name: 'My App Evaluation Template' });
-    mockGet.mockResolvedValue({ results: [template] });
+  test('happy path: matches "App Evaluation Workflow Template" not "App Evaluation Brain"', async () => {
+    const brain = makeTemplate({ uuid: 'brain', name: 'App Evaluation Brain' });
+    const wrapper = makeTemplate({ uuid: 'wrapper', name: 'App Evaluation Workflow Template' });
+    mockGet.mockResolvedValue({ results: [brain, wrapper] });
 
     const result = await service.findEvaluationTemplate();
 
-    expect(mockGet).toHaveBeenCalledWith('api/v1/workflows/', { isTemplate: true });
-    expect(result).toEqual(template);
+    expect(result!.uuid).toBe('wrapper');
   });
 
   test('empty results: returns null', async () => {
@@ -82,21 +82,21 @@ describe('findEvaluationTemplate()', () => {
     expect(result).toBeNull();
   });
 
-  test('results exist but none match "app evaluation": throws with available-templates list', async () => {
+  test('results exist but none match "app evaluation workflow": throws with available-templates list', async () => {
     const templates = [
       makeTemplate({ uuid: 't1', name: 'Smoke Test Runner' }),
-      makeTemplate({ uuid: 't2', name: 'Performance Benchmark' }),
+      makeTemplate({ uuid: 't2', name: 'App Evaluation Brain' }),
     ];
     mockGet.mockResolvedValue({ results: templates });
 
-    await expect(service.findEvaluationTemplate()).rejects.toThrow(/No workflow template matching "app evaluation"/);
+    await expect(service.findEvaluationTemplate()).rejects.toThrow(/No workflow template matching "app evaluation workflow"/);
     await expect(service.findEvaluationTemplate()).rejects.toThrow(/Smoke Test Runner/);
   });
 
   test('multiple templates: picks the correct one', async () => {
     const templates = [
       makeTemplate({ uuid: 't1', name: 'Something Else' }),
-      makeTemplate({ uuid: 't2', name: 'Full App Evaluation v2' }),
+      makeTemplate({ uuid: 't2', name: 'Full App Evaluation Workflow v2' }),
       makeTemplate({ uuid: 't3', name: 'Another Workflow' }),
     ];
     mockGet.mockResolvedValue({ results: templates });

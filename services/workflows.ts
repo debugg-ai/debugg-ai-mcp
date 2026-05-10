@@ -137,7 +137,9 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
     },
 
     async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
-      const keyword = process.env.DEBUGGAI_EVAL_TEMPLATE || 'app evaluation';
+      // 'app evaluation workflow' is specific enough to skip 'App Evaluation Brain'
+      // (subworkflow, no browser lifecycle) which also contains 'app evaluation'.
+      const keyword = process.env.DEBUGGAI_EVAL_TEMPLATE || 'app evaluation workflow';
       return service.findTemplateByName(keyword);
     },
 
