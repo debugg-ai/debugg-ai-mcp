@@ -56,7 +56,10 @@ import type {
             const msg =
               typeof data === 'string'
                 ? data
-                : data.detail || data.message || data.error || JSON.stringify(data);
+                : (typeof data.detail === 'string' ? data.detail : null) ??
+                  (typeof data.message === 'string' ? data.message : null) ??
+                  (typeof data.error === 'string' ? data.error : null) ??
+                  JSON.stringify(data);
             const newErr = new Error(String(msg));
             (newErr as any).statusCode = err.response?.status;
             (newErr as any).responseData = data;
