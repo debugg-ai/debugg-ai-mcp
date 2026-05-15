@@ -137,11 +137,16 @@ export function handleExternalServiceError(
     );
   }
 
-  logger.error('Unknown external service error', { serviceName, operation, error });
+  // Non-Error thrown value — serialize properly so the caller can diagnose.
+  // String(plainObj) → "[object Object]"; JSON.stringify exposes the fields.
+  const serialized = (() => {
+    try { return JSON.stringify(error); } catch { return String(error); }
+  })();
+  logger.error('Unknown external service error', { serviceName, operation, error: serialized });
   return new MCPError(
     MCPErrorCode.EXTERNAL_SERVICE_ERROR,
-    `${serviceName} error: ${String(error)}`,
-    { serviceName, operation, originalError: String(error) }
+    `${serviceName} error: ${serialized}`,
+    { serviceName, operation, originalError: serialized }
   );
 }
 

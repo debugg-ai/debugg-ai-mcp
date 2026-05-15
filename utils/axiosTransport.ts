@@ -53,12 +53,14 @@ import type {
         (err) => {
           const data = err.response?.data;
           if (data) {
+            const strField = (v: unknown): string | null =>
+              typeof v === 'string' && v ? v : null;
             const msg =
               typeof data === 'string'
                 ? data
-                : (typeof data.detail === 'string' ? data.detail : null) ??
-                  (typeof data.message === 'string' ? data.message : null) ??
-                  (typeof data.error === 'string' ? data.error : null) ??
+                : strField(data.detail) ??
+                  strField(data.message) ??
+                  strField(data.error) ??
                   JSON.stringify(data);
             const newErr = new Error(String(msg));
             (newErr as any).statusCode = err.response?.status;
