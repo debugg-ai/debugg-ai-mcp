@@ -82,16 +82,7 @@ class TunnelManager {
   private activeTunnels = new Map<string, TunnelInfo>();
   private pendingTunnels = new Map<number, Promise<TunnelInfo>>();
   private initialized = false;
-  // Default 5 min — at $0.30/endpoint-hour, 55 min cost $0.28/tunnel even idle.
-  // Override with DEBUGGAI_TUNNEL_TIMEOUT_MINS (integer, 1–120).
-  private readonly TUNNEL_TIMEOUT_MS = (() => {
-    const raw = process.env.DEBUGGAI_TUNNEL_TIMEOUT_MINS;
-    if (raw) {
-      const n = parseInt(raw, 10);
-      if (Number.isFinite(n) && n >= 1 && n <= 120) return n * 60 * 1000;
-    }
-    return 5 * 60 * 1000;
-  })();
+  private readonly TUNNEL_TIMEOUT_MS = 55 * 60 * 1000;
   /**
    * Bead `3th`: registry-entry freshness window. An entry not touched within
    * this many ms is treated as stale even if its owner PID is alive — defends
