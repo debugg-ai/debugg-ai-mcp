@@ -12,26 +12,36 @@ on:
       - 'test-config.json'
       - '.claude/**'
 
+# Serialize publish runs. Two pushes landing close together used to race the
+# version-bump commit — the loser's `git push` failed non-fast-forward.
+concurrency:
+  group: publish-main
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write     # push the version-bump commit back to main
       packages: write
-    
+      id-token: write      # OIDC trusted publishing to npm (no NPM_TOKEN needed)
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Fetch full history for proper versioning
-        
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '22'
         registry-url: 'https://registry.npmjs.org'
         cache: 'npm'
-        
+
+    - name: Upgrade npm (OIDC trusted publishing requires npm >= 11.5.1)
+      run: npm install -g npm@latest
+
     - name: Install dependencies
       run: npm ci --ignore-scripts
 
@@ -39,7 +49,7 @@ jobs:
       run: npm test
       env:
         DEBUGGAI_API_KEY: 'test-api-key-for-testing'
-        
+
     - name: Build project
       run: npm run build
 
@@ -67,18 +77,22 @@ jobs:
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
+        # Re-sync to the live tip of main before committing the bump so the push
+        # can't be rejected non-fast-forward if main advanced since checkout.
+        git fetch origin main
+        git reset --hard origin/main
         npm version "$BUMP_TYPE" --no-git-tag-version
         NEW_VERSION=$(node -p "require('./package.json').version")
         git add package.json package-lock.json
         git commit -m "chore: bump version to $NEW_VERSION ($BUMP_TYPE)"
-        git push
+        git push origin HEAD:main
 
     - name: Check if version already exists on NPM
       id: version_check
       run: |
         PACKAGE_NAME=$(node -p "require('./package.json').name")
         PACKAGE_VERSION=$(node -p "require('./package.json').version")
-        
+
         if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >/dev/null 2>&1; then
           echo "Version $PACKAGE_VERSION already exists on NPM"
           echo "should_publish=false" >> $GITHUB_OUTPUT
@@ -86,16 +100,14 @@ jobs:
           echo "Version $PACKAGE_VERSION does not exist on NPM, proceeding with publish"
           echo "should_publish=true" >> $GITHUB_OUTPUT
         fi
-        
+
         echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
         echo "package_version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
-        
-    - name: Publish to NPM
+
+    - name: Publish to NPM (OIDC trusted publishing)
       if: steps.version_check.outputs.should_publish == 'true'
       run: npm publish --access public
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        
+
     - name: Create GitHub Release
       if: steps.version_check.outputs.should_publish == 'true'
       uses: softprops/action-gh-release@v2
@@ -104,17 +116,17 @@ jobs:
         name: Release v${{ steps.version_check.outputs.package_version }}
         body: |
           Release of ${{ steps.version_check.outputs.package_name }} version ${{ steps.version_check.outputs.package_version }}
-          
+
           ## Changes
           See [CHANGELOG.md](https://github.com/debugg-ai/debugg-ai-mcp/blob/main/CHANGELOG.md) for details.
-          
+
           ## Installation
           ```bash
           npx ${{ steps.version_check.outputs.package_name }}
           ```
         draft: false
         prerelease: false
-        
+
     - name: Skip publish (version exists)
       if: steps.version_check.outputs.should_publish == 'false'
       run: |
