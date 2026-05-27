@@ -116,8 +116,39 @@ describe('findTemplateByName()', () => {
 
     const result = await service.findTemplateByName('raw crawl');
 
-    expect(mockGet).toHaveBeenCalledWith('api/v1/workflows/', { isTemplate: true });
+    expect(mockGet).toHaveBeenCalledWith('api/v1/workflows/', { isTemplate: true, search: 'raw crawl', page: 1 });
     expect(result).toEqual(template);
+  });
+
+  test('paginates past page 1: finds a template that sorts onto a later page', async () => {
+    // Reproduces the prod bug (bead 8d32): the eval template is not on page 1,
+    // and the backend ignores page_size, so reading only page 1 missed it and
+    // check_app_in_browser threw "No workflow template matching ...".
+    const page1 = {
+      results: Array.from({ length: 10 }, (_, i) =>
+        makeTemplate({ uuid: `p1-${i}`, name: `Other Template ${i}` })),
+      next: 'https://api.debugg.ai/api/v1/workflows/?page=2',
+    };
+    const wrapper = makeTemplate({ uuid: 'wrapper', name: 'App Evaluation Workflow Template' });
+    mockGet
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce({ results: [wrapper], next: null });
+
+    const result = await service.findTemplateByName('app evaluation workflow');
+
+    expect(result!.uuid).toBe('wrapper');
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(mockGet).toHaveBeenNthCalledWith(1, 'api/v1/workflows/', { isTemplate: true, search: 'app evaluation workflow', page: 1 });
+    expect(mockGet).toHaveBeenNthCalledWith(2, 'api/v1/workflows/', { isTemplate: true, search: 'app evaluation workflow', page: 2 });
+  });
+
+  test('stops paginating once `next` is null (no infinite loop)', async () => {
+    mockGet.mockResolvedValue({ results: [makeTemplate({ name: 'Unrelated' })], next: null });
+
+    await expect(service.findTemplateByName('raw crawl')).rejects.toThrow(
+      /No workflow template matching "raw crawl" found/,
+    );
+    expect(mockGet).toHaveBeenCalledTimes(1);
   });
 
   test('case-insensitive: uppercase keyword still matches lowercase template name', async () => {

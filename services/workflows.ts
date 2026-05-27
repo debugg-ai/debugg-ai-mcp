@@ -117,23 +117,35 @@ export interface WorkflowsService {
 export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => {
   const service: WorkflowsService = {
     async findTemplateByName(keyword: string): Promise<WorkflowTemplate | null> {
-      const response = await tx.get<{ results: WorkflowTemplate[] }>(
-        'api/v1/workflows/',
-        { isTemplate: true },
-      );
-      const templates = response?.results ?? [];
-      if (templates.length === 0) return null;
-
+      // Narrow server-side with `search` AND walk every page. The backend caps
+      // the page size (it ignores page_size), so reading only page 1 silently
+      // hides templates that sort later — that bug made check_app_in_browser
+      // fail in prod because "App Evaluation Workflow Template" sat on page 2.
+      // `search` collapses the candidate set to one page on backends that
+      // support it; `page` paging is the fallback for those that ignore it.
       const needle = keyword.toLowerCase();
-      const match = templates.find(t => t.name.toLowerCase().includes(needle));
-      if (!match) {
-        throw new Error(
-          `No workflow template matching "${keyword}" found. ` +
-          `Available templates: ${templates.map(t => `"${t.name}"`).join(', ')}. ` +
-          `Ensure the backend has a template with "${keyword}" in its name.`,
+      const seenNames: string[] = [];
+      const MAX_PAGES = 50; // safety valve against a backend that always returns `next`
+
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const response = await tx.get<{ results?: WorkflowTemplate[]; next?: string | null }>(
+          'api/v1/workflows/',
+          { isTemplate: true, search: keyword, page },
         );
+        const templates = response?.results ?? [];
+        for (const t of templates) {
+          seenNames.push(t.name);
+          if (t.name.toLowerCase().includes(needle)) return t;
+        }
+        if (!response?.next) break;
       }
-      return match;
+
+      if (seenNames.length === 0) return null;
+      throw new Error(
+        `No workflow template matching "${keyword}" found. ` +
+        `Available templates: ${seenNames.map(n => `"${n}"`).join(', ')}. ` +
+        `Ensure the backend has a template with "${keyword}" in its name.`,
+      );
     },
 
     async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
