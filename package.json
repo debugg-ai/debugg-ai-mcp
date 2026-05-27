@@ -48,6 +48,10 @@
   ],
   "author": "Quinn Osha",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/debugg-ai/debugg-ai-mcp.git"
+  },
   "homepage": "https://debugg.ai",
   "bugs": "https://github.com/debugg-ai/debugg-ai-mcp/issues",
   "changelog": "https://github.com/debugg-ai/debugg-ai-mcp/CHANGELOG.md",
