@@ -142,7 +142,12 @@ describe('TunnelTrace', () => {
 
     expect(events[0].elapsedMs).toBeLessThanOrEqual(events[1].elapsedMs);
     expect(events[1].elapsedMs).toBeLessThanOrEqual(events[2].elapsedMs);
-    expect(durationMs).toBeGreaterThanOrEqual(20);
+    // durationMs is, by contract, the last event's elapsedMs. Assert that
+    // relationship rather than the wall-clock sum of the setTimeout()s — two
+    // 10ms waits can measure 19ms at Date.now()'s millisecond resolution, which
+    // made the old `>= 20` bound flaky and blocked publishes.
+    expect(durationMs).toBe(events[2].elapsedMs);
+    expect(durationMs).toBeGreaterThan(0);
   });
 
   test('format produces one line per event with padding', () => {
