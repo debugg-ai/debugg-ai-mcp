@@ -371,4 +371,50 @@ describe('pollExecution()', () => {
     const err = await resultPromise;
     expect(err.message).toMatch(/timed out/);
   });
+
+  test('transient poll failure: a failed status GET does not lose the run', async () => {
+    // Reproduces the MCR-iOS report: a slow/flaky backend makes one status poll
+    // throw (the 30s axios timeout) WHILE the execution is still running. The
+    // run must survive and complete on a later poll, not abort the whole check.
+    let callCount = 0;
+    mockGet.mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) return makeExecution({ status: 'running' });
+      if (callCount === 2) throw new Error('timeout of 30000ms exceeded');
+      return makeExecution({ status: 'completed' });
+    });
+
+    jest.useFakeTimers();
+
+    const pollPromise = service.pollExecution('exec-flaky');
+
+    await jest.advanceTimersByTimeAsync(0);    // poll 1: running
+    await jest.advanceTimersByTimeAsync(3000); // poll 2: throws, swallowed
+    await jest.advanceTimersByTimeAsync(3000); // poll 3: completed
+
+    const result = await pollPromise;
+    expect(result.status).toBe('completed');
+    expect(callCount).toBe(3);
+  });
+
+  test('sustained poll outage: gives up after MAX_CONSECUTIVE_POLL_FAILURES', async () => {
+    // A genuinely unreachable backend should still terminate (not spin to the
+    // 10-min deadline) — bounded by the consecutive-failure cap.
+    mockGet.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    jest.useFakeTimers();
+
+    const pollPromise = service.pollExecution('exec-dead');
+    const resultPromise = pollPromise.then(
+      () => { throw new Error('should have rejected'); },
+      (err: Error) => err,
+    );
+
+    for (let i = 0; i < 10; i++) {
+      await jest.advanceTimersByTimeAsync(3000);
+    }
+
+    const err = await resultPromise;
+    expect(err.message).toMatch(/Lost contact with execution exec-dead/);
+  });
 });

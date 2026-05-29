@@ -4,7 +4,10 @@
  */
 
 import { AxiosTransport } from '../utils/axiosTransport.js';
+import { Logger } from '../utils/logger.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+
+const logger = new Logger({ module: 'workflows' });
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 // Exponential backoff polling: short executions (10-15s crawls) detect terminal
@@ -15,6 +18,14 @@ const POLL_INTERVAL_INITIAL_MS = 1000;
 const POLL_INTERVAL_MAX_MS = 5000;
 const POLL_BACKOFF_MULTIPLIER = 1.5;
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+// A single poll GET can fail transiently (the global 30s axios timeout firing
+// on a slow backend, a 5xx during a deploy, a TCP reset) WHILE the execution is
+// still running server-side. Aborting the whole check on one bad poll loses an
+// otherwise-healthy run — exactly the "client gives up, run is lost" failure the
+// MCR-iOS agent reported. So we tolerate up to N *consecutive* poll failures and
+// keep polling until the deadline; only a sustained outage (backend genuinely
+// unreachable) gives up. The deadline still bounds total wall-clock either way.
+const MAX_CONSECUTIVE_POLL_FAILURES = 5;
 
 export interface WorkflowTemplate {
   uuid: string;
@@ -230,12 +241,47 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       const deadline = Date.now() + EXECUTION_TIMEOUT_MS;
       const pollStart = Date.now();
       let pollCount = 0;
+      let consecutiveFailures = 0;
       let intervalMs = POLL_INTERVAL_INITIAL_MS;
       while (Date.now() < deadline) {
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
         }
-        const execution = await service.getExecution(executionUuid);
+        let execution: WorkflowExecution;
+        try {
+          execution = await service.getExecution(executionUuid);
+          consecutiveFailures = 0;
+        } catch (err) {
+          // The run is still alive on the backend — a single failed status poll
+          // must not lose it. Tolerate a bounded run of consecutive failures,
+          // then give up only if the backend looks genuinely unreachable.
+          consecutiveFailures++;
+          if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+            throw new Error(
+              `Lost contact with execution ${executionUuid} after ${consecutiveFailures} ` +
+              `consecutive failed status polls: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+          logger.warn(
+            `Status poll ${consecutiveFailures}/${MAX_CONSECUTIVE_POLL_FAILURES} failed for ` +
+            `execution ${executionUuid}; run still active server-side, retrying after backoff`,
+            { error: err instanceof Error ? err.message : String(err) }
+          );
+          // Fall through to the shared backoff sleep below before retrying.
+          if (signal?.aborted) {
+            throw new Error(`Polling cancelled for execution ${executionUuid}`);
+          }
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, intervalMs);
+            if (signal) {
+              const onAbort = () => { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); };
+              if (signal.aborted) { clearTimeout(timer); reject(new Error(`Polling cancelled for execution ${executionUuid}`)); return; }
+              signal.addEventListener('abort', onAbort, { once: true });
+            }
+          });
+          intervalMs = Math.min(Math.round(intervalMs * POLL_BACKOFF_MULTIPLIER), POLL_INTERVAL_MAX_MS);
+          continue;
+        }
         pollCount++;
         if (onUpdate) {
           await onUpdate(execution).catch(() => {});
