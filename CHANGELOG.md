@@ -5,6 +5,35 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0]
+
+### Changed — Tool surface consolidated to 8 action-based tools (BREAKING)
+
+The 20 per-verb tools were consolidated into **8** tools: three browser tools
+(`check_app_in_browser`, `probe_page`, `trigger_crawl`) plus one action-based
+tool per entity — `project`, `environment`, `test_suite`, `test_case`,
+`executions` — each taking an `action` discriminator. Clients pick up the new
+surface on MCP restart.
+
+Migration (old tool → new tool + action):
+
+- `search_projects` → `project {action:"get"|"list"}`
+- `create_project` → `project {action:"create"}`
+- `search_environments` → `environment {action:"get"|"list"}`
+- `create_environment` / `update_environment` / `delete_environment` → `environment {action:"create"|"update"|"delete"}`
+- `create_test_suite` / `search_test_suites` / `run_test_suite` / `get_test_suite_results` / `delete_test_suite` → `test_suite {action:"create"|"list"|"run"|"results"|"delete"}`
+- `create_test_case` / `update_test_case` / `delete_test_case` → `test_case {action:"create"|"update"|"delete"}`
+- `search_executions` → `executions {action:"get"|"list"}`
+
+### Removed
+
+- `update_project` and `delete_project` — rename/delete a project from the DebuggAI web app (both were effectively unused).
+- `trigger_crawl`'s `headless` parameter — the MCP now always runs headless (no opt-out).
+
+### Added
+
+- Destructive `delete` actions require confirmation: an elicitation prompt when the client supports it, otherwise a required `confirm: true` argument.
+
 ## [Unreleased]
 
 ### Added — E2E test suite management (8 new MCP tools)

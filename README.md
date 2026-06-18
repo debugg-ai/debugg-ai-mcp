@@ -34,7 +34,7 @@ docker run -i --rm --init -e DEBUGGAI_API_KEY=your_api_key quinnosha/debugg-ai-m
 
 ## Tools
 
-The server exposes **12** tools grouped into Browser (3), Search (3), Projects (3), and Environments (3). The headline tools are `check_app_in_browser` (full AI agent) and `probe_page` (lightweight no-LLM page probe); the rest manage projects, environments + their credentials, and execution history through a uniform `search_*` + CRUD pattern.
+The server exposes **8** tools: three **Browser** tools plus one **action-based** tool per managed entity. The headline tools are `check_app_in_browser` (full AI agent) and `probe_page` (lightweight no-LLM page probe). The rest — `project`, `environment`, `test_suite`, `test_case`, `executions` — each take an `action` discriminator (e.g. `{"action":"list"}`) that selects the operation. Destructive `delete` actions require confirmation (an elicitation prompt where supported, otherwise `confirm: true`).
 
 ### Browser
 
@@ -69,7 +69,7 @@ Every successful run returns a `browserSession` block alongside the screenshot �
 }
 ```
 
-URLs are short-lived presigned S3 — refetch the parent execution via `search_executions` to renew. `harStatus` / `consoleLogStatus` disambiguate `'downloaded'` (URL fetchable), `'not_available'` (page emitted nothing), `'failed'` (capture broke). On a fresh run the URLs are commonly `null` because capture uploads async after the agent finishes — poll `search_executions` with the returned `executionId` until status reaches `'downloaded'`. Authorization / Cookie / `token`/`secret`/`api_key` headers are scrubbed server-side before the artifacts are persisted.
+URLs are short-lived presigned S3 — refetch the parent execution via `executions {action:"get", uuid}` to renew. `harStatus` / `consoleLogStatus` disambiguate `'downloaded'` (URL fetchable), `'not_available'` (page emitted nothing), `'failed'` (capture broke). On a fresh run the URLs are commonly `null` because capture uploads async after the agent finishes — poll `executions {action:"get", uuid: executionId}` until status reaches `'downloaded'`. Authorization / Cookie / `token`/`secret`/`api_key` headers are scrubbed server-side before the artifacts are persisted.
 
 #### `trigger_crawl`
 
@@ -95,33 +95,54 @@ The whole batch shares a single backend execution + browser session + tunnel —
 
 Performance budget: <10s for 1 URL, <25s for 20. Localhost dead-port returns `LocalServerUnreachable` in <2s without burning a workflow execution.
 
-### Search (dual-mode: uuid detail OR filtered list)
+### `project`
 
-Each `search_*` tool has two modes. Pass `{uuid}` for a single-record detail response. Pass filter params for a paginated summary list. 404 from the backend surfaces as `isError: true` with `{error: 'NotFound', message, uuid}`.
+| Action | Params | Result |
+|--------|--------|--------|
+| `get` | `{uuid}` | Curated project detail |
+| `list` | `{q?, page?, pageSize?}` | Paginated summaries |
+| `create` | `{name, platform, (teamUuid\|teamName), (repoUuid\|repoName)}` | Created project |
 
-| Tool | UUID mode | Filter mode |
-|------|-----------|-------------|
-| `search_projects` | `{uuid}` → curated project detail | `{q?, page?, pageSize?}` → paginated summaries |
-| `search_environments` | `{uuid, projectUuid}` → env with credentials inlined | `{projectUuid?, q?, page?, pageSize?}` → paginated envs, each with credentials array |
-| `search_executions` | `{uuid}` → full detail with `nodeExecutions` + state | `{status?, projectUuid?, page?, pageSize?}` → paginated summaries |
+Team and repo resolve by **either** uuid **or** name (case-insensitive exact match; `NotFound` if none, `AmbiguousMatch` if multiple). There is **no** `update`/`delete` — rename or delete a project from the DebuggAI web app.
 
-`projectUuid` is optional on `search_environments` — if omitted, it auto-resolves from the git repo. Credentials are **always** returned without passwords.
+### `environment`
 
-### Projects
+| Action | Params | Result |
+|--------|--------|--------|
+| `get` | `{uuid, projectUuid?}` | Env with credentials inlined (passwords never returned) |
+| `list` | `{projectUuid?, q?, page?, pageSize?}` | Paginated envs, each with a credentials array |
+| `create` | `{name, url, description?, projectUuid?, credentials?}` | Created env (optionally seeds credentials) |
+| `update` | `{uuid, name?, url?, description?, addCredentials?, updateCredentials?, removeCredentialIds?}` | Patched env; credential ops run **remove → update → add** |
+| `delete` | `{uuid, projectUuid?, confirm?}` | Deletes env (cascades credentials) — **requires confirmation** |
 
-| Tool | Purpose |
-|------|---------|
-| `create_project` | Requires `name` + `platform`. Team and repo resolve by **either** uuid **or** name: pass `teamUuid` OR `teamName`, and `repoUuid` OR `repoName`. Name resolution is case-insensitive exact match; `NotFound` if none, `AmbiguousMatch` with candidates if multiple. |
-| `update_project` | PATCH `name`, `description`. |
-| `delete_project` | Destructive — cascades environments, credentials, and execution history. |
+`projectUuid` auto-resolves from the git repo when omitted. Per-cred failures surface in `credentialWarnings[]` without blocking the env op.
 
-### Environments (credential sub-actions folded in)
+### `test_suite`
 
-| Tool | Purpose |
-|------|---------|
-| `create_environment` | Requires `name` + `url`. Optional `credentials: [{label, username, password, role?}]` seeds credentials in the same call. Per-cred failures surface in `credentialWarnings[]` without blocking env creation. |
-| `update_environment` | PATCH env fields (`name`, `url`, `description`) plus credential sub-actions in one call: `addCredentials[]`, `updateCredentials: [{uuid, ...patch}]`, `removeCredentialIds: [uuid]`. Execution order: **remove → update → add** (freed labels can be re-added in one request). |
-| `delete_environment` | Destructive — cascades credentials. |
+| Action | Params | Result |
+|--------|--------|--------|
+| `list` | `{projectUuid\|projectName, search?, page?, pageSize?}` | Paginated suites with status + pass rate |
+| `create` | `{name, description, projectUuid\|projectName}` | Created suite |
+| `run` | `{suiteUuid\|(suiteName+project), targetUrl?}` | Triggers all tests async |
+| `results` | `{suiteUuid\|(suiteName+project)}` | Suite + per-test outcomes |
+| `delete` | `{suiteUuid\|(suiteName+project), confirm?}` | Soft-delete — **requires confirmation** |
+
+### `test_case`
+
+| Action | Params | Result |
+|--------|--------|--------|
+| `create` | `{name, description, agentTaskDescription, suiteUuid\|(suiteName+project), relativeUrl?, maxSteps?}` | Created test case (not auto-run) |
+| `update` | `{testUuid, name?, description?, agentTaskDescription?}` | Patched test case |
+| `delete` | `{testUuid, confirm?}` | Soft-delete — **requires confirmation** |
+
+### `executions`
+
+| Action | Params | Result |
+|--------|--------|--------|
+| `get` | `{uuid}` | Full detail (`nodeExecutions` + state + errorInfo) + screenshot/gif artifacts |
+| `list` | `{status?, projectUuid?, page?, pageSize?}` | Paginated summaries |
+
+404 from the backend surfaces as `isError: true` with `{error: 'NotFound', message, uuid}`. Credentials are **always** returned without passwords.
 
 ### Pagination
 
@@ -143,6 +164,24 @@ Pass optional `page` (1-indexed, default 1) and `pageSize` (default 20, max 200;
 - Tunnel URLs (`*.ngrok.debugg.ai`) are stripped from all browser-agent responses, including agent-authored text.
 - 404s from the backend surface as `isError: true` with `{error: 'NotFound', ...}`, never as thrown exceptions.
 - Missing `DEBUGGAI_API_KEY` surfaces as a structured tool error on first invocation — the server still registers and lists tools normally.
+
+## Migration to v3.0.0 (action-based tools)
+
+v3 consolidated the 20 per-verb tools into 8 action-based tools. Old tool → new `tool {action}`:
+
+| Removed | Replacement |
+|---------|-------------|
+| `search_projects` | `project {action:"get"}` / `project {action:"list"}` |
+| `create_project` | `project {action:"create"}` |
+| `update_project`, `delete_project` | **Dropped** — use the DebuggAI web app |
+| `search_environments` | `environment {action:"get"}` / `{action:"list"}` |
+| `create_environment` / `update_environment` / `delete_environment` | `environment {action:"create"\|"update"\|"delete"}` |
+| `create_test_suite` / `search_test_suites` / `run_test_suite` / `get_test_suite_results` / `delete_test_suite` | `test_suite {action:"create"\|"list"\|"run"\|"results"\|"delete"}` |
+| `create_test_case` / `update_test_case` / `delete_test_case` | `test_case {action:"create"\|"update"\|"delete"}` |
+| `search_executions` | `executions {action:"get"\|"list"}` |
+| `trigger_crawl` `headless` param | **Dropped** — always headless |
+
+`delete` actions now require confirmation (elicitation prompt, or `confirm: true`). Clients pick up the new surface on MCP restart.
 
 ## Migration from v1.x (breaking change in v2.0.0)
 

@@ -8,9 +8,14 @@ export * from './createEnvironmentHandler.js';
 export * from './updateEnvironmentHandler.js';
 export * from './deleteEnvironmentHandler.js';
 // Credential mutations are folded into create_environment + update_environment.
-export * from './updateProjectHandler.js';
-export * from './deleteProjectHandler.js';
+// update_project + delete_project were cut (epic yg7o6, D8).
 export * from './createProjectHandler.js';
+// Action-tool dispatchers (the registered surface).
+export * from './projectHandler.js';
+export * from './environmentHandler.js';
+export * from './testSuiteHandler.js';
+export * from './testCaseHandler.js';
+export * from './executionsHandler.js';
 export * from './createTestSuiteHandler.js';
 export * from './searchTestSuitesHandler.js';
 export * from './deleteTestSuiteHandler.js';

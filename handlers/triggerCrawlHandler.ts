@@ -187,7 +187,7 @@ export async function triggerCrawlHandler(
       targetUrl: ctx.targetUrl ?? ctx.originalUrl,
     };
     if (input.projectUuid) contextData.projectId = input.projectUuid;
-    if (typeof input.headless === 'boolean') contextData.headless = input.headless;
+    contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
     if (typeof input.timeoutSeconds === 'number') contextData.timeoutSeconds = input.timeoutSeconds;
 
     const env: Record<string, any> = {};

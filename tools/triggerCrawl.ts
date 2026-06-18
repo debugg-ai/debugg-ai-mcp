@@ -78,10 +78,6 @@ export function buildTriggerCrawlTool(ctx: ProjectContext | null): Tool {
           type: 'string',
           description: 'The real password for the username above. Do NOT guess.',
         },
-        headless: {
-          type: 'boolean',
-          description: 'Run the browser in headless mode. Defaults to backend configuration.',
-        },
         timeoutSeconds: {
           type: 'number',
           description: 'Maximum wall-time the crawl may run, in seconds (1..1800). Backend enforces this per workflow execution.',

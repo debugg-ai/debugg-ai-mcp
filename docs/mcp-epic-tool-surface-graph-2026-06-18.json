@@ -1,0 +1,104 @@
+{
+  "nodes": [
+    {
+      "key": "E_surface",
+      "title": "Epic: Tool surface curation: distribution, exposure & safety (DECIDE FIRST)",
+      "type": "epic",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tool-surface"
+      ],
+      "description": "Decide the TARGET MCP tool surface \u2014 keep / cut / gate-behind-flag for each of the 20 registered tools \u2014 and implement the chosen distribution model (lean core vs. opt-in management surface), destructive-op safety, and doc accuracy, BEFORE the per-feature protocol epics touch individual tools. Blocks the Annotations and Structured-output epics.\n\nSpec: docs/tool-review-2026-06-18.md (initial 20-tool review). Overlaps the Annotations + Elicitation epics for the destructive-op safety model.\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - A documented keep/cut/gate decision for ALL 20 tools (decision record on the epic).\n  - Exposure model implemented: lean default vs. opt-in (env flag) for management/CRUD tools, per the decision.\n  - Destructive tools (delete_*) gated/guarded per decision (flag and/or explicit confirm) \u2014 coordinated with Annotations + Elicitation epics.\n  - README documents the FINAL surface accurately (fixes the 12-vs-20 staleness incl. the 8 undocumented test-suite tools).\n  - Any cut tools removed from the registry with tests updated; no dead handlers; version + migration note for the breaking change.\n  - Decision recorded on the open gaps from the review (update_project thinness, search_* sort/recency, delete_environment)."
+    },
+    {
+      "key": "E_surface_P1",
+      "title": "[surface] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_surface",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tool-surface"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - WALKTHROUGH (collaborative): for each of the 20 tools record keep / cut / gate-behind-flag / merge, with rationale.\n  - Resolve the contested calls from the review: delete_project danger, update_project thinness, the 8 test-suite tools, delete_environment, search_* sort gap.\n  - Decide the exposure model: single lean set vs. core+management split, and what gates management/destructive tools."
+    },
+    {
+      "key": "E_surface_P2",
+      "title": "[surface] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_surface",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tool-surface"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Design the tiered registration mechanism (env flag(s) / build-time) and how tools/index.ts initTools filters by tier.\n  - Design the destructive-op guard model (flag + explicit confirm arg + future elicitation) and how it composes with the Annotations epic.\n  - Back-compat: cutting/gating tools is a breaking change for dependent clients \u2192 version bump + migration plan.",
+      "deps": [
+        "blocks:E_surface_P1"
+      ]
+    },
+    {
+      "key": "E_surface_P3",
+      "title": "[surface] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_surface",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tool-surface"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Concrete change list (tools cut/gated/kept). Test matrix: registry-composition tests for default vs. flagged sets; destructive-guard tests; acceptance.",
+      "deps": [
+        "blocks:E_surface_P2"
+      ]
+    },
+    {
+      "key": "E_surface_P4",
+      "title": "[surface] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_surface",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tool-surface",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - Tests first (registry composition per flag; guard behavior), then implement tier-gated registration + guards + any removals (green).\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_surface_P3"
+      ]
+    },
+    {
+      "key": "E_surface_P5",
+      "title": "[surface] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_surface",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tool-surface"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - Rewrite the README tools section to match the final surface (the 12\u219220 fix); document exposure flags, destructive model, and the migration.",
+      "deps": [
+        "blocks:E_surface_P4"
+      ]
+    },
+    {
+      "key": "E_surface_P6",
+      "title": "[surface] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_surface",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tool-surface",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Full suite + lint/build; verify default surface == lean set, flagged surface == full, destructive guards engaged, every decision reflected; close gate.\n\nGate verifies the epic acceptance criteria:\n  - A documented keep/cut/gate decision for ALL 20 tools (decision record on the epic).\n  - Exposure model implemented: lean default vs. opt-in (env flag) for management/CRUD tools, per the decision.\n  - Destructive tools (delete_*) gated/guarded per decision (flag and/or explicit confirm) \u2014 coordinated with Annotations + Elicitation epics.\n  - README documents the FINAL surface accurately (fixes the 12-vs-20 staleness incl. the 8 undocumented test-suite tools).\n  - Any cut tools removed from the registry with tests updated; no dead handlers; version + migration note for the breaking change.\n  - Decision recorded on the open gaps from the review (update_project thinness, search_* sort/recency, delete_environment).",
+      "deps": [
+        "blocks:E_surface_P5"
+      ]
+    }
+  ]
+}

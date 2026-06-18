@@ -3,25 +3,11 @@ import { ValidatedTool } from '../types/index.js';
 import { buildTestPageChangesTool, buildValidatedTestPageChangesTool } from './testPageChanges.js';
 import { buildTriggerCrawlTool, buildValidatedTriggerCrawlTool } from './triggerCrawl.js';
 import { buildProbePageTool, buildValidatedProbePageTool } from './probePage.js';
-import { buildSearchProjectsTool, buildValidatedSearchProjectsTool } from './searchProjects.js';
-import { buildSearchEnvironmentsTool, buildValidatedSearchEnvironmentsTool } from './searchEnvironments.js';
-import { buildSearchExecutionsTool, buildValidatedSearchExecutionsTool } from './searchExecutions.js';
-import { buildCreateEnvironmentTool, buildValidatedCreateEnvironmentTool } from './createEnvironment.js';
-import { buildUpdateEnvironmentTool, buildValidatedUpdateEnvironmentTool } from './updateEnvironment.js';
-import { buildDeleteEnvironmentTool, buildValidatedDeleteEnvironmentTool } from './deleteEnvironment.js';
-import { buildUpdateProjectTool, buildValidatedUpdateProjectTool } from './updateProject.js';
-import { buildDeleteProjectTool, buildValidatedDeleteProjectTool } from './deleteProject.js';
-import { buildCreateProjectTool, buildValidatedCreateProjectTool } from './createProject.js';
-import {
-  buildCreateTestSuiteTool, buildValidatedCreateTestSuiteTool,
-  buildSearchTestSuitesTool, buildValidatedSearchTestSuitesTool,
-  buildDeleteTestSuiteTool, buildValidatedDeleteTestSuiteTool,
-  buildCreateTestCaseTool, buildValidatedCreateTestCaseTool,
-  buildUpdateTestCaseTool, buildValidatedUpdateTestCaseTool,
-  buildDeleteTestCaseTool, buildValidatedDeleteTestCaseTool,
-  buildRunTestSuiteTool, buildValidatedRunTestSuiteTool,
-  buildGetTestSuiteResultsTool, buildValidatedGetTestSuiteResultsTool,
-} from './testSuiteTools.js';
+import { buildProjectTool, buildValidatedProjectTool } from './project.js';
+import { buildEnvironmentTool, buildValidatedEnvironmentTool } from './environment.js';
+import { buildExecutionsTool, buildValidatedExecutionsTool } from './executions.js';
+import { buildTestSuiteTool, buildValidatedTestSuiteTool } from './testSuite.js';
+import { buildTestCaseTool, buildValidatedTestCaseTool } from './testCase.js';
 import { ProjectContext } from '../services/projectContext.js';
 
 let _tools: Tool[] | null = null;
@@ -30,51 +16,31 @@ const toolRegistry = new Map<string, ValidatedTool>();
 
 /**
  * Initialize tools with project context (call once after resolveProjectContext).
+ *
+ * The surface is 8 action-based tools (epic yg7o6): 3 browser tools plus one
+ * tool per managed entity (project/environment/test_suite/test_case/executions),
+ * each routing an `action` discriminator to its handler.
  */
 export function initTools(ctx: ProjectContext | null): void {
   const tools: Tool[] = [
     buildTestPageChangesTool(ctx),
-    buildTriggerCrawlTool(ctx),
     buildProbePageTool(),
-    buildSearchProjectsTool(),
-    buildSearchEnvironmentsTool(),
-    buildCreateEnvironmentTool(),
-    buildUpdateEnvironmentTool(),
-    buildDeleteEnvironmentTool(),
-    buildUpdateProjectTool(),
-    buildDeleteProjectTool(),
-    buildSearchExecutionsTool(),
-    buildCreateProjectTool(),
-    buildCreateTestSuiteTool(),
-    buildSearchTestSuitesTool(),
-    buildDeleteTestSuiteTool(),
-    buildCreateTestCaseTool(),
-    buildUpdateTestCaseTool(),
-    buildDeleteTestCaseTool(),
-    buildRunTestSuiteTool(),
-    buildGetTestSuiteResultsTool(),
+    buildTriggerCrawlTool(ctx),
+    buildProjectTool(),
+    buildEnvironmentTool(),
+    buildTestSuiteTool(),
+    buildTestCaseTool(),
+    buildExecutionsTool(),
   ];
   const validated: ValidatedTool[] = [
     buildValidatedTestPageChangesTool(ctx),
-    buildValidatedTriggerCrawlTool(ctx),
     buildValidatedProbePageTool(),
-    buildValidatedSearchProjectsTool(),
-    buildValidatedSearchEnvironmentsTool(),
-    buildValidatedCreateEnvironmentTool(),
-    buildValidatedUpdateEnvironmentTool(),
-    buildValidatedDeleteEnvironmentTool(),
-    buildValidatedUpdateProjectTool(),
-    buildValidatedDeleteProjectTool(),
-    buildValidatedSearchExecutionsTool(),
-    buildValidatedCreateProjectTool(),
-    buildValidatedCreateTestSuiteTool(),
-    buildValidatedSearchTestSuitesTool(),
-    buildValidatedDeleteTestSuiteTool(),
-    buildValidatedCreateTestCaseTool(),
-    buildValidatedUpdateTestCaseTool(),
-    buildValidatedDeleteTestCaseTool(),
-    buildValidatedRunTestSuiteTool(),
-    buildValidatedGetTestSuiteResultsTool(),
+    buildValidatedTriggerCrawlTool(ctx),
+    buildValidatedProjectTool(),
+    buildValidatedEnvironmentTool(),
+    buildValidatedTestSuiteTool(),
+    buildValidatedTestCaseTool(),
+    buildValidatedExecutionsTool(),
   ];
 
   _tools = tools;

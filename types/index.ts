@@ -37,7 +37,7 @@ export const TriggerCrawlInputSchema = z.object({
   credentialRole: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
-  headless: z.boolean().optional(),
+  // headless is intentionally NOT accepted — the MCP always runs headless (D7).
   timeoutSeconds: z.number().int().positive().max(1800, 'timeoutSeconds cannot exceed 1800 (30 min)').optional(),
   repoName: z.string().optional(),
 }).strict();
@@ -167,10 +167,22 @@ export type CreateProjectInput = z.infer<typeof CreateProjectInputSchema>;
 /**
  * Tool execution context
  */
+/**
+ * Elicitation callback (human-in-the-loop). Populated on ToolContext only when
+ * the connected client advertises the `elicitation` capability. Kept loosely
+ * typed so handlers/utils don't couple to the SDK's request/result schemas.
+ */
+export type ElicitFn = (params: {
+  message: string;
+  requestedSchema: Record<string, any>;
+}) => Promise<{ action: string; content?: Record<string, any> }>;
+
 export interface ToolContext {
   progressToken?: string;
   requestId?: string;
   timestamp: Date;
+  /** Present only when the client supports elicitation; otherwise undefined. */
+  elicit?: ElicitFn;
 }
 
 /**
@@ -421,3 +433,65 @@ export const GetTestSuiteResultsInputSchema = z.object({
 }).strict();
 
 export type GetTestSuiteResultsInput = z.infer<typeof GetTestSuiteResultsInputSchema>;
+
+// ── Consolidated action-based tool schemas (epic yg7o6: 20 → 8 tools) ─────────
+// Each entity tool takes a required `action` discriminator; params validate
+// per-action. Delete branches carry an optional `confirm` (guarded by D2).
+
+const _page = z.number().int().min(1).optional();
+const _pageSize = z.number().int().min(1).optional();
+
+export const ProjectInputSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('get'), uuid: z.string().uuid() }).strict(),
+  z.object({ action: z.literal('list'), q: z.string().min(1).optional(), page: _page, pageSize: _pageSize }).strict(),
+  z.object({
+    action: z.literal('create'),
+    name: z.string().min(1),
+    platform: z.string().min(1),
+    teamUuid: z.string().uuid().optional(),
+    teamName: z.string().min(1).optional(),
+    repoUuid: z.string().uuid().optional(),
+    repoName: z.string().min(1).optional(),
+  }).strict(),
+]).superRefine((v, ctx) => {
+  if (v.action === 'create') {
+    if (v.teamUuid && v.teamName) ctx.addIssue({ code: 'custom', message: 'Provide teamUuid OR teamName, not both.' });
+    if (v.repoUuid && v.repoName) ctx.addIssue({ code: 'custom', message: 'Provide repoUuid OR repoName, not both.' });
+    if (!v.teamUuid && !v.teamName) ctx.addIssue({ code: 'custom', message: 'Must provide teamUuid or teamName.' });
+    if (!v.repoUuid && !v.repoName) ctx.addIssue({ code: 'custom', message: 'Must provide repoUuid or repoName.' });
+  }
+});
+export type ProjectInput = z.infer<typeof ProjectInputSchema>;
+
+export const EnvironmentInputSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('get'), uuid: z.string().uuid(), projectUuid: z.string().uuid().optional() }).strict(),
+  z.object({ action: z.literal('list'), projectUuid: z.string().uuid().optional(), q: z.string().min(1).optional(), page: _page, pageSize: _pageSize }).strict(),
+  z.object({ action: z.literal('create'), name: z.string().min(1), url: z.string().url('url is required for standard environments'), description: z.string().optional(), projectUuid: z.string().uuid().optional(), credentials: z.array(CredentialSeedSchema).optional() }).strict(),
+  z.object({ action: z.literal('update'), uuid: z.string().uuid(), name: z.string().min(1).optional(), url: z.string().url().optional(), description: z.string().optional(), projectUuid: z.string().uuid().optional(), addCredentials: z.array(CredentialSeedSchema).optional(), updateCredentials: z.array(CredentialUpdateSchema).optional(), removeCredentialIds: z.array(z.string().uuid()).optional() }).strict(),
+  z.object({ action: z.literal('delete'), uuid: z.string().uuid(), projectUuid: z.string().uuid().optional(), confirm: z.boolean().optional() }).strict(),
+]);
+export type EnvironmentInput = z.infer<typeof EnvironmentInputSchema>;
+
+export const TestSuiteInputSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('list'), ...projectIdentifier, search: z.string().optional(), page: _page, pageSize: z.number().int().min(1).max(100).optional() }).strict(),
+  z.object({ action: z.literal('create'), name: z.string().min(1), description: z.string().min(1), ...projectIdentifier }).strict(),
+  z.object({ action: z.literal('run'), ...suiteIdentifier, ...projectIdentifier, targetUrl: z.string().url().optional() }).strict(),
+  z.object({ action: z.literal('results'), ...suiteIdentifier, ...projectIdentifier }).strict(),
+  z.object({ action: z.literal('delete'), ...suiteIdentifier, ...projectIdentifier, confirm: z.boolean().optional() }).strict(),
+]);
+export type TestSuiteInput = z.infer<typeof TestSuiteInputSchema>;
+
+export const TestCaseInputSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('create'), name: z.string().min(1), description: z.string().min(1), agentTaskDescription: z.string().min(1), ...suiteIdentifier, ...projectIdentifier, relativeUrl: z.string().regex(/^\//, 'Must start with /').optional(), maxSteps: z.number().int().min(1).max(100).optional() }).strict(),
+  z.object({ action: z.literal('update'), testUuid: z.string().uuid(), name: z.string().min(1).optional(), description: z.string().min(1).optional(), agentTaskDescription: z.string().min(1).optional() }).strict(),
+  z.object({ action: z.literal('delete'), testUuid: z.string().uuid(), confirm: z.boolean().optional() }).strict(),
+]);
+export type TestCaseInput = z.infer<typeof TestCaseInputSchema>;
+
+// NOTE: D6 (recency sort) deferred — the backend listExecutions has no ordering
+// param; threading real sort needs a backend change. Tracked, not shipped here.
+export const ExecutionsInputSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('get'), uuid: z.string().uuid() }).strict(),
+  z.object({ action: z.literal('list'), projectUuid: z.string().uuid().optional(), status: z.string().min(1).optional(), page: _page, pageSize: _pageSize }).strict(),
+]);
+export type ExecutionsInput = z.infer<typeof ExecutionsInputSchema>;
