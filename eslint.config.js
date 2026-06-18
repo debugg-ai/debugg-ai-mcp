@@ -10,8 +10,9 @@ export default tseslint.config(
     rules: {
       // stdout is the MCP JSON-RPC transport — any console.log corrupts the stream
       'no-console': 'error',
-      // Allow unused vars prefixed with _ (common pattern)
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // Allow unused vars prefixed with _ (common pattern); ignore rest-siblings
+      // so `const { action, ...rest } = input` (destructure-to-omit) stays clean.
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', ignoreRestSiblings: true }],
       // Allow explicit any in this codebase (MCP SDK types are loose)
       '@typescript-eslint/no-explicit-any': 'off',
       // Allow empty interfaces extending a type (used for paginated response types)
