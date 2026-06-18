@@ -61,7 +61,7 @@ const toolCallRequest = {
   jsonrpc: '2.0',
   id: 2,
   method: 'tools/call',
-  params: { name: 'search_projects', arguments: {} },
+  params: { name: 'project', arguments: { action: 'list' } },
 };
 
 setTimeout(() => {
