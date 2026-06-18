@@ -1,0 +1,804 @@
+{
+  "nodes": [
+    {
+      "key": "E_ann",
+      "title": "Epic: Tool annotations (readOnly/destructive/idempotent/openWorld)",
+      "type": "epic",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-annotations"
+      ],
+      "description": "Add ToolAnnotations to all 20 registered tools so clients can render and confirm-gate by behavior, closing the destructive-ops safety gap from the tool review.\n\nSpec: MCP 2025-06-18 tool annotations; SDK Tool.annotations (ToolAnnotations).\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - Every registered tool exposes an `annotations` object.\n  - delete_project, delete_environment, delete_test_suite, delete_test_case \u2192 destructiveHint:true.\n  - search_*, probe_page, get_test_suite_results \u2192 readOnlyHint:true.\n  - probe_page, check_app_in_browser, trigger_crawl, run_test_suite \u2192 openWorldHint:true.\n  - create_*/update_* annotated (not readOnly; idempotentHint set where it holds).\n  - A test enumerates tools and asserts the annotation invariants (incl. destructive set == the 4 deletes)."
+    },
+    {
+      "key": "E_ann_P1",
+      "title": "[ann] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_ann",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-annotations"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - Inventory all 20 tools; classify each on the 4 hint axes.\n  - Confirm SDK 1.27 ToolAnnotations field names; note hints are ADVISORY (clients MAY ignore)."
+    },
+    {
+      "key": "E_ann_P2",
+      "title": "[ann] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_ann",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-annotations"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Produce the tool\u2192hints matrix (table).\n  - Decide where hints are set (each tools/*.ts build*Tool) and title vs name handling.\n  - Confirm change is purely additive (no client breakage).",
+      "deps": [
+        "blocks:E_ann_P1"
+      ]
+    },
+    {
+      "key": "E_ann_P3",
+      "title": "[ann] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_ann",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-annotations"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Author __tests__/tools/toolAnnotations.test.ts spec: presence + per-class invariants.\n  - Define acceptance: destructive flagged set, readOnly set, openWorld set.",
+      "deps": [
+        "blocks:E_ann_P2"
+      ]
+    },
+    {
+      "key": "E_ann_P4",
+      "title": "[ann] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_ann",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-annotations",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - Write the invariant test (red).\n  - Add `annotations` to every build*Tool() in tools/ (green).\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_ann_P3"
+      ]
+    },
+    {
+      "key": "E_ann_P5",
+      "title": "[ann] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_ann",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-annotations"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - Add a behavior/annotations column to the README tools table; CHANGELOG; note in AGENTS.md.",
+      "deps": [
+        "blocks:E_ann_P4"
+      ]
+    },
+    {
+      "key": "E_ann_P6",
+      "title": "[ann] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_ann",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-annotations",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Full suite + lint/build; verify the matrix; (no UI) close gate.\n\nGate verifies the epic acceptance criteria:\n  - Every registered tool exposes an `annotations` object.\n  - delete_project, delete_environment, delete_test_suite, delete_test_case \u2192 destructiveHint:true.\n  - search_*, probe_page, get_test_suite_results \u2192 readOnlyHint:true.\n  - probe_page, check_app_in_browser, trigger_crawl, run_test_suite \u2192 openWorldHint:true.\n  - create_*/update_* annotated (not readOnly; idempotentHint set where it holds).\n  - A test enumerates tools and asserts the annotation invariants (incl. destructive set == the 4 deletes).",
+      "deps": [
+        "blocks:E_ann_P5"
+      ]
+    },
+    {
+      "key": "E_struct",
+      "title": "Epic: Structured tool output (outputSchema + structuredContent)",
+      "type": "epic",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-structured-output"
+      ],
+      "description": "Promote today's JSON-in-text responses to spec structured output: declare an outputSchema per data tool and return structuredContent, keeping the serialized text block for back-compat.\n\nSpec: MCP 2025-06-18 structured tool output (structuredContent + outputSchema).\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - Each read/data tool declares an `outputSchema`.\n  - Handlers return `structuredContent` conforming to that schema, PLUS a back-compat text block.\n  - A validator test asserts structuredContent \u22a8 outputSchema for each handler's representative output.\n  - isError response shape unchanged."
+    },
+    {
+      "key": "E_struct_P1",
+      "title": "[struct] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_struct",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-structured-output"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - Catalog current response shapes (search_* {filter,pageInfo,...}, probe_page, suite results, CRUD {created/updated/deleted}).\n  - Review spec rules: structuredContent + SHOULD include serialized text; client MUST validate when outputSchema present."
+    },
+    {
+      "key": "E_struct_P2",
+      "title": "[struct] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_struct",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-structured-output"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Design a buildToolResult(payload) helper emitting structuredContent + text block.\n  - Author per-tool outputSchemas (reuse README shapes); set JSON Schema 2020-12 dialect.\n  - Pick a validator (check if ajv is already a dep); define isError path.",
+      "deps": [
+        "blocks:E_struct_P1"
+      ]
+    },
+    {
+      "key": "E_struct_P3",
+      "title": "[struct] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_struct",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-structured-output"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Test matrix: schema-conformance test per handler; back-compat text-block test; acceptance.",
+      "deps": [
+        "blocks:E_struct_P2"
+      ]
+    },
+    {
+      "key": "E_struct_P4",
+      "title": "[struct] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_struct",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-structured-output",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - Add conformance tests (red); implement buildToolResult, wire all handlers, add outputSchema to tool defs (green).\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_struct_P3"
+      ]
+    },
+    {
+      "key": "E_struct_P5",
+      "title": "[struct] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_struct",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-structured-output"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - README response-shape + outputSchema docs; CHANGELOG; additive-migration note.",
+      "deps": [
+        "blocks:E_struct_P4"
+      ]
+    },
+    {
+      "key": "E_struct_P6",
+      "title": "[struct] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_struct",
+      "priority": 0,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-structured-output",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Full suite + lint/build; validate every handler's structuredContent against its schema; close gate.\n\nGate verifies the epic acceptance criteria:\n  - Each read/data tool declares an `outputSchema`.\n  - Handlers return `structuredContent` conforming to that schema, PLUS a back-compat text block.\n  - A validator test asserts structuredContent \u22a8 outputSchema for each handler's representative output.\n  - isError response shape unchanged.",
+      "deps": [
+        "blocks:E_struct_P5"
+      ]
+    },
+    {
+      "key": "E_reslink",
+      "title": "Epic: Resource links for artifacts (screenshots / HAR / console)",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resource-links"
+      ],
+      "description": "Return screenshots/HAR/console artifacts as resource_link content (renewable presigned URIs) instead of inlining large base64/URLs, shrinking responses and enabling on-demand fetch.\n\nSpec: MCP 2025-06-18 resource links (resource_link content type).\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - check_app_in_browser artifacts (HAR, console logs) and probe_page screenshots are available as resource_link items (uri/name/mimeType).\n  - Screenshots keep an inline-preview path where useful (decision recorded).\n  - Expiry/renewal documented (refetch presigned URLs via search_executions)."
+    },
+    {
+      "key": "E_reslink_P1",
+      "title": "[reslink] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_reslink",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resource-links"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - Inventory artifact outputs: presigned S3 (check_app_in_browser), base64 PNG (probe_page).\n  - Review resource_link semantics (not guaranteed in resources/list; for direct retrieval); note presigned expiry."
+    },
+    {
+      "key": "E_reslink_P2",
+      "title": "[reslink] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_reslink",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resource-links"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Design: which artifacts \u2192 resource_link vs inline image; whether to also implement resources/read (defer to Resources epic); response-size targets.\n  - Note: extends buildToolResult from the Structured-output epic if scheduled after it.",
+      "deps": [
+        "blocks:E_reslink_P1"
+      ]
+    },
+    {
+      "key": "E_reslink_P3",
+      "title": "[reslink] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_reslink",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resource-links"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Test plan: assert resource_link items carry required fields; response-size reduction assertion; acceptance.",
+      "deps": [
+        "blocks:E_reslink_P2"
+      ]
+    },
+    {
+      "key": "E_reslink_P4",
+      "title": "[reslink] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_reslink",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resource-links",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - TDD then implement in probePageHandler + testPageChangesHandler (and getTestSuiteResults if it returns artifacts).\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_reslink_P3"
+      ]
+    },
+    {
+      "key": "E_reslink_P5",
+      "title": "[reslink] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_reslink",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resource-links"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - README artifacts section (link fields + renewal); CHANGELOG.",
+      "deps": [
+        "blocks:E_reslink_P4"
+      ]
+    },
+    {
+      "key": "E_reslink_P6",
+      "title": "[reslink] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_reslink",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resource-links",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Full suite + lint/build; verify link fields + renewal note; close gate.\n\nGate verifies the epic acceptance criteria:\n  - check_app_in_browser artifacts (HAR, console logs) and probe_page screenshots are available as resource_link items (uri/name/mimeType).\n  - Screenshots keep an inline-preview path where useful (decision recorded).\n  - Expiry/renewal documented (refetch presigned URLs via search_executions).",
+      "deps": [
+        "blocks:E_reslink_P5"
+      ]
+    },
+    {
+      "key": "E_elicit",
+      "title": "Epic: Elicitation (delete-confirm + missing-credential prompts)",
+      "type": "epic",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-elicitation"
+      ],
+      "description": "Use elicitation/create for human-in-the-loop: confirm destructive deletes and prompt for missing credentials \u2014 degrading gracefully when the client lacks the capability.\n\nSpec: MCP 2025-06-18 elicitation; 2025-11-25 enums/defaults/URL-mode. (CLIENT capability.)\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - delete_* tools request confirmation via elicitation when the client supports it; proceed/abort accordingly.\n  - check_app_in_browser/trigger_crawl prompt for missing username/password via elicitation when login is needed.\n  - When the client lacks elicitation \u2192 current behavior preserved (no hang; documented fallback)."
+    },
+    {
+      "key": "E_elicit_P1",
+      "title": "[elicit] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_elicit",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-elicitation"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - Review elicitation flow (server\u2192client request; primitive-type schema only); detect client capability from initialize result.\n  - Assess CI/non-interactive risk (must never hang)."
+    },
+    {
+      "key": "E_elicit_P2",
+      "title": "[elicit] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_elicit",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-elicitation"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Design capability gate + maybeElicit() helper; per-tool elicitation schemas (confirm boolean; cred fields).\n  - Fallback policy: deletes require explicit confirm arg if no elicitation; creds keep current error. Timeouts/no-hang guarantees.",
+      "deps": [
+        "blocks:E_elicit_P1"
+      ]
+    },
+    {
+      "key": "E_elicit_P3",
+      "title": "[elicit] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_elicit",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-elicitation"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Test plan: mock client with/without elicitation; accept/reject paths; fallback path; acceptance.",
+      "deps": [
+        "blocks:E_elicit_P2"
+      ]
+    },
+    {
+      "key": "E_elicit_P4",
+      "title": "[elicit] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_elicit",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-elicitation",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - TDD then implement maybeElicit() + wire delete_* and browser/crawl handlers.\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_elicit_P3"
+      ]
+    },
+    {
+      "key": "E_elicit_P5",
+      "title": "[elicit] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_elicit",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-elicitation"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - README + AGENTS.md interaction model; CHANGELOG.",
+      "deps": [
+        "blocks:E_elicit_P4"
+      ]
+    },
+    {
+      "key": "E_elicit_P6",
+      "title": "[elicit] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_elicit",
+      "priority": 1,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-elicitation",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Full suite + lint/build; verify BOTH capability paths (present/absent); close gate.\n\nGate verifies the epic acceptance criteria:\n  - delete_* tools request confirmation via elicitation when the client supports it; proceed/abort accordingly.\n  - check_app_in_browser/trigger_crawl prompt for missing username/password via elicitation when login is needed.\n  - When the client lacks elicitation \u2192 current behavior preserved (no hang; documented fallback).",
+      "deps": [
+        "blocks:E_elicit_P5"
+      ]
+    },
+    {
+      "key": "E_tasks",
+      "title": "Epic: Tasks (durable async) \u2014 spike / prototype",
+      "type": "epic",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tasks"
+      ],
+      "description": "Evaluate and prototype the experimental Tasks primitive for long-running tools (check_app_in_browser, trigger_crawl, run_test_suite) behind an experimental flag; produce a go/no-go decision. Do NOT ship-depend.\n\nSpec: MCP 2025-11-25 tasks (EXPERIMENTAL); restructured as an extension in the 2026-07-28 RC.\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - SDK 1.27 task support assessed and documented (supported or not).\n  - A flagged prototype (DEBUGGAI_EXPERIMENTAL_TASKS) maps one long-running tool to task handle + tasks/get polling \u2014 OR a written blocker rationale.\n  - Default behavior unchanged when the flag is off.\n  - A decision record (keep-as-spike / adopt-later / drop) appended to the epic."
+    },
+    {
+      "key": "E_tasks_P1",
+      "title": "[tasks] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_tasks",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tasks"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - Review tasks spec + check SDK 1.27 for task schemas/handlers; compare with current executionId + search_executions polling.\n  - Note 2026 RC restructuring risk (experimental\u2192extension)."
+    },
+    {
+      "key": "E_tasks_P2",
+      "title": "[tasks] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_tasks",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tasks"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Design execution\u2192task mapping; flag-gated + additive; trivial rollback (flag off).",
+      "deps": [
+        "blocks:E_tasks_P1"
+      ]
+    },
+    {
+      "key": "E_tasks_P3",
+      "title": "[tasks] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_tasks",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tasks"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Scope a minimal spike (one tool); test plan for the flagged path; acceptance + decision criteria.",
+      "deps": [
+        "blocks:E_tasks_P2"
+      ]
+    },
+    {
+      "key": "E_tasks_P4",
+      "title": "[tasks] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_tasks",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tasks",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - TDD-style spike implementation behind the flag (default OFF).\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_tasks_P3"
+      ]
+    },
+    {
+      "key": "E_tasks_P5",
+      "title": "[tasks] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_tasks",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tasks"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - Document as EXPERIMENTAL; CHANGELOG; write the decision record.",
+      "deps": [
+        "blocks:E_tasks_P4"
+      ]
+    },
+    {
+      "key": "E_tasks_P6",
+      "title": "[tasks] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_tasks",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-tasks",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Validate flag-off == no behavior change; spike acceptance; record go/no-go; close gate.\n\nGate verifies the epic acceptance criteria:\n  - SDK 1.27 task support assessed and documented (supported or not).\n  - A flagged prototype (DEBUGGAI_EXPERIMENTAL_TASKS) maps one long-running tool to task handle + tasks/get polling \u2014 OR a written blocker rationale.\n  - Default behavior unchanged when the flag is off.\n  - A decision record (keep-as-spike / adopt-later / drop) appended to the epic.",
+      "deps": [
+        "blocks:E_tasks_P5"
+      ]
+    },
+    {
+      "key": "E_resources",
+      "title": "Epic: Resources + resource templates (project/env/execution)",
+      "type": "epic",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resources"
+      ],
+      "description": "Expose projects/environments/executions as read-only MCP resources via templates (debugg-ai://project/{uuid}, \u2026), declaring the resources (+ completions) capability \u2014 reduces reliance on search_* tools and backs the Resource-links epic.\n\nSpec: MCP core resources + resource templates + argument completions.\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - resources/list, resources/read, and resource templates implemented for project/environment/execution.\n  - `resources` (and completions) capability declared in server capabilities.\n  - search_* tools remain (back-compat); docs explain resource vs tool."
+    },
+    {
+      "key": "E_resources_P1",
+      "title": "[resources] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_resources",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resources"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - Review resources/templates/completions spec; map entities\u2192URIs; assess client support; note overlap with Resource-links epic."
+    },
+    {
+      "key": "E_resources_P2",
+      "title": "[resources] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_resources",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resources"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Design URI scheme + handlers (ListResources, ReadResource, templates, completion); capability declaration; reuse the service layer; decide read-through caching.",
+      "deps": [
+        "blocks:E_resources_P1"
+      ]
+    },
+    {
+      "key": "E_resources_P3",
+      "title": "[resources] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_resources",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resources"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Test plan: list/read/template/completion handlers; acceptance.",
+      "deps": [
+        "blocks:E_resources_P2"
+      ]
+    },
+    {
+      "key": "E_resources_P4",
+      "title": "[resources] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_resources",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resources",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - TDD then implement handlers + capability.\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_resources_P3"
+      ]
+    },
+    {
+      "key": "E_resources_P5",
+      "title": "[resources] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_resources",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resources"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - README resources section; CHANGELOG.",
+      "deps": [
+        "blocks:E_resources_P4"
+      ]
+    },
+    {
+      "key": "E_resources_P6",
+      "title": "[resources] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_resources",
+      "priority": 2,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-resources",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Full suite + lint/build; verify read/list/template/completion; close gate.\n\nGate verifies the epic acceptance criteria:\n  - resources/list, resources/read, and resource templates implemented for project/environment/execution.\n  - `resources` (and completions) capability declared in server capabilities.\n  - search_* tools remain (back-compat); docs explain resource vs tool.",
+      "deps": [
+        "blocks:E_resources_P5"
+      ]
+    },
+    {
+      "key": "E_remote",
+      "title": "Epic: Streamable HTTP + OAuth (hosted / remote MCP)",
+      "type": "epic",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-remote-transport"
+      ],
+      "description": "Enable an OPTIONAL hosted/remote MCP over Streamable HTTP with OAuth (server as Resource Server) so users connect without local npx; leverages the 2026 RC stateless core for simple deployment. Starts with a product/architecture decision.\n\nSpec: MCP 2025-03-26 Streamable HTTP; 2025-06-18/11-25 OAuth Resource Server + RFC 9728; 2026-07-28 RC stateless core.\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - Decision/ADR on whether to offer hosted MCP (with scope) recorded.\n  - If GO: StreamableHTTPServerTransport selectable via env (stdio stays default); OAuth bearer validation against api.debugg.ai; RFC 9728 protected-resource-metadata endpoint.\n  - Stdio path unchanged and remains the default."
+    },
+    {
+      "key": "E_remote_P1",
+      "title": "[remote] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_remote",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-remote-transport"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - DECISION review: demand, security model, auth reuse, hosting. Review transport + OAuth specs + stateless-core RC. Produce an ADR (go/no-go)."
+    },
+    {
+      "key": "E_remote_P2",
+      "title": "[remote] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_remote",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-remote-transport"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Architecture: transport selection (DEBUGGAI_TRANSPORT); session vs stateless; token validation integration with existing auth; RFC 9728 metadata; threat model.",
+      "deps": [
+        "blocks:E_remote_P1"
+      ]
+    },
+    {
+      "key": "E_remote_P3",
+      "title": "[remote] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_remote",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-remote-transport"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Scope the MVP (single-tenant first?); test plan (transport + auth, unit + integration); acceptance.",
+      "deps": [
+        "blocks:E_remote_P2"
+      ]
+    },
+    {
+      "key": "E_remote_P4",
+      "title": "[remote] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_remote",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-remote-transport",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - TDD then implement the HTTP transport option + auth middleware (flagged; stdio default).\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_remote_P3"
+      ]
+    },
+    {
+      "key": "E_remote_P5",
+      "title": "[remote] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_remote",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-remote-transport"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - Deployment + config docs; CHANGELOG; security notes.",
+      "deps": [
+        "blocks:E_remote_P4"
+      ]
+    },
+    {
+      "key": "E_remote_P6",
+      "title": "[remote] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_remote",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-remote-transport",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Full suite + lint/build; auth/transport integration tests; deploy smoke; close gate.\n\nGate verifies the epic acceptance criteria:\n  - Decision/ADR on whether to offer hosted MCP (with scope) recorded.\n  - If GO: StreamableHTTPServerTransport selectable via env (stdio stays default); OAuth bearer validation against api.debugg.ai; RFC 9728 protected-resource-metadata endpoint.\n  - Stdio path unchanged and remains the default.",
+      "deps": [
+        "blocks:E_remote_P5"
+      ]
+    },
+    {
+      "key": "E_apps",
+      "title": "Epic: MCP Apps (server-rendered UI) \u2014 RC watch / spike",
+      "type": "epic",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-apps"
+      ],
+      "description": "Research-spike an MCP App that renders probe_page/check_app_in_browser results (screenshots, network waterfall, pass/fail) as sandboxed HTML UI. RC feature with nascent client support \u2014 prototype + decision only; NOT default-shipped.\n\nSpec: MCP 2026-07-28 RC: MCP Apps (sandboxed-iframe server-rendered HTML).\n\nModel: TDD + validation-gated. 6 phase sub-beads run as a linear blocks-chain (P1\u2192P2\u2192P3\u2192P4\u2192P5\u2192P6); each phase is blocked by the previous.\n\nEpic acceptance criteria (verified at the P6 gate):\n  - RC spec + client-support reality assessed and documented.\n  - A prototype UI template renders a real result against a supporting client \u2014 OR a written blocker rationale.\n  - DebuggAI MCP visual verification of the prototype (per repo UI policy).\n  - Decision record (pursue-when-stable / park) appended to the epic."
+    },
+    {
+      "key": "E_apps_P1",
+      "title": "[apps] P1 \u00b7 Detailed design review",
+      "type": "task",
+      "parent": "E_apps",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-apps"
+      ],
+      "description": "Review the governing MCP spec section(s) and the CURRENT implementation. Capture concrete requirements, constraints, real-world client support, and risks. Deliverable: a design-review note on the epic + enumerated open questions.\n\nSpecific work:\n  - Review MCP Apps RC (declared templates, sandboxed iframe, action\u2192tool-call audit/consent path); survey client support; pick a candidate result view."
+    },
+    {
+      "key": "E_apps_P2",
+      "title": "[apps] P2 \u00b7 Architecture analysis & design",
+      "type": "task",
+      "parent": "E_apps",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-apps"
+      ],
+      "description": "Analyze approach options, choose one, and produce the technical design: interfaces, type/schema changes, file-level change map, capability negotiation, backward-compat and rollback plan. Design is reviewed/approved before scoping closes.\n\nSpecific work:\n  - Design the app template + data contract + security review (sandbox + consent path).",
+      "deps": [
+        "blocks:E_apps_P1"
+      ]
+    },
+    {
+      "key": "E_apps_P3",
+      "title": "[apps] P3 \u00b7 Scoping & test plan",
+      "type": "task",
+      "parent": "E_apps",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-apps"
+      ],
+      "description": "Decompose into concrete commits and author the TDD test matrix (unit + integration) plus the epic's measurable acceptance criteria. Failing-test NAMES are written here, before any implementation.\n\nSpecific work:\n  - Scope a minimal prototype; test/verify plan incl. DebuggAI MCP visual check; acceptance.",
+      "deps": [
+        "blocks:E_apps_P2"
+      ]
+    },
+    {
+      "key": "E_apps_P4",
+      "title": "[apps] P4 \u00b7 Implementation (TDD)",
+      "type": "task",
+      "parent": "E_apps",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-apps",
+        "tdd"
+      ],
+      "description": "TDD: land the failing tests from P3 FIRST, then implement to green. No production code without a preceding test. Existing suite stays green; lint + typecheck/build clean.\n\nSpecific work:\n  - Build the prototype template (flagged / experimental).\n\n(TDD: tests precede implementation.)",
+      "deps": [
+        "blocks:E_apps_P3"
+      ]
+    },
+    {
+      "key": "E_apps_P5",
+      "title": "[apps] P5 \u00b7 Documentation",
+      "type": "task",
+      "parent": "E_apps",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-apps"
+      ],
+      "description": "Update README tool tables, docs/, tool descriptions, CHANGELOG, and AGENTS.md as needed so docs match behavior. Add usage examples.\n\nSpecific work:\n  - Document EXPERIMENTAL/RC; CHANGELOG; write the decision record.",
+      "deps": [
+        "blocks:E_apps_P4"
+      ]
+    },
+    {
+      "key": "E_apps_P6",
+      "title": "[apps] P6 \u00b7 Validation gate",
+      "type": "task",
+      "parent": "E_apps",
+      "priority": 3,
+      "labels": [
+        "mcp-upgrade",
+        "mcp-apps",
+        "validation-gate"
+      ],
+      "description": "VALIDATION GATE. Run full `npm test`, lint, and build; verify every epic acceptance criterion is demonstrably met. Gates epic closure.\n\nSpecific work:\n  - Validate against a supporting client + DebuggAI MCP visual check; record decision; close gate.\n\nGate verifies the epic acceptance criteria:\n  - RC spec + client-support reality assessed and documented.\n  - A prototype UI template renders a real result against a supporting client \u2014 OR a written blocker rationale.\n  - DebuggAI MCP visual verification of the prototype (per repo UI policy).\n  - Decision record (pursue-when-stable / park) appended to the epic.",
+      "deps": [
+        "blocks:E_apps_P5"
+      ]
+    }
+  ]
+}
