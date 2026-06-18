@@ -12,6 +12,34 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
+## Testing & live verification
+
+```bash
+npm test            # unit tests (jest, ESM + ts-jest; use `import { jest } from '@jest/globals'`)
+npx tsc --noEmit    # typecheck
+npm run lint        # eslint
+npm run build       # tsc -> dist/
+```
+
+Unit tests mock the backend. To verify a tool end-to-end against the real API:
+
+- The MCP reads **`DEBUGGAI_API_KEY` from the environment** — `.mcp.json` references `${DEBUGGAI_API_KEY}`
+  (never a literal). Export it first: `export DEBUGGAI_API_KEY=<key>`.
+- No dev-mode → prod `api.debugg.ai`. `DEBUGGAI_DEV_MODE=true` → local backend `http://localhost:8012`
+  (needs a local token; the prod key won't auth there).
+- `npm run test:integration` hits the real API, **self-skips without a key**, and **writes data** —
+  be deliberate about which backend you target.
+- Fast read-only smoke of a fresh build (`npm run build` first) — replicate the CallTool path:
+  ```js
+  import { getTool } from './dist/tools/index.js';
+  import { validateInput } from './dist/utils/validation.js';
+  const t = getTool('project');
+  console.log(await t.handler(validateInput(t.inputSchema, { action: 'list' }, 'project'), { timestamp: new Date() }));
+  ```
+  Use read-only actions (`list`/`get`) on `project`/`environment`/`executions`.
+
+**Security:** never put a literal API key in `.mcp.json` (it's tracked) — use `${DEBUGGAI_API_KEY}`.
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
