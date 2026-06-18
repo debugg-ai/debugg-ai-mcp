@@ -167,10 +167,22 @@ export type CreateProjectInput = z.infer<typeof CreateProjectInputSchema>;
 /**
  * Tool execution context
  */
+/**
+ * Elicitation callback (human-in-the-loop). Populated on ToolContext only when
+ * the connected client advertises the `elicitation` capability. Kept loosely
+ * typed so handlers/utils don't couple to the SDK's request/result schemas.
+ */
+export type ElicitFn = (params: {
+  message: string;
+  requestedSchema: Record<string, any>;
+}) => Promise<{ action: string; content?: Record<string, any> }>;
+
 export interface ToolContext {
   progressToken?: string;
   requestId?: string;
   timestamp: Date;
+  /** Present only when the client supports elicitation; otherwise undefined. */
+  elicit?: ElicitFn;
 }
 
 /**
