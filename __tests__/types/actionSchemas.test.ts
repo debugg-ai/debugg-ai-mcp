@@ -79,9 +79,10 @@ describe('TestCaseInputSchema', () => {
 });
 
 describe('ExecutionsInputSchema', () => {
-  test('get requires uuid; list accepts recency sort (D6)', () => {
+  test('get requires uuid; list accepts status/projectUuid filters', () => {
     expect(ExecutionsInputSchema.safeParse({ action: 'get', uuid: UUID }).success).toBe(true);
-    expect(ExecutionsInputSchema.safeParse({ action: 'list', sort: 'recent', status: 'completed' }).success).toBe(true);
-    expect(ExecutionsInputSchema.safeParse({ action: 'list', sort: 'sideways' }).success).toBe(false);
+    expect(ExecutionsInputSchema.safeParse({ action: 'get' }).success).toBe(false);
+    expect(ExecutionsInputSchema.safeParse({ action: 'list', status: 'completed' }).success).toBe(true);
+    expect(ExecutionsInputSchema.safeParse({ action: 'list', projectUuid: UUID, page: 2 }).success).toBe(true);
   });
 });

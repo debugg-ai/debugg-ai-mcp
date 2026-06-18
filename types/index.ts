@@ -488,8 +488,10 @@ export const TestCaseInputSchema = z.discriminatedUnion('action', [
 ]);
 export type TestCaseInput = z.infer<typeof TestCaseInputSchema>;
 
+// NOTE: D6 (recency sort) deferred — the backend listExecutions has no ordering
+// param; threading real sort needs a backend change. Tracked, not shipped here.
 export const ExecutionsInputSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('get'), uuid: z.string().uuid() }).strict(),
-  z.object({ action: z.literal('list'), projectUuid: z.string().uuid().optional(), status: z.string().min(1).optional(), page: _page, pageSize: _pageSize, sort: z.enum(['recent', 'oldest']).optional() }).strict(),
+  z.object({ action: z.literal('list'), projectUuid: z.string().uuid().optional(), status: z.string().min(1).optional(), page: _page, pageSize: _pageSize }).strict(),
 ]);
 export type ExecutionsInput = z.infer<typeof ExecutionsInputSchema>;
