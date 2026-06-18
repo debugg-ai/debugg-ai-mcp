@@ -275,19 +275,24 @@ describe('triggerCrawlHandler', () => {
     }
   });
 
-  test('optional contextData fields (projectUuid, headless, timeoutSeconds) are threaded correctly', async () => {
+  test('optional contextData fields (projectUuid, timeoutSeconds) are threaded correctly', async () => {
     setupHappyPath({ isLocalhost: false });
     const input = {
       url: 'https://example.com',
       projectUuid: '269532cb-0000-0000-0000-000000000000',
-      headless: true,
       timeoutSeconds: 900,
     };
     await triggerCrawlHandler(input, defaultContext);
     const [, contextData] = mockExecute.mock.calls[0];
     expect((contextData as any).projectId).toBe(input.projectUuid);
-    expect((contextData as any).headless).toBe(true);
     expect((contextData as any).timeoutSeconds).toBe(900);
+  });
+
+  test('always runs headless (D7) — contextData.headless is true regardless of input', async () => {
+    setupHappyPath({ isLocalhost: false });
+    await triggerCrawlHandler({ url: 'https://example.com' }, defaultContext);
+    const [, contextData] = mockExecute.mock.calls[0];
+    expect((contextData as any).headless).toBe(true);
   });
 
   test('template not found: throws a clear error', async () => {

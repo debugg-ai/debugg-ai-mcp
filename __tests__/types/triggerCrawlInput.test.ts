@@ -62,7 +62,6 @@ describe('TriggerCrawlInputSchema', () => {
         credentialRole: 'admin',
         username: 'alice',
         password: 'hunter2',
-        headless: true,
         timeoutSeconds: 600,
         repoName: 'debugg-ai/my-repo',
       };
@@ -73,10 +72,17 @@ describe('TriggerCrawlInputSchema', () => {
           url: 'https://example.com',
           projectUuid: input.projectUuid,
           credentialRole: 'admin',
-          headless: true,
           timeoutSeconds: 600,
         });
       }
+    });
+
+    test('headless is rejected — the MCP always runs headless (D7)', () => {
+      const result = TriggerCrawlInputSchema.safeParse({
+        url: 'https://example.com',
+        headless: true,
+      });
+      expect(result.success).toBe(false);
     });
 
     test('invalid uuid on projectUuid: rejects', () => {

@@ -37,7 +37,7 @@ export const TriggerCrawlInputSchema = z.object({
   credentialRole: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
-  headless: z.boolean().optional(),
+  // headless is intentionally NOT accepted — the MCP always runs headless (D7).
   timeoutSeconds: z.number().int().positive().max(1800, 'timeoutSeconds cannot exceed 1800 (30 min)').optional(),
   repoName: z.string().optional(),
 }).strict();
