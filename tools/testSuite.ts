@@ -38,13 +38,10 @@ export function buildTestSuiteTool(): Tool {
         confirm: { type: 'boolean', description: '[delete] Set true to confirm deletion (when the client cannot prompt).' },
       },
       required: ['action'],
-      oneOf: [
-        { properties: { action: { const: 'list' } }, required: ['action'] },
-        { properties: { action: { const: 'create' } }, required: ['action', 'name', 'description'] },
-        { properties: { action: { const: 'run' } }, required: ['action'] },
-        { properties: { action: { const: 'results' } }, required: ['action'] },
-        { properties: { action: { const: 'delete' } }, required: ['action'] },
-      ],
+      // No top-level oneOf/anyOf/allOf: the Anthropic tool input_schema rejects
+      // them and clients (Claude Code) silently drop the tool. Per-action required
+      // fields are enforced by the Zod discriminated union in types/index.ts and
+      // documented in DESCRIPTION above.
       additionalProperties: false,
     },
   };

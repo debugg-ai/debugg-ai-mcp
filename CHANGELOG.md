@@ -5,6 +5,19 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1]
+
+### Fixed — 5 action tools were invisible in Claude Code (and any Anthropic-API client)
+
+3.0.0's action tools (`project`, `environment`, `test_suite`, `test_case`,
+`executions`) declared a top-level `oneOf` in their JSON Schema to express
+per-action required fields. The Anthropic tool `input_schema` does not accept
+top-level `oneOf`/`anyOf`/`allOf`, so clients **silently dropped all 5 tools** —
+only the 3 browser tools showed up (the server still advertised all 8). Removed
+the `oneOf`; per-action required fields remain enforced by the Zod discriminated
+unions at call time and documented in each tool's description. Added a registry
+regression test asserting no tool schema uses top-level `oneOf`/`anyOf`/`allOf`.
+
 ## [3.0.0]
 
 ### Changed — Tool surface consolidated to 8 action-based tools (BREAKING)

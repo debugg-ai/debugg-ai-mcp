@@ -24,10 +24,10 @@ export function buildExecutionsTool(): Tool {
         pageSize: { type: 'number', description: '[list] Page size (1..200).' },
       },
       required: ['action'],
-      oneOf: [
-        { properties: { action: { const: 'get' } }, required: ['action', 'uuid'] },
-        { properties: { action: { const: 'list' } }, required: ['action'] },
-      ],
+      // No top-level oneOf/anyOf/allOf: the Anthropic tool input_schema rejects
+      // them and clients (Claude Code) silently drop the tool. Per-action required
+      // fields are enforced by the Zod discriminated union in types/index.ts and
+      // documented in DESCRIPTION above.
       additionalProperties: false,
     },
   };
