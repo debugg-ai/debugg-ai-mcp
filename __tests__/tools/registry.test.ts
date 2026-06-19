@@ -47,4 +47,19 @@ describe('tool registry', () => {
     const actions = (getTools().find(t => t.name === 'project')!.inputSchema as any).properties.action.enum;
     expect(actions.sort()).toEqual(['create', 'get', 'list']);
   });
+
+  // Regression (3.0.1): the Anthropic tool input_schema rejects top-level
+  // oneOf/anyOf/allOf, and clients (Claude Code) SILENTLY DROP any tool whose
+  // schema uses them. 3.0.0 shipped action tools with a top-level `oneOf`, so
+  // project/environment/test_suite/test_case/executions vanished from the client
+  // and only the 3 browser tools showed. Per-action required fields are enforced
+  // by the Zod discriminated unions at call time instead.
+  test('no tool input schema uses top-level oneOf/anyOf/allOf (Anthropic API rejects them)', () => {
+    for (const t of getTools()) {
+      const s = t.inputSchema as any;
+      expect([t.name, 'oneOf', !!s.oneOf]).toEqual([t.name, 'oneOf', false]);
+      expect([t.name, 'anyOf', !!s.anyOf]).toEqual([t.name, 'anyOf', false]);
+      expect([t.name, 'allOf', !!s.allOf]).toEqual([t.name, 'allOf', false]);
+    }
+  });
 });

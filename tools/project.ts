@@ -30,11 +30,10 @@ export function buildProjectTool(): Tool {
         repoName: { type: 'string', description: '[create] GitHub repo name "org/repo" (or repoUuid).' },
       },
       required: ['action'],
-      oneOf: [
-        { properties: { action: { const: 'get' } }, required: ['action', 'uuid'] },
-        { properties: { action: { const: 'list' } }, required: ['action'] },
-        { properties: { action: { const: 'create' } }, required: ['action', 'name', 'platform'] },
-      ],
+      // No top-level oneOf/anyOf/allOf: the Anthropic tool input_schema rejects
+      // them and clients (Claude Code) silently drop the tool. Per-action required
+      // fields are enforced by the Zod discriminated union in types/index.ts and
+      // documented in DESCRIPTION above.
       additionalProperties: false,
     },
   };
