@@ -5,6 +5,22 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0]
+
+### Added — MCP Resources (browse projects / environments / executions)
+
+The server now declares the `resources` capability and exposes the read-only
+entities as addressable resources, so clients can browse and @-mention them as
+context instead of only calling tools:
+
+- **Collections** (`resources/list`): `debugg-ai://projects`, `debugg-ai://environments`, `debugg-ai://executions`
+- **Templates** (`resources/templates/list`): `debugg-ai://project/{uuid}`, `debugg-ai://environment/{uuid}`, `debugg-ai://execution/{uuid}`
+- **`resources/read`** dispatches each URI to the same entity handler the tools
+  use — identical data + auth, no drift — and returns the JSON payload.
+
+Additive: clients without resource support keep using the tools unchanged.
+Implementation in `handlers/resourcesHandler.ts`.
+
 ## [3.3.0]
 
 ### Added — Run artifacts returned as resource links
