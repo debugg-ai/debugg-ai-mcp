@@ -36,6 +36,7 @@ import {
   handleConfigurationError,
   Telemetry,
   TelemetryEvents,
+  withStructuredContent,
 } from "./utils/index.js";
 import {
   ToolContext,
@@ -156,7 +157,8 @@ function registerHandlers(): void {
       const toolDuration = Date.now() - toolStart;
       requestLogger.info(`Tool execution completed: ${name}`);
       Telemetry.capture(TelemetryEvents.TOOL_EXECUTED, { toolName: name, durationMs: toolDuration, success: true });
-      return result;
+      // Promote the JSON text payload to structuredContent (back-compat: text stays).
+      return withStructuredContent(result);
 
     } catch (error) {
       const mcpError = toMCPError(error, 'tool execution');

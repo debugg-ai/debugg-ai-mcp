@@ -265,6 +265,13 @@ export interface ToolResponse {
     data?: string;
     mimeType?: string;
   }>;
+  /**
+   * Machine-readable result mirroring the JSON in the text content block
+   * (MCP structured tool output, 2025-06-18+). Populated centrally by
+   * withStructuredContent() so clients can consume parsed data instead of
+   * re-parsing the text blob. Must be a JSON object (spec requirement).
+   */
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }
 
