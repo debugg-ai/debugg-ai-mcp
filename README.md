@@ -158,6 +158,24 @@ Every filter-mode response is paginated. Response shape:
 
 Pass optional `page` (1-indexed, default 1) and `pageSize` (default 20, max 200; oversized values are clamped). No response is ever silently truncated.
 
+## Resources
+
+Alongside tools, the server exposes the read-only entities as MCP **resources**
+so clients can browse and @-mention them as context:
+
+| URI | What |
+|---|---|
+| `debugg-ai://projects` | All projects (first page) |
+| `debugg-ai://environments` | Environments for the auto-detected project |
+| `debugg-ai://executions` | Recent executions (first page) |
+| `debugg-ai://project/{uuid}` | One project, full detail |
+| `debugg-ai://environment/{uuid}` | One environment (credentials inline, passwords redacted) |
+| `debugg-ai://execution/{uuid}` | One execution, full node detail + artifact links |
+
+Reads dispatch to the same handlers as the `project` / `environment` /
+`executions` tools, so the data and auth are identical. Resources are additive —
+clients without resource support keep using the tools.
+
 ### Security invariants
 
 - Passwords are write-only. They never appear in any response body from any tool.

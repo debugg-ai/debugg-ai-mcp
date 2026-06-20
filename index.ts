@@ -24,10 +24,14 @@ import {
   CallToolRequest,
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { config } from "./config/index.js";
 import { initTools, getTools, getTool } from "./tools/index.js";
+import { readResource, RESOURCE_COLLECTIONS, RESOURCE_TEMPLATES } from "./handlers/resourcesHandler.js";
 import {
   Logger,
   validateInput,
@@ -62,6 +66,9 @@ function createMCPServer(): Server {
     {
       capabilities: {
         tools: {
+          listChanged: false,
+        },
+        resources: {
           listChanged: false,
         },
       },
@@ -177,6 +184,30 @@ function registerHandlers(): void {
     const tools = getTools();
     logger.info('Tools list requested', { toolCount: tools.length });
     return { tools };
+  });
+
+  // Resources (epic pglam): browse projects/environments/executions as
+  // addressable read URIs. Reads dispatch to the same entity handlers as the
+  // tools, so data + auth stay consistent.
+  server.setRequestHandler(ListResourcesRequestSchema as any, async (): Promise<any> => {
+    logger.info('Resources list requested', { resourceCount: RESOURCE_COLLECTIONS.length });
+    return { resources: RESOURCE_COLLECTIONS };
+  });
+
+  server.setRequestHandler(ListResourceTemplatesRequestSchema as any, async (): Promise<any> => {
+    return { resourceTemplates: RESOURCE_TEMPLATES };
+  });
+
+  server.setRequestHandler(ReadResourceRequestSchema as any, async (req: any): Promise<any> => {
+    const uri = req.params?.uri as string;
+    logger.info('Resource read requested', { uri });
+    try {
+      return await readResource(uri);
+    } catch (error) {
+      const mcpError = toMCPError(error, 'resource read');
+      logger.error('Resource read failed', { uri, errorCode: mcpError.code, message: mcpError.message });
+      throw mcpError;
+    }
   });
 }
 
