@@ -5,6 +5,29 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0]
+
+### Added — Remote transport: Streamable HTTP + OAuth Resource Server (opt-in)
+
+The server can now run as a hosted, multi-user remote MCP over **stateless
+Streamable HTTP**, in addition to the default stdio transport (which is
+unchanged). Enable with `DEBUGGAI_MCP_TRANSPORT=http` (+ `PORT`, default 3000).
+
+As an OAuth **Resource Server** (MCP 2025-06-18):
+- Each `POST /mcp` request must carry `Authorization: Bearer <token>`; the token
+  is request-scoped (AsyncLocalStorage) and used as the backend credential —
+  `api.debugg.ai` is the validator, so no token-verification keys live here.
+- Missing/invalid token → `401` with `WWW-Authenticate: Bearer resource_metadata=…`.
+- Serves RFC 9728 metadata at `/.well-known/oauth-protected-resource` advertising
+  the authorization server (`auth.debugg.ai`), so clients run the OAuth flow and
+  retry with a token.
+- `GET /health` for load-balancer / ECS health checks.
+
+Auth became request-scoped without touching the ~20 backend-client call sites:
+`config.api.key` resolves the per-request token when set (`utils/requestContext.ts`).
+Config env: `DEBUGGAI_MCP_TRANSPORT`, `PORT`, `DEBUGGAI_MCP_PUBLIC_URL`,
+`DEBUGGAI_OAUTH_ISSUER`, `DEBUGGAI_TOKEN_TYPE=bearer`. stdio installs need none of these.
+
 ## [3.4.0]
 
 ### Added — MCP Resources (browse projects / environments / executions)

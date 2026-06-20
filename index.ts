@@ -80,12 +80,12 @@ function createMCPServer(): Server {
 /**
  * Create progress callback for tool execution
  */
-function createProgressCallback(progressToken?: string): ProgressCallback | undefined {
+function createProgressCallback(srv: Server, progressToken?: string): ProgressCallback | undefined {
   if (!progressToken) return undefined;
 
   return async ({ progress, total, message }) => {
     try {
-      await server.notification({
+      await srv.notification({
         method: "notifications/progress",
         params: {
           progressToken,
@@ -107,10 +107,22 @@ function createProgressCallback(progressToken?: string): ProgressCallback | unde
 }
 
 /**
- * Register MCP request handlers. Called in main() after server is created.
+ * Build a fully-configured MCP Server (capabilities + all request handlers).
+ * The HTTP transport calls this once per request for stateless isolation; main()
+ * uses it for the long-lived stdio server.
  */
-function registerHandlers(): void {
-  server.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise<any> => {
+export function buildConfiguredServer(): Server {
+  const srv = createMCPServer();
+  registerHandlers(srv);
+  return srv;
+}
+
+/**
+ * Register MCP request handlers on a server instance. Called for the stdio
+ * singleton in main(), and once per request by the HTTP transport (stateless).
+ */
+function registerHandlers(srv: Server): void {
+  srv.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise<any> => {
     const typedReq = req as CallToolRequest;
     const requestId = `req_${Date.now()}`;
     const requestLogger = logger.child({ requestId });
@@ -155,7 +167,7 @@ function registerHandlers(): void {
         timestamp: new Date(),
       };
 
-      const progressCallback = createProgressCallback(typeof progressToken === 'string' || typeof progressToken === 'number' ? String(progressToken) : undefined);
+      const progressCallback = createProgressCallback(srv, typeof progressToken === 'string' || typeof progressToken === 'number' ? String(progressToken) : undefined);
 
       requestLogger.info(`Executing tool: ${name}`);
       const toolStart = Date.now();
@@ -180,7 +192,7 @@ function registerHandlers(): void {
     }
   });
 
-  server.setRequestHandler(ListToolsRequestSchema as any, async (): Promise<any> => {
+  srv.setRequestHandler(ListToolsRequestSchema as any, async (): Promise<any> => {
     const tools = getTools();
     logger.info('Tools list requested', { toolCount: tools.length });
     return { tools };
@@ -189,16 +201,16 @@ function registerHandlers(): void {
   // Resources (epic pglam): browse projects/environments/executions as
   // addressable read URIs. Reads dispatch to the same entity handlers as the
   // tools, so data + auth stay consistent.
-  server.setRequestHandler(ListResourcesRequestSchema as any, async (): Promise<any> => {
+  srv.setRequestHandler(ListResourcesRequestSchema as any, async (): Promise<any> => {
     logger.info('Resources list requested', { resourceCount: RESOURCE_COLLECTIONS.length });
     return { resources: RESOURCE_COLLECTIONS };
   });
 
-  server.setRequestHandler(ListResourceTemplatesRequestSchema as any, async (): Promise<any> => {
+  srv.setRequestHandler(ListResourceTemplatesRequestSchema as any, async (): Promise<any> => {
     return { resourceTemplates: RESOURCE_TEMPLATES };
   });
 
-  server.setRequestHandler(ReadResourceRequestSchema as any, async (req: any): Promise<any> => {
+  srv.setRequestHandler(ReadResourceRequestSchema as any, async (req: any): Promise<any> => {
     const uri = req.params?.uri as string;
     logger.info('Resource read requested', { uri });
     try {
@@ -219,22 +231,21 @@ async function main(): Promise<void> {
     // Initialize logger and server here (not at module load time) so config
     // validation errors are caught by this try-catch instead of crashing.
     logger = new Logger({ module: 'main' });
-    server = createMCPServer();
 
-    // Register request handlers (they reference the `server` variable)
-    registerHandlers();
+    const transportMode = (process.env.DEBUGGAI_MCP_TRANSPORT || 'stdio').toLowerCase();
 
     logger.info('Starting DebuggAI MCP Server', {
       nodeVersion: process.version,
       platform: process.platform,
       architecture: process.arch,
-      pid: process.pid
+      pid: process.pid,
+      transport: transportMode,
     });
 
-    // NOTE: DEBUGGAI_API_KEY validation is deferred to the first tool call so
-    // MCP clients see a proper initialize response + a structured tool error,
-    // rather than the subprocess dying with "Failed to reconnect" (bead cma).
-    if (!config.api.key) {
+    // stdio is single-user: the API key comes from the environment and is
+    // validated at first tool call (bead cma). HTTP is multi-user: each request
+    // carries its own bearer token, so a missing env key at boot is expected.
+    if (transportMode !== 'http' && !config.api.key) {
       logger.warn(
         'DEBUGGAI_API_KEY is not set. Server will boot but every tool call will return a ConfigurationError until the env var is configured.',
       );
@@ -263,13 +274,28 @@ async function main(): Promise<void> {
     // No API calls at boot. Project context is resolved lazily on first tool
     // invocation (list_environments / list_credentials / check_app_in_browser).
     initTools(null);
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
 
-    logger.info('DebuggAI MCP Server is running and ready to accept requests', {
-      transport: 'stdio',
-      toolsAvailable: getTools().map(t => t.name),
-    });
+    if (transportMode === 'http') {
+      // Remote/hosted transport (epic lybfq): stateless Streamable HTTP + OAuth
+      // Resource Server. stdio stays the default and is unaffected.
+      const { startHttpServer } = await import('./httpServer.js');
+      const port = Number(process.env.PORT) || 3000;
+      await startHttpServer({ port, buildServer: buildConfiguredServer, logger });
+      logger.info('DebuggAI MCP Server is running and ready to accept requests', {
+        transport: 'http',
+        port,
+        toolsAvailable: getTools().map(t => t.name),
+      });
+    } else {
+      server = createMCPServer();
+      registerHandlers(server);
+      const transport = new StdioServerTransport();
+      await server.connect(transport);
+      logger.info('DebuggAI MCP Server is running and ready to accept requests', {
+        transport: 'stdio',
+        toolsAvailable: getTools().map(t => t.name),
+      });
+    }
 
   } catch (error) {
     logger.error('Failed to start DebuggAI MCP Server', {
