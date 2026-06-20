@@ -13,7 +13,7 @@ import {
 import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
-import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
+import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
 import {
@@ -608,10 +608,26 @@ async function testPageChangesHandlerInner(
       const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
       if (img) content.push(imageContentBlock(img.data, img.mimeType));
     }
-    if (gifUrl) {
-      logger.info(`Embedding GIF/video: ${gifUrl}`);
-      const gif = await fetchImageAsBase64(gifUrl).catch(() => null);
-      if (gif) content.push(imageContentBlock(gif.data, 'image/gif'));
+    // Artifact links (bead 8qndk): run recording (legacy GIF field) + the
+    // browserSession presigned URLs (HAR / console log / recording). Returned as
+    // resource_links, not base64-inlined. Screenshots stay inline above so
+    // vision-capable clients still SEE them.
+    const artifactLinks = [
+      ...(gifUrl
+        ? [resourceLinkBlock(gifUrl, 'run-recording.gif', {
+            mimeType: 'image/gif',
+            title: 'Run recording',
+            description: 'Animated recording of the run (presigned URL — open or fetch on demand).',
+          })]
+        : []),
+      ...artifactResourceLinks((sanitizedPayload as Record<string, unknown>).browserSession),
+    ];
+    const seenArtifactUris = new Set<string>();
+    for (const link of artifactLinks) {
+      if (link.uri && !seenArtifactUris.has(link.uri)) {
+        seenArtifactUris.add(link.uri);
+        content.push(link);
+      }
     }
 
     return { content };
