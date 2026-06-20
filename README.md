@@ -234,6 +234,37 @@ Response-shape changes: the bare `count` field on list responses is gone — use
 DEBUGGAI_API_KEY=your_api_key
 ```
 
+## Remote / HTTP transport (optional)
+
+By default the server speaks **stdio** (local `npx`). It can instead run as a
+hosted, multi-user remote MCP over **stateless Streamable HTTP** + OAuth:
+
+```bash
+DEBUGGAI_MCP_TRANSPORT=http PORT=3000 DEBUGGAI_TOKEN_TYPE=bearer npx -y @debugg-ai/debugg-ai-mcp@latest
+```
+
+It is an OAuth **Resource Server**: every `POST /mcp` needs
+`Authorization: Bearer <token>`; missing/invalid tokens get a `401` with a
+`WWW-Authenticate` pointing at the RFC 9728 metadata, and clients run the OAuth
+flow against the advertised authorization server. The bearer is request-scoped —
+`api.debugg.ai` validates it.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /mcp` | MCP Streamable HTTP (bearer-protected) |
+| `GET /.well-known/oauth-protected-resource` | RFC 9728 metadata (authorization server discovery) |
+| `GET /health` | Load-balancer / ECS health check |
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `DEBUGGAI_MCP_TRANSPORT` | `stdio` | Set to `http` for the remote transport |
+| `PORT` | `3000` | HTTP listen port |
+| `DEBUGGAI_MCP_PUBLIC_URL` | `https://mcp.debugg.ai` | This server's public resource URL (RFC 9728 `resource`) |
+| `DEBUGGAI_OAUTH_ISSUER` | `https://auth.debugg.ai` | Authorization server advertised to clients |
+| `DEBUGGAI_TOKEN_TYPE` | `token` | Set to `bearer` so OAuth tokens forward as `Authorization: Bearer` |
+
+stdio installs need none of these.
+
 ## Telemetry
 
 The MCP server ships with telemetry enabled by default — an embedded write-only PostHog project key (`phc_*`) so the team can observe cache hit rates, poll cadence, tunnel reliability, and other operational metrics across the install base. Captured events:

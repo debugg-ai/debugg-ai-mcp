@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { currentApiKey } from '../utils/requestContext.js';
 
 function findPackageVersion(): string {
   const __dir = dirname(fileURLToPath(import.meta.url));
@@ -122,7 +123,14 @@ let _config: Config | undefined;
 export const config = {
   get server() { return getConfig().server; },
   get devMode() { return getConfig().devMode; },
-  get api() { return getConfig().api; },
+  // api.key is request-scoped under the HTTP transport: if a per-request token
+  // is set (AsyncLocalStorage), it overrides the env key for that request only.
+  // stdio / tests have no request store, so the env key is returned unchanged.
+  get api() {
+    const api = getConfig().api;
+    const requestKey = currentApiKey();
+    return requestKey ? { ...api, key: requestKey } : api;
+  },
   get defaults() { return getConfig().defaults; },
   get logging() { return getConfig().logging; },
   get telemetry() { return getConfig().telemetry; },
