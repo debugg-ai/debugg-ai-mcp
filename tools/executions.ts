@@ -1,6 +1,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ExecutionsInputSchema, ValidatedTool } from '../types/index.js';
 import { executionsHandler } from '../handlers/executionsHandler.js';
+import { READ_ONLY } from './annotations.js';
 
 const DESCRIPTION = `Look up workflow executions (history of check_app_in_browser, trigger_crawl, and test-suite runs). Pass an "action":
   - "get"  {uuid} → one execution with FULL detail (nodeExecutions, state, errorInfo) + any screenshot/gif artifacts.
@@ -12,6 +13,7 @@ export function buildExecutionsTool(): Tool {
   return {
     name: 'executions',
     title: 'Workflow Executions',
+    annotations: READ_ONLY,
     description: DESCRIPTION,
     inputSchema: {
       type: 'object',

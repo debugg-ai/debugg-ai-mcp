@@ -13,6 +13,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ProbePageInputSchema, ValidatedTool } from '../types/index.js';
 import { probePageHandler } from '../handlers/probePageHandler.js';
+import { READ_ONLY } from './annotations.js';
 
 const DESCRIPTION = `Probe one or more URLs and return their rendered state — screenshot, page metadata (title/finalUrl/statusCode/loadTimeMs), structured console errors, and per-URL network summary (refetch loops collapse into one row by origin+pathname).
 
@@ -50,6 +51,7 @@ export function buildProbePageTool(): Tool {
   return {
     name: 'probe_page',
     title: 'Probe Page',
+    annotations: READ_ONLY,
     description: DESCRIPTION,
     inputSchema: {
       type: 'object',

@@ -5,6 +5,22 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0]
+
+### Added — Tool annotations (behavioral hints for clients)
+
+Every tool now declares MCP [tool annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+so clients can reason about a tool before calling it (e.g. confirm-gate
+destructive ops, fast-path read-only ones):
+
+- `environment`, `test_suite`, `test_case` → `destructiveHint: true` (expose a delete action)
+- `executions`, `probe_page` → `readOnlyHint: true`
+- `project`, `check_app_in_browser`, `trigger_crawl` → write but non-destructive
+- all tools → `openWorldHint: true` (they reach the DebuggAI backend / live web)
+
+Annotations are advisory; deletes are still enforced server-side via the existing
+confirmation gate. Presets live in `tools/annotations.ts`.
+
 ## [3.0.1]
 
 ### Fixed — 5 action tools were invisible in Claude Code (and any Anthropic-API client)
