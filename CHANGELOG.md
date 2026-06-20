@@ -5,6 +5,23 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0]
+
+### Added — Structured tool output (`structuredContent`)
+
+Every successful tool result now carries [`structuredContent`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+— the parsed JSON payload — so clients can consume structured data directly
+instead of re-parsing the text blob. The text block is kept for back-compat.
+
+Promoted centrally in the CallTool path (`withStructuredContent` in
+`utils/structuredContent.ts`) rather than touching every handler. No-op for
+errors, non-object payloads, or multi-text results.
+
+`outputSchema` is intentionally not declared: the action tools return
+polymorphic shapes per action, a faithful schema would need top-level `oneOf`
+(which the Anthropic API rejects), and a permissive schema adds no value.
+`structuredContent` without a declared schema is spec-valid and is the win.
+
 ## [3.1.0]
 
 ### Added — Tool annotations (behavioral hints for clients)
