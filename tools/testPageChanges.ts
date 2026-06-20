@@ -8,6 +8,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { TestPageChangesInputSchema, ValidatedTool } from '../types/index.js';
 import { testPageChangesHandler } from '../handlers/testPageChangesHandler.js';
 import { ProjectContext } from '../services/projectContext.js';
+import { WRITES } from './annotations.js';
 
 const BASE_DESCRIPTION = `Give an AI agent eyes on a live website or app. The agent browses it, interacts with it, and tells you whether a given task or check passed. Works on localhost or any URL. Use for visual QA, flow validation, regression checks, or anything that needs a real browser to verify.
 
@@ -52,6 +53,7 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
   return {
     name: "check_app_in_browser",
     title: "Run E2E Browser Test",
+    annotations: WRITES,
     description: buildToolDescription(ctx),
     inputSchema: {
       type: "object",

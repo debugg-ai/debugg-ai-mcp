@@ -8,6 +8,7 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { TriggerCrawlInputSchema, ValidatedTool } from '../types/index.js';
 import { triggerCrawlHandler } from '../handlers/triggerCrawlHandler.js';
 import { ProjectContext } from '../services/projectContext.js';
+import { WRITES } from './annotations.js';
 
 const BASE_DESCRIPTION = `Trigger a browser-agent crawl of a web app to build the project's knowledge graph. The crawl systematically explores pages, UI states, and navigation flows, then populates the backend's knowledge graph so future evaluations and tests have context about the app.
 
@@ -46,6 +47,7 @@ export function buildTriggerCrawlTool(ctx: ProjectContext | null): Tool {
   return {
     name: 'trigger_crawl',
     title: 'Trigger App Crawl',
+    annotations: WRITES,
     description: buildTriggerCrawlDescription(ctx),
     inputSchema: {
       type: 'object',

@@ -1,6 +1,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { EnvironmentInputSchema, ValidatedTool } from '../types/index.js';
 import { environmentHandler } from '../handlers/environmentHandler.js';
+import { DESTRUCTIVE } from './annotations.js';
 
 const CRED_ITEM = {
   type: 'object',
@@ -22,6 +23,7 @@ export function buildEnvironmentTool(): Tool {
   return {
     name: 'environment',
     title: 'Environment',
+    annotations: DESTRUCTIVE,
     description: DESCRIPTION,
     inputSchema: {
       type: 'object',

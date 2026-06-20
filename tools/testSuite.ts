@@ -1,6 +1,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { TestSuiteInputSchema, ValidatedTool } from '../types/index.js';
 import { testSuiteHandler } from '../handlers/testSuiteHandler.js';
+import { DESTRUCTIVE } from './annotations.js';
 
 const DESCRIPTION = `Manage and run test suites. Identify a suite by suiteUuid, or suiteName + a project identifier (projectUuid|projectName). Pass an "action":
   - "list"    {projectUuid|projectName, search?, page?, pageSize?} → paginated suites with status/pass-rate.
@@ -22,6 +23,7 @@ export function buildTestSuiteTool(): Tool {
   return {
     name: 'test_suite',
     title: 'Test Suite',
+    annotations: DESTRUCTIVE,
     description: DESCRIPTION,
     inputSchema: {
       type: 'object',

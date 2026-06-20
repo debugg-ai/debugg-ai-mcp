@@ -1,6 +1,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { TestCaseInputSchema, ValidatedTool } from '../types/index.js';
 import { testCaseHandler } from '../handlers/testCaseHandler.js';
+import { DESTRUCTIVE } from './annotations.js';
 
 const DESCRIPTION = `Manage individual test cases within a suite. Pass an "action":
   - "create" {name, description, agentTaskDescription, suiteUuid|(suiteName+project), relativeUrl?, maxSteps?} → add a test case (NOT auto-run).
@@ -11,6 +12,7 @@ export function buildTestCaseTool(): Tool {
   return {
     name: 'test_case',
     title: 'Test Case',
+    annotations: DESTRUCTIVE,
     description: DESCRIPTION,
     inputSchema: {
       type: 'object',

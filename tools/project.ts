@@ -1,6 +1,7 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { ProjectInputSchema, ValidatedTool } from '../types/index.js';
 import { projectHandler } from '../handlers/projectHandler.js';
+import { WRITES } from './annotations.js';
 
 const DESCRIPTION = `Manage DebuggAI projects. Pass an "action":
   - "get"    {uuid} → one project with full detail.
@@ -13,6 +14,7 @@ export function buildProjectTool(): Tool {
   return {
     name: 'project',
     title: 'Project',
+    annotations: WRITES,
     description: DESCRIPTION,
     inputSchema: {
       type: 'object',

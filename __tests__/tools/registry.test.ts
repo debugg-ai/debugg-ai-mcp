@@ -63,3 +63,38 @@ describe('tool registry', () => {
     }
   });
 });
+
+describe('tool annotations (epic p7gft)', () => {
+  const ann = () => Object.fromEntries(getTools().map(t => [t.name, t.annotations]));
+
+  test('every tool declares annotations, all openWorldHint:true', () => {
+    for (const t of getTools()) {
+      expect([t.name, !!t.annotations]).toEqual([t.name, true]);
+      expect([t.name, t.annotations!.openWorldHint]).toEqual([t.name, true]);
+    }
+  });
+
+  test('delete-capable tools are destructive (readOnly:false, destructive:true)', () => {
+    const a = ann();
+    for (const name of ['environment', 'test_suite', 'test_case']) {
+      expect([name, a[name]!.readOnlyHint]).toEqual([name, false]);
+      expect([name, a[name]!.destructiveHint]).toEqual([name, true]);
+    }
+  });
+
+  test('read-only tools are readOnly:true and omit destructiveHint', () => {
+    const a = ann();
+    for (const name of ['executions', 'probe_page']) {
+      expect([name, a[name]!.readOnlyHint]).toEqual([name, true]);
+      expect([name, a[name]!.destructiveHint]).toEqual([name, undefined]);
+    }
+  });
+
+  test('write-but-not-destructive tools: readOnly:false, destructive:false', () => {
+    const a = ann();
+    for (const name of ['project', 'check_app_in_browser', 'trigger_crawl']) {
+      expect([name, a[name]!.readOnlyHint]).toEqual([name, false]);
+      expect([name, a[name]!.destructiveHint]).toEqual([name, false]);
+    }
+  });
+});
