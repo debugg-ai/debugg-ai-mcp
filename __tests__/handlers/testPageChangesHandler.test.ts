@@ -418,6 +418,8 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
 jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
   fetchImageAsBase64: jest.fn().mockResolvedValue(null),
   imageContentBlock: jest.fn(),
+  resourceLinkBlock: jest.fn((uri: string, name: string) => ({ type: 'resource_link', uri, name })),
+  artifactResourceLinks: jest.fn(() => []),
 }));
 
 // Bead 1om: probes run against the real network by default — mock to always

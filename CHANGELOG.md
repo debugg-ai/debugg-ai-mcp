@@ -5,6 +5,23 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0]
+
+### Added — Run artifacts returned as resource links
+
+`check_app_in_browser` and `executions {action:"get"}` now surface execution
+artifacts — **run recording, HAR, console log** — as MCP
+[`resource_link`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+content blocks pointing at their presigned URLs, instead of base64-inlining them.
+Leaner responses, and the URLs stay renewable / fetchable on demand. The legacy
+run-recording GIF (previously downloaded and inlined as multi-MB base64) is now a
+link; the `browserSession` presigned URLs are auto-detected and linked
+(deduped).
+
+Screenshots are **deliberately kept inline** as image blocks so vision-capable
+clients can still see them — the core visual-verification workflow. Helpers:
+`resourceLinkBlock` + `artifactResourceLinks` in `utils/imageUtils.ts`.
+
 ## [3.2.0]
 
 ### Added — Structured tool output (`structuredContent`)

@@ -260,10 +260,16 @@ export class MCPError extends Error {
  */
 export interface ToolResponse {
   content: Array<{
-    type: 'text' | 'image';
+    type: 'text' | 'image' | 'resource_link';
     text?: string;
     data?: string;
     mimeType?: string;
+    // resource_link fields (MCP 2025-06-18): a pointer to an (often presigned)
+    // artifact URL instead of inlining its bytes.
+    uri?: string;
+    name?: string;
+    title?: string;
+    description?: string;
   }>;
   /**
    * Machine-readable result mirroring the JSON in the text content block

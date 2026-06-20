@@ -14,7 +14,7 @@ jest.unstable_mockModule('axios', () => ({
   default: { get: mockAxiosGet },
 }));
 
-const { fetchImageAsBase64, imageContentBlock } = await import('../../utils/imageUtils.js');
+const { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } = await import('../../utils/imageUtils.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -141,5 +141,67 @@ describe('imageContentBlock', () => {
   test('type is the literal string "image"', () => {
     const block = imageContentBlock('x', 'image/jpeg');
     expect(block.type).toBe('image');
+  });
+});
+
+// ── resourceLinkBlock ────────────────────────────────────────────────────────
+
+describe('resourceLinkBlock', () => {
+  test('builds a minimal resource_link with just uri + name', () => {
+    expect(resourceLinkBlock('https://s3/x.gif', 'x.gif')).toEqual({
+      type: 'resource_link',
+      uri: 'https://s3/x.gif',
+      name: 'x.gif',
+    });
+  });
+
+  test('includes optional mimeType/title/description when provided', () => {
+    const block = resourceLinkBlock('https://s3/run.gif', 'run.gif', {
+      mimeType: 'image/gif',
+      title: 'Run recording',
+      description: 'presigned',
+    });
+    expect(block).toEqual({
+      type: 'resource_link',
+      uri: 'https://s3/run.gif',
+      name: 'run.gif',
+      mimeType: 'image/gif',
+      title: 'Run recording',
+      description: 'presigned',
+    });
+  });
+
+  test('omits absent optional fields (no undefined keys)', () => {
+    const block = resourceLinkBlock('https://s3/x.gif', 'x.gif', { mimeType: 'image/gif' });
+    expect(Object.keys(block).sort()).toEqual(['mimeType', 'name', 'type', 'uri']);
+  });
+});
+
+// ── artifactResourceLinks ────────────────────────────────────────────────────
+
+describe('artifactResourceLinks', () => {
+  test('links every https artifact URL one level deep, inferring name + mime', () => {
+    const links = artifactResourceLinks({
+      harUrl: 'https://s3/run.har?sig=abc',
+      consoleLogUrl: 'https://s3/console.log',
+      recording: 'https://s3/run.gif',
+      status: 'completed',          // non-URL string ignored
+      count: 3,                     // non-string ignored
+    });
+    expect(links).toHaveLength(3);
+    const byName = Object.fromEntries(links.map((l) => [l.name, l]));
+    expect(byName['harUrl.har'].mimeType).toBe('application/json');
+    expect(byName['harUrl.har'].title).toBe('Har');
+    expect(byName['consoleLogUrl.log'].mimeType).toBe('text/plain');
+    expect(byName['consoleLogUrl.log'].title).toBe('Console Log');
+    expect(byName['recording.gif'].mimeType).toBe('image/gif');
+    expect(byName['recording.gif'].uri).toBe('https://s3/run.gif');
+  });
+
+  test('skips ngrok/tunnel URLs and non-objects', () => {
+    expect(artifactResourceLinks({ x: 'https://abc.ngrok.io/y.har' })).toEqual([]);
+    expect(artifactResourceLinks(null)).toEqual([]);
+    expect(artifactResourceLinks(undefined)).toEqual([]);
+    expect(artifactResourceLinks('nope')).toEqual([]);
   });
 });

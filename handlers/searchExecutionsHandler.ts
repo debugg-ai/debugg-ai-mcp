@@ -19,7 +19,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { config } from '../config/index.js';
 import { toPaginationParams } from '../utils/pagination.js';
-import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
+import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 
 const logger = new Logger({ module: 'searchExecutionsHandler' });
 
@@ -98,9 +98,25 @@ export async function searchExecutionsHandler(
           const img = await fetchImageAsBase64(screenshotUrl).catch(() => null);
           if (img) content.push(imageContentBlock(img.data, img.mimeType));
         }
-        if (gifUrl) {
-          const gif = await fetchImageAsBase64(gifUrl).catch(() => null);
-          if (gif) content.push(imageContentBlock(gif.data, 'image/gif'));
+        // Artifact links (bead 8qndk): run recording (legacy GIF field) + the
+        // browserSession presigned URLs (HAR / console log / recording). Linked,
+        // not base64-inlined. Screenshot stays inline above for vision.
+        const artifactLinks = [
+          ...(gifUrl
+            ? [resourceLinkBlock(gifUrl, `run-recording-${input.uuid}.gif`, {
+                mimeType: 'image/gif',
+                title: 'Run recording',
+                description: 'Animated recording of the execution (presigned URL — open or fetch on demand).',
+              })]
+            : []),
+          ...artifactResourceLinks((execution as unknown as { browserSession?: unknown }).browserSession),
+        ];
+        const seenArtifactUris = new Set<string>();
+        for (const link of artifactLinks) {
+          if (link.uri && !seenArtifactUris.has(link.uri)) {
+            seenArtifactUris.add(link.uri);
+            content.push(link);
+          }
         }
 
         return { content };
