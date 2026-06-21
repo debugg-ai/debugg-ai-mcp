@@ -11,7 +11,7 @@
  *     on the first backend call). No token verification keys live here.
  *   - Missing token → 401 + `WWW-Authenticate: Bearer resource_metadata=...`,
  *     and we serve RFC 9728 metadata at /.well-known/oauth-protected-resource
- *     pointing clients at auth.debugg.ai to run the OAuth flow.
+ *     pointing clients at api.debugg.ai to run the OAuth flow.
  *
  * Deployment note: set DEBUGGAI_TOKEN_TYPE=bearer so the backend client forwards
  * the OAuth token as `Authorization: Bearer` (not `Token`).
@@ -30,7 +30,7 @@ export interface HttpServerOptions {
 }
 
 const PUBLIC_URL = (process.env.DEBUGGAI_MCP_PUBLIC_URL || 'https://mcp.debugg.ai').replace(/\/+$/, '');
-const OAUTH_ISSUER = (process.env.DEBUGGAI_OAUTH_ISSUER || 'https://auth.debugg.ai').replace(/\/+$/, '');
+const OAUTH_ISSUER = (process.env.DEBUGGAI_OAUTH_ISSUER || 'https://api.debugg.ai').replace(/\/+$/, '');
 const RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 const MCP_PATH = '/mcp';
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
