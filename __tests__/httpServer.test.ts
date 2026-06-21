@@ -37,7 +37,7 @@ describe('protectedResourceMetadata (RFC 9728)', () => {
     const m = protectedResourceMetadata();
     expect(typeof m.resource).toBe('string');
     expect(Array.isArray(m.authorization_servers)).toBe(true);
-    expect((m.authorization_servers as string[])[0]).toContain('auth.debugg.ai');
+    expect((m.authorization_servers as string[])[0]).toContain('api.debugg.ai');
     expect(m.bearer_methods_supported).toEqual(['header']);
   });
 });
@@ -65,7 +65,7 @@ describe('HTTP transport (integration)', () => {
     const r = await fetch(`${base}/.well-known/oauth-protected-resource`);
     expect(r.status).toBe(200);
     const m = await r.json();
-    expect(m.authorization_servers[0]).toContain('auth.debugg.ai');
+    expect(m.authorization_servers[0]).toContain('api.debugg.ai');
   });
 
   test('POST /mcp without bearer → 401 + WWW-Authenticate', async () => {

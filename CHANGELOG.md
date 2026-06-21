@@ -5,6 +5,16 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.1]
+
+### Fixed — default OAuth issuer points at the Django AS
+
+The default for `DEBUGGAI_OAUTH_ISSUER` (used in the RFC 9728 metadata's
+`authorization_servers`) was `https://auth.debugg.ai` — which is only the login
+UI. The actual Authorization Server is Django at `https://api.debugg.ai`, so the
+default is now `https://api.debugg.ai`. A deployment can still override it via the
+env var; this just makes a fresh container correct without one.
+
 ## [3.5.0]
 
 ### Added — Remote transport: Streamable HTTP + OAuth Resource Server (opt-in)
