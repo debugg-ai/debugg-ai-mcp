@@ -589,6 +589,13 @@ describe('testPageChangesHandler — full handler flow', () => {
     expect(text.success).toBe(true);
   });
 
+  test('always runs headless (D7) — contextData.headless is true', async () => {
+    setupHappyPath({ isLocalhost: false });
+    await testPageChangesHandler(defaultInput, defaultContext);
+    const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+    expect(contextData.headless).toBe(true);
+  });
+
   // Test 2: Localhost URL — tunnel provisioned BEFORE execute, revokeKey passed through
   test('localhost URL: tunnel provisioned before executeWorkflow', async () => {
     setupHappyPath({ isLocalhost: true });

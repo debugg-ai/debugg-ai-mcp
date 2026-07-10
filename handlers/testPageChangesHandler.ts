@@ -280,6 +280,7 @@ async function testPageChangesHandlerInner(
     if (projectUuid) {
       contextData.projectId = projectUuid;
     }
+    contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
 
     // --- Build env (credentials/environment) ---
     const env: Record<string, any> = {};
