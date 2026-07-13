@@ -428,6 +428,9 @@ async function testPageChangesHandlerInner(
       // AND while we still have budget. Otherwise break and surface whatever
       // result the agent reached.
       if (attempt > MAX_RETRIES) break;
+      // A poll-deadline timeout (bead 56kd.3) is never retried — surface the
+      // partial result instead of burning another 10 minutes.
+      if (finalExecution.timedOut) break;
       if (!isTransientWorkflowError(finalExecution)) break;
       logger.warn(
         `Transient backend error detected (${transientReasonTag(finalExecution) ?? 'unknown'}) — ` +
@@ -502,7 +505,14 @@ async function testPageChangesHandlerInner(
     // We consume the verdict/budget/evidence VERBATIM — no fabricated outcome,
     // no success default-false, no synthesized 'assertion-mismatch'. A
     // missing/unknown verdict surfaces as 'inconclusive', never as a failure.
-    const verdict = adaptVerdict(finalExecution, { fallbackBudget: MAX_EXEC_STEPS });
+    // On a poll-deadline timeout (bead 56kd.3) pollExecution returns the last
+    // observed execution flagged `timedOut`; force outcome 'timeout' since there
+    // is no terminal backend verdict, and shape its partial evidence below.
+    const timedOut = finalExecution.timedOut === true;
+    const verdict = adaptVerdict(finalExecution, {
+      fallbackBudget: MAX_EXEC_STEPS,
+      outcomeOverride: timedOut ? 'timeout' : undefined,
+    });
 
     // Evidence: prefer the backend's contract evidence.actionTrace; fall back to
     // the legacy node-extracted trace while the backend contract deploys.

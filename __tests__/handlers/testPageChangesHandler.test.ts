@@ -390,6 +390,7 @@ const mockBuildContext = jest.fn<(url: string) => any>();
 const mockResolveTargetUrl = jest.fn<(input: any) => string>();
 const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
 const mockTouchTunnelById = jest.fn<(id: string) => void>();
+const mockImageContentBlock = jest.fn<(...args: any[]) => any>();
 
 // ── Module mocks (BEFORE dynamic import) ───────────────────────────────────
 
@@ -417,7 +418,7 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
 
 jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
   fetchImageAsBase64: jest.fn().mockResolvedValue(null),
-  imageContentBlock: jest.fn(),
+  imageContentBlock: mockImageContentBlock,
   resourceLinkBlock: jest.fn((uri: string, name: string) => ({ type: 'resource_link', uri, name })),
   artifactResourceLinks: jest.fn(() => []),
 }));
@@ -1085,6 +1086,65 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
       expect(body.stepsTaken).toBe(30);
       expect(body.stepsRemaining).toBe(0);
+    });
+  });
+
+  // ── Bead 56kd.3: partial results on poll timeout ─────────────────────────
+  describe('partial results on poll timeout (bead 56kd.3)', () => {
+    // pollExecution now returns the last observed execution flagged `timedOut`
+    // (see services/workflows.ts) instead of throwing. The handler must shape a
+    // partial 'timeout' result and attach the last screenshot — never discard it.
+    const TIMED_OUT_EXECUTION = {
+      uuid: 'exec-uuid-1',
+      status: 'running',                    // last observed, non-terminal
+      startedAt: '2026-02-25T10:00:00Z',
+      completedAt: null,
+      durationMs: null,
+      state: {
+        outcome: '', success: false, stepsTaken: 4, error: '',
+        evidence: {
+          screenshot: 'iVBORw0KGgoPARTIALBASE64',
+          actionTrace: [{ step: 1, action: 'click', intent: 'open menu' }],
+        },
+      },
+      errorMessage: '',
+      errorInfo: null,
+      nodeExecutions: [],
+      timedOut: true,
+    };
+
+    test('poll timeout → shaped partial result (outcome:timeout + partial trace), NOT a thrown error', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue(TIMED_OUT_EXECUTION);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.outcome).toBe('timeout');
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('timeout');
+      expect(body.actionTrace).toHaveLength(1);          // partial trace preserved
+      expect(body.stepsTaken).toBe(4);
+    });
+
+    test('timeout attaches the last screenshot on the non-success path', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockImageContentBlock.mockClear();
+      mockPoll.mockResolvedValue(TIMED_OUT_EXECUTION);
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(mockImageContentBlock).toHaveBeenCalledWith('iVBORw0KGgoPARTIALBASE64', 'image/png');
+    });
+
+    test('timeout does NOT trigger a retry (single execute + single poll)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue(TIMED_OUT_EXECUTION);
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(mockExecute.mock.calls.length).toBe(1);
+      expect(mockPoll.mock.calls.length).toBe(1);
     });
   });
 

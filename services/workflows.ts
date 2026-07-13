@@ -292,11 +292,16 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       const pollStart = Date.now();
       let pollCount = 0;
       let intervalMs = POLL_INTERVAL_INITIAL_MS;
+      // Track the most recent observation so a poll-deadline timeout can return
+      // partial results (screenshot + trace) instead of discarding them (bead
+      // 56kd.3).
+      let lastExecution: WorkflowExecution | undefined;
       while (Date.now() < deadline) {
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
         }
         const execution = await service.getExecution(executionUuid);
+        lastExecution = execution;
         pollCount++;
         if (onUpdate) {
           await onUpdate(execution).catch(() => {});
@@ -329,6 +334,23 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         // Backoff for next iteration — capped at MAX so we don't wait too long
         // past terminal-state achievement on the longest runs.
         intervalMs = Math.min(Math.round(intervalMs * POLL_BACKOFF_MULTIPLIER), POLL_INTERVAL_MAX_MS);
+      }
+      // Deadline hit. Return the last observed execution flagged `timedOut` so
+      // the handler shapes a partial 'timeout' result (bead 56kd.3) rather than
+      // discarding the screenshot + trace we already captured. Only throw if we
+      // never observed anything to shape.
+      if (lastExecution) {
+        Telemetry.capture(TelemetryEvents.WORKFLOW_EXECUTED, {
+          status: lastExecution.status,
+          success: false,
+          outcome: 'timeout',
+          stepsTaken: lastExecution.state?.stepsTaken ?? 0,
+          durationMs: Date.now() - pollStart,
+          pollCount,
+          finalIntervalMs: intervalMs,
+          timedOut: true,
+        });
+        return { ...lastExecution, timedOut: true };
       }
       throw new Error(
         `Execution ${executionUuid} timed out after ${EXECUTION_TIMEOUT_MS / 1000}s`

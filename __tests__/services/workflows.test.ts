@@ -423,18 +423,22 @@ describe('pollExecution()', () => {
     expect(onUpdate).toHaveBeenCalled();
   });
 
-  test('deadline exceeded before terminal status: throws timeout error', async () => {
-    // Always return 'running'
-    mockGet.mockResolvedValue(makeExecution({ status: 'running' }));
+  test('deadline exceeded: returns the last observed execution flagged timedOut (bead 56kd.3), does NOT throw', async () => {
+    // The 10-min poll deadline must NOT discard captured evidence. Instead of
+    // throwing, pollExecution returns the last observed (non-terminal)
+    // execution flagged `timedOut` so the handler can shape a partial result.
+    mockGet.mockResolvedValue(makeExecution({
+      status: 'running',
+      nodeExecutions: [
+        { nodeId: 'b1', nodeType: 'brain.step', status: 'success', executionOrder: 1, outputData: { decision: { intent: 'x' } } },
+      ],
+    }));
 
     jest.useFakeTimers();
 
-    const pollPromise = service.pollExecution('exec-stuck');
-
-    // Attach the rejection handler BEFORE advancing timers so we don't get unhandled rejection
-    const resultPromise = pollPromise.then(
-      () => { throw new Error('should have rejected'); },
-      (err: Error) => err,
+    const settled = service.pollExecution('exec-stuck').then(
+      (v) => ({ value: v }),
+      (e: Error) => ({ error: e }),
     );
 
     // Advance past the 10-minute deadline in large steps
@@ -442,7 +446,11 @@ describe('pollExecution()', () => {
       await jest.advanceTimersByTimeAsync(3000);
     }
 
-    const err = await resultPromise;
-    expect(err.message).toMatch(/timed out/);
+    const outcome = await settled as { value?: WorkflowExecution; error?: Error };
+    expect(outcome.error).toBeUndefined();
+    expect(outcome.value).toBeDefined();
+    expect(outcome.value!.timedOut).toBe(true);
+    expect(outcome.value!.status).toBe('running');          // last observed status
+    expect(outcome.value!.nodeExecutions).toHaveLength(1);  // partial evidence preserved
   });
 });
