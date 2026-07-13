@@ -390,6 +390,7 @@ const mockBuildContext = jest.fn<(url: string) => any>();
 const mockResolveTargetUrl = jest.fn<(input: any) => string>();
 const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
 const mockTouchTunnelById = jest.fn<(id: string) => void>();
+const mockImageContentBlock = jest.fn<(...args: any[]) => any>();
 
 // ── Module mocks (BEFORE dynamic import) ───────────────────────────────────
 
@@ -417,7 +418,7 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
 
 jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
   fetchImageAsBase64: jest.fn().mockResolvedValue(null),
-  imageContentBlock: jest.fn(),
+  imageContentBlock: mockImageContentBlock,
   resourceLinkBlock: jest.fn((uri: string, name: string) => ({ type: 'resource_link', uri, name })),
   artifactResourceLinks: jest.fn(() => []),
 }));
@@ -959,10 +960,13 @@ describe('testPageChangesHandler — full handler flow', () => {
     });
   });
 
-  // ── Bead jqmj: failureCategory disambiguates 'fail' meanings ──────────────
-  // ── Bead qmdd: stepsRemaining + stepsBudget on every response ─────────────
-  describe('failureCategory + stepsBudget / stepsRemaining (beads jqmj + qmdd)', () => {
-    test('success: failureCategory OMITTED; stepsBudget=25, stepsRemaining matches', async () => {
+  // ── Bead 56kd.2: relay the verdict faithfully (kills jqmj fabrication) ─────
+  // failureCategory is now the outcome VERBATIM (fail|inconclusive|error|
+  // timeout), never a synthesized 'assertion-mismatch'/'agent-error'; budget
+  // comes from the response; a thin/unknown verdict is 'inconclusive', not a
+  // failure.
+  describe('verdict relay + budget (bead 56kd.2)', () => {
+    test('success: failureCategory OMITTED; budget falls back to 25 when response omits it', async () => {
       setupHappyPath({ isLocalhost: false });
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
@@ -974,17 +978,13 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(body.stepsRemaining).toBe(22);
     });
 
-    test('non-success with state.error set → failureCategory: "agent-error"', async () => {
+    test('backend verdict.outcome "fail" → failureCategory = "fail" (verbatim, not synthesized)', async () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
-        status: 'failed',
-        state: {
-          outcome: 'fail',
-          success: false,
-          stepsTaken: 5,
-          error: 'Pydantic JSON parse error: EOF while parsing a value',
-        },
+        status: 'completed',
+        state: { outcome: '', success: false, stepsTaken: 5, error: '' },
+        verdict: { outcome: 'fail', reason: 'heading missing' },  // TOP-LEVEL
         errorMessage: '',
       });
 
@@ -992,46 +992,77 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
 
       expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('agent-error');
-      expect(body.stepsRemaining).toBe(20);  // 25 - 5
+      expect(body.outcome).toBe('fail');
+      expect(body.failureCategory).toBe('fail');
+      expect(body.reason).toBe('heading missing');
     });
 
-    test('non-success with errorMessage set → failureCategory: "agent-error"', async () => {
+    test('backend verdict.outcome "error" → failureCategory = "error" (not "agent-error")', async () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
         status: 'failed',
-        state: { outcome: 'fail', success: false, stepsTaken: 0, error: '' },
+        state: { outcome: '', success: false, stepsTaken: 0, error: 'boom' },
+        verdict: { outcome: 'error' },  // TOP-LEVEL
         errorMessage: 'transport-level: connection reset by peer',
       });
 
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.failureCategory).toBe('agent-error');
+      expect(body.outcome).toBe('error');
+      expect(body.failureCategory).toBe('error');
     });
 
-    test('non-success with NO infra error → failureCategory: "assertion-mismatch"', async () => {
+    test('backend verdict.outcome "inconclusive" surfaces as inconclusive (NOT failure-invented)', async () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
-        status: 'completed',  // workflow ran to completion
-        state: {
-          outcome: 'fail',
-          success: false,
-          stepsTaken: 7,
-          error: '',
-        },
+        status: 'completed',
+        state: { outcome: '', success: false, stepsTaken: 4, error: '' },
+        verdict: { outcome: 'inconclusive' },  // TOP-LEVEL
         errorMessage: '',
-        errorInfo: null,
       });
 
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('assertion-mismatch');
-      expect(body.stepsRemaining).toBe(18);  // 25 - 7
+      expect(body.outcome).toBe('inconclusive');
+      expect(body.failureCategory).toBe('inconclusive');
+    });
+
+    test('thin state (no verdict, no outcome) → inconclusive, NOT fail, no assertion-mismatch', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        status: 'completed',
+        state: { outcome: '', success: false, stepsTaken: 0, error: '' },
+        errorMessage: '',
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.outcome).toBe('inconclusive');
+      expect(body.failureCategory).toBe('inconclusive');
+      expect(body.failureCategory).not.toBe('assertion-mismatch');
+    });
+
+    test('budget is sourced from the response (state.budget), not the 25 constant', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue({
+        ...mockFinalExecution,
+        state: { outcome: '', success: false, stepsTaken: 0, error: '' },
+        verdict: { outcome: 'pass' },              // TOP-LEVEL
+        budget: { maxSteps: 40, usedSteps: 12 },   // TOP-LEVEL
+      });
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.stepsBudget).toBe(40);
+      expect(body.stepsTaken).toBe(12);
+      expect(body.stepsRemaining).toBe(28);
     });
 
     test('stepsRemaining clamps to 0 when agent ran past budget', async () => {
@@ -1050,6 +1081,63 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
       expect(body.stepsTaken).toBe(30);
       expect(body.stepsRemaining).toBe(0);
+    });
+  });
+
+  // ── Bead 56kd.3: partial results on poll timeout ─────────────────────────
+  describe('partial results on poll timeout (bead 56kd.3)', () => {
+    // pollExecution now returns the last observed execution flagged `timedOut`
+    // (see services/workflows.ts) instead of throwing. The handler must shape a
+    // partial 'timeout' result and attach the last screenshot — never discard it.
+    const TIMED_OUT_EXECUTION = {
+      uuid: 'exec-uuid-1',
+      status: 'running',                    // last observed, non-terminal
+      startedAt: '2026-02-25T10:00:00Z',
+      completedAt: null,
+      durationMs: null,
+      state: { outcome: '', success: false, stepsTaken: 4, error: '' },
+      evidence: {                           // TOP-LEVEL contract field
+        screenshot: 'iVBORw0KGgoPARTIALBASE64',
+        actionTrace: [{ step: 1, action: 'click', intent: 'open menu' }],
+      },
+      errorMessage: '',
+      errorInfo: null,
+      nodeExecutions: [],
+      timedOut: true,
+    };
+
+    test('poll timeout → shaped partial result (outcome:timeout + partial trace), NOT a thrown error', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue(TIMED_OUT_EXECUTION);
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      const body = JSON.parse(result.content[0].text!);
+
+      expect(body.outcome).toBe('timeout');
+      expect(body.success).toBe(false);
+      expect(body.failureCategory).toBe('timeout');
+      expect(body.actionTrace).toHaveLength(1);          // partial trace preserved
+      expect(body.stepsTaken).toBe(4);
+    });
+
+    test('timeout attaches the last screenshot on the non-success path', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockImageContentBlock.mockClear();
+      mockPoll.mockResolvedValue(TIMED_OUT_EXECUTION);
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(mockImageContentBlock).toHaveBeenCalledWith('iVBORw0KGgoPARTIALBASE64', 'image/png');
+    });
+
+    test('timeout does NOT trigger a retry (single execute + single poll)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockResolvedValue(TIMED_OUT_EXECUTION);
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(mockExecute.mock.calls.length).toBe(1);
+      expect(mockPoll.mock.calls.length).toBe(1);
     });
   });
 
@@ -1108,9 +1196,9 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockExecute.mock.calls.length).toBe(1);
       expect(mockPoll.mock.calls.length).toBe(1);
 
-      // Surfaces as assertion-mismatch, not retried
+      // Not retried; failureCategory is the outcome verbatim ('fail')
       expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('assertion-mismatch');
+      expect(body.failureCategory).toBe('fail');
     });
 
     test('persistent transient error → exhausts retries, surfaces failure', async () => {
@@ -1125,9 +1213,10 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockExecute.mock.calls.length).toBe(2);
       expect(mockPoll.mock.calls.length).toBe(2);
 
-      // Surfaces as agent-error after retry exhaustion
+      // After retry exhaustion the failure surfaces with the outcome verbatim.
+      // TRANSIENT_FINAL carries state.outcome 'fail' and no explicit verdict.
       expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('agent-error');
+      expect(body.failureCategory).toBe('fail');
     });
 
     test('DEBUGGAI_TRANSIENT_RETRIES=0 → retry disabled, surfaces first transient immediately', async () => {

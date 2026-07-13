@@ -226,6 +226,7 @@ Response-shape changes: the bare `count` field on list responses is gone — use
 | `DEBUGGAI_API_KEY` | yes | Backend API key. Aliases: `DEBUGGAI_API_TOKEN`, `DEBUGGAI_JWT_TOKEN`. |
 | `DEBUGGAI_API_URL` | no | Backend base URL. Defaults to `https://api.debugg.ai`. |
 | `DEBUGGAI_TOKEN_TYPE` | no | `token` (default) or `bearer`. |
+| `DEBUGGAI_EVAL_TEMPLATE` | no | Override the App Evaluation workflow **slug** that `check_app_in_browser` dispatches to. Defaults to `flow/e2es/app-eval`. Dispatch pins to this slug so a backend template rename can't break it. |
 | `LOG_LEVEL` | no | `error` / `warn` / `info` (default) / `debug`. |
 | `POSTHOG_API_KEY` | no | Override the embedded telemetry project key (e.g. private fork). |
 | `DEBUGGAI_TELEMETRY_DISABLED` | no | Set to `1` / `true` / `yes` / `on` to disable telemetry entirely. |
