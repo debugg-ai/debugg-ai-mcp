@@ -81,12 +81,23 @@ export async function triggerCrawlHandler(
   let ctx = buildContext(originalUrl);
   let keyId: string | undefined;
 
+  // Bead 56kd.7: cancellation is driven by the MCP request/transport lifecycle
+  // (context.signal), NOT process.stdin. The SDK aborts context.signal when the
+  // client cancels the call OR the transport closes — e.g. an HTTP client drops
+  // the connection. Under the stateless HTTP transport that is the ONLY signal
+  // we get: stdin is not the transport, so the old stdin 'close' listener never
+  // fired and a dropped client kept polling for up to ~10 min. Wiring to
+  // context.signal cancels the poll immediately (parity with 56kd.5).
   const abortController = new AbortController();
-  const onStdinClose = () => {
+  const onAbort = () => {
     abortController.abort();
-    progressDisabled = true;
+    progressDisabled = true; // client is gone — stop emitting
   };
-  process.stdin.once('close', onStdinClose);
+  const requestSignal = context.signal;
+  if (requestSignal) {
+    if (requestSignal.aborted) onAbort();
+    else requestSignal.addEventListener('abort', onAbort, { once: true });
+  }
 
   try {
     // --- Tunnel: reuse existing or provision a fresh one ---
@@ -339,7 +350,7 @@ export async function triggerCrawlHandler(
     }
     throw handleExternalServiceError(error, 'DebuggAI', 'crawl execution');
   } finally {
-    process.stdin.removeListener('close', onStdinClose);
+    if (requestSignal) requestSignal.removeEventListener('abort', onAbort);
     // Tunnel intentionally NOT torn down (reuse path per bead vwd).
     // If tunnel creation failed after key provision, revoke the orphaned key.
     if (!ctx.tunnelId && keyId) {
