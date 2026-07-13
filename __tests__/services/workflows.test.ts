@@ -107,6 +107,80 @@ describe('findEvaluationTemplate()', () => {
   });
 });
 
+// ── Slug-pinned dispatch (bead 56kd.1 / bug clka) ────────────────────────────
+
+describe('findEvaluationTemplate() — slug-pinned dispatch', () => {
+  const EVAL_SLUG = 'flow/e2es/app-eval';
+
+  test('resolves by slug even when the backend RENAMES the template', async () => {
+    // The whole point of bug clka: a backend display-name change must NOT break
+    // dispatch. The template carries the stable slug but an unrelated name.
+    const renamed = makeTemplate({ uuid: 'eval-uuid', name: 'Totally Different Name', slug: EVAL_SLUG });
+    const decoy = makeTemplate({ uuid: 'decoy', name: 'App Evaluation Brain', slug: 'flow/e2es/app-eval-brain' });
+    mockGet.mockResolvedValue({ results: [decoy, renamed], next: null });
+
+    const result = await service.findEvaluationTemplate();
+
+    expect(result!.uuid).toBe('eval-uuid');
+  });
+
+  test('sends the slug to the templates endpoint (server-side filter opportunity)', async () => {
+    const renamed = makeTemplate({ uuid: 'eval-uuid', name: 'X', slug: EVAL_SLUG });
+    mockGet.mockResolvedValue({ results: [renamed], next: null });
+
+    await service.findEvaluationTemplate();
+
+    expect(mockGet).toHaveBeenCalledWith(
+      'api/v1/workflows/',
+      expect.objectContaining({ isTemplate: true, slug: EVAL_SLUG, page: 1 }),
+    );
+  });
+
+  test('client-side slug filter: ignores a same-page decoy whose slug differs', async () => {
+    const decoy = makeTemplate({ uuid: 'decoy', name: 'App Evaluation Workflow Template', slug: 'flow/e2es/other' });
+    const real = makeTemplate({ uuid: 'real', name: 'zzz', slug: EVAL_SLUG });
+    mockGet.mockResolvedValue({ results: [decoy, real], next: null });
+
+    const result = await service.findEvaluationTemplate();
+
+    expect(result!.uuid).toBe('real');
+  });
+
+  test('DEBUGGAI_EVAL_TEMPLATE overrides the pinned slug', async () => {
+    const saved = process.env.DEBUGGAI_EVAL_TEMPLATE;
+    process.env.DEBUGGAI_EVAL_TEMPLATE = 'flow/custom/my-eval';
+    try {
+      const custom = makeTemplate({ uuid: 'custom-uuid', name: 'Custom', slug: 'flow/custom/my-eval' });
+      mockGet.mockResolvedValue({ results: [custom], next: null });
+
+      const result = await service.findEvaluationTemplate();
+
+      expect(result!.uuid).toBe('custom-uuid');
+      expect(mockGet).toHaveBeenCalledWith(
+        'api/v1/workflows/',
+        expect.objectContaining({ slug: 'flow/custom/my-eval' }),
+      );
+    } finally {
+      if (saved === undefined) delete process.env.DEBUGGAI_EVAL_TEMPLATE;
+      else process.env.DEBUGGAI_EVAL_TEMPLATE = saved;
+    }
+  });
+
+  test('falls back to name-search when NO result carries a slug field (backend not yet deployed)', async () => {
+    // Interim behavior until backend contract sentinal-k8x1f.8 exposes slug:
+    // results have no slug field at all -> fall back to name-substring search.
+    const wrapper = makeTemplate({ uuid: 'wrapper', name: 'App Evaluation Workflow Template' });
+    delete (wrapper as any).slug;
+    const brain = makeTemplate({ uuid: 'brain', name: 'App Evaluation Brain' });
+    delete (brain as any).slug;
+    mockGet.mockResolvedValue({ results: [brain, wrapper], next: null });
+
+    const result = await service.findEvaluationTemplate();
+
+    expect(result!.uuid).toBe('wrapper');
+  });
+});
+
 // ── findTemplateByName ───────────────────────────────────────────────────────
 
 describe('findTemplateByName()', () => {

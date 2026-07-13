@@ -15,6 +15,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
+import { getEvalTemplateSlug } from '../services/workflows.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
@@ -38,8 +39,6 @@ import { isTransientWorkflowError, transientReasonTag } from '../utils/transient
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
-
-const TEMPLATE_NAME = 'app evaluation';
 
 // Bead kbxy: bounded retry on known transient backend signatures (Pydantic
 // JSON parse errors, 502s, ECONNRESETs). Default 1 retry; env-overridable
@@ -247,7 +246,10 @@ async function testPageChangesHandlerInner(
     const repoName = input.repoName || detectRepoName();
 
     const [templateUuid, projectUuid] = await Promise.all([
-      getCachedTemplateUuid(TEMPLATE_NAME, async () => {
+      // Cache key = the dispatch slug so the cache key and the lookup can never
+      // drift apart (bug clka: the key used to be a decoupled 'app evaluation'
+      // literal while the lookup searched a different string).
+      getCachedTemplateUuid(getEvalTemplateSlug(), async () => {
         return client.workflows!.findEvaluationTemplate();
       }),
       repoName

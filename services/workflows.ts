@@ -16,12 +16,35 @@ const POLL_INTERVAL_MAX_MS = 5000;
 const POLL_BACKOFF_MULTIPLIER = 1.5;
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
+/**
+ * Stable dispatch slug for the App Evaluation workflow (bug clka). Dispatch
+ * pins to this slug so a backend display-name change never breaks
+ * check_app_in_browser. Backend contract sentinal-k8x1f.8 exposes the slug on
+ * template results; until that deploy lands the resolver falls back to a
+ * name-substring search (see EVAL_TEMPLATE_NAME_FALLBACK).
+ *
+ * Override with the DEBUGGAI_EVAL_TEMPLATE env var to pin a different slug.
+ */
+export const EVAL_TEMPLATE_SLUG = 'flow/e2es/app-eval';
+
+/** Interim name keyword used ONLY when the backend hasn't exposed slugs yet. */
+export const EVAL_TEMPLATE_NAME_FALLBACK = 'app evaluation workflow';
+
+/** The slug the eval-template dispatch pins to (env-overridable). */
+export function getEvalTemplateSlug(): string {
+  return process.env.DEBUGGAI_EVAL_TEMPLATE || EVAL_TEMPLATE_SLUG;
+}
+
 export interface WorkflowTemplate {
   uuid: string;
   name: string;
   description: string;
   isTemplate: boolean;
   isActive: boolean;
+  // Stable dispatch identifier (bug clka). Backend contract sentinal-k8x1f.8
+  // exposes this on template results so the MCP can pin to the slug instead of
+  // a mutable display name. Optional until that backend deploy lands.
+  slug?: string;
 }
 
 export interface NodeExecution {
@@ -102,6 +125,7 @@ export interface WorkflowExecuteResponse {
 
 export interface WorkflowsService {
   findTemplateByName(keyword: string): Promise<WorkflowTemplate | null>;
+  findTemplateBySlug(slug: string): Promise<WorkflowTemplate | null>;
   findEvaluationTemplate(): Promise<WorkflowTemplate | null>;
   executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse>;
   getExecution(executionUuid: string): Promise<WorkflowExecution>;
@@ -148,11 +172,38 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       );
     },
 
+    async findTemplateBySlug(slug: string): Promise<WorkflowTemplate | null> {
+      // Pin dispatch to the stable slug (bug clka). We pass `slug` as a query
+      // param so a slug-aware backend can filter server-side; on backends that
+      // ignore it we still walk the pages and match client-side on the `slug`
+      // field. Returns null if NO result carries a slug field (backend hasn't
+      // deployed the slug contract yet) — the caller then falls back to name
+      // search. `next`-paging mirrors findTemplateByName for the same reason
+      // (the backend caps page size).
+      const MAX_PAGES = 50;
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const response = await tx.get<{ results?: WorkflowTemplate[]; next?: string | null }>(
+          'api/v1/workflows/',
+          { isTemplate: true, slug, page },
+        );
+        const templates = response?.results ?? [];
+        for (const t of templates) {
+          if (t.slug === slug) return t;
+        }
+        if (!response?.next) break;
+      }
+      return null;
+    },
+
     async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
-      // 'app evaluation workflow' is specific enough to skip 'App Evaluation Brain'
-      // (subworkflow, no browser lifecycle) which also contains 'app evaluation'.
-      const keyword = process.env.DEBUGGAI_EVAL_TEMPLATE || 'app evaluation workflow';
-      return service.findTemplateByName(keyword);
+      // Primary: resolve by the stable slug so a backend rename can't break us.
+      const slug = getEvalTemplateSlug();
+      const bySlug = await service.findTemplateBySlug(slug);
+      if (bySlug) return bySlug;
+      // Fallback (interim, until backend contract sentinal-k8x1f.8 lands): the
+      // name is specific enough to skip 'App Evaluation Brain' (subworkflow, no
+      // browser lifecycle) which also contains 'app evaluation'.
+      return service.findTemplateByName(EVAL_TEMPLATE_NAME_FALLBACK);
     },
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {
