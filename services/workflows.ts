@@ -17,22 +17,31 @@ const POLL_BACKOFF_MULTIPLIER = 1.5;
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
 /**
- * Stable dispatch slug for the App Evaluation workflow (bug clka). Dispatch
- * pins to this slug so a backend display-name change never breaks
- * check_app_in_browser. Backend contract sentinal-k8x1f.8 exposes the slug on
- * template results; until that deploy lands the resolver falls back to a
- * name-substring search (see EVAL_TEMPLATE_NAME_FALLBACK).
+ * Stable dispatch slugs for the three MCP browser workflows (bug clka /
+ * bead 56kd.8). All three handlers pin to a STABLE slug so a backend
+ * display-name change (or template rework) never breaks dispatch — the
+ * fuzzy name-substring fallback is fully retired now that the backend does
+ * server-side `?slug=` exact matching (contract sentinal-k8x1f.11).
  *
- * Override with the DEBUGGAI_EVAL_TEMPLATE env var to pin a different slug.
+ * Each is env-overridable to pin a different slug without a code change.
  */
-export const EVAL_TEMPLATE_SLUG = 'flow/e2es/app-eval';
-
-/** Interim name keyword used ONLY when the backend hasn't exposed slugs yet. */
-export const EVAL_TEMPLATE_NAME_FALLBACK = 'app evaluation workflow';
+export const EVAL_TEMPLATE_SLUG = 'flow/e2es/app-eval';                       // check_app_in_browser
+export const PAGE_PROBE_TEMPLATE_SLUG = 'flow/tools/probe';                   // probe_page
+export const RAW_CRAWL_TEMPLATE_SLUG = 'crawl-execution-workflow-template';   // trigger_crawl
 
 /** The slug the eval-template dispatch pins to (env-overridable). */
 export function getEvalTemplateSlug(): string {
   return process.env.DEBUGGAI_EVAL_TEMPLATE || EVAL_TEMPLATE_SLUG;
+}
+
+/** The slug the page-probe dispatch pins to (env-overridable). */
+export function getPageProbeTemplateSlug(): string {
+  return process.env.DEBUGGAI_PROBE_TEMPLATE || PAGE_PROBE_TEMPLATE_SLUG;
+}
+
+/** The slug the raw-crawl dispatch pins to (env-overridable). */
+export function getCrawlTemplateSlug(): string {
+  return process.env.DEBUGGAI_CRAWL_TEMPLATE || RAW_CRAWL_TEMPLATE_SLUG;
 }
 
 export interface WorkflowTemplate {
@@ -137,7 +146,6 @@ export interface WorkflowExecuteResponse {
 }
 
 export interface WorkflowsService {
-  findTemplateByName(keyword: string): Promise<WorkflowTemplate | null>;
   findTemplateBySlug(slug: string): Promise<WorkflowTemplate | null>;
   findEvaluationTemplate(): Promise<WorkflowTemplate | null>;
   executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse>;
@@ -153,70 +161,22 @@ export interface WorkflowsService {
 
 export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => {
   const service: WorkflowsService = {
-    async findTemplateByName(keyword: string): Promise<WorkflowTemplate | null> {
-      // Narrow server-side with `search` AND walk every page. The backend caps
-      // the page size (it ignores page_size), so reading only page 1 silently
-      // hides templates that sort later — that bug made check_app_in_browser
-      // fail in prod because "App Evaluation Workflow Template" sat on page 2.
-      // `search` collapses the candidate set to one page on backends that
-      // support it; `page` paging is the fallback for those that ignore it.
-      const needle = keyword.toLowerCase();
-      const seenNames: string[] = [];
-      const MAX_PAGES = 50; // safety valve against a backend that always returns `next`
-
-      for (let page = 1; page <= MAX_PAGES; page++) {
-        const response = await tx.get<{ results?: WorkflowTemplate[]; next?: string | null }>(
-          'api/v1/workflows/',
-          { isTemplate: true, search: keyword, page },
-        );
-        const templates = response?.results ?? [];
-        for (const t of templates) {
-          seenNames.push(t.name);
-          if (t.name.toLowerCase().includes(needle)) return t;
-        }
-        if (!response?.next) break;
-      }
-
-      if (seenNames.length === 0) return null;
-      throw new Error(
-        `No workflow template matching "${keyword}" found. ` +
-        `Available templates: ${seenNames.map(n => `"${n}"`).join(', ')}. ` +
-        `Ensure the backend has a template with "${keyword}" in its name.`,
-      );
-    },
-
     async findTemplateBySlug(slug: string): Promise<WorkflowTemplate | null> {
-      // Pin dispatch to the stable slug (bug clka). We pass `slug` as a query
-      // param so a slug-aware backend can filter server-side; on backends that
-      // ignore it we still walk the pages and match client-side on the `slug`
-      // field. Returns null if NO result carries a slug field (backend hasn't
-      // deployed the slug contract yet) — the caller then falls back to name
-      // search. `next`-paging mirrors findTemplateByName for the same reason
-      // (the backend caps page size).
-      const MAX_PAGES = 50;
-      for (let page = 1; page <= MAX_PAGES; page++) {
-        const response = await tx.get<{ results?: WorkflowTemplate[]; next?: string | null }>(
-          'api/v1/workflows/',
-          { isTemplate: true, slug, page },
-        );
-        const templates = response?.results ?? [];
-        for (const t of templates) {
-          if (t.slug === slug) return t;
-        }
-        if (!response?.next) break;
-      }
-      return null;
+      // Pure server-side slug resolve (bead 56kd.8). The backend does an EXACT
+      // `?slug=` match server-side (contract sentinal-k8x1f.11) and returns
+      // exactly that template, so this is a single GET — NO page-walk, NO
+      // client-side name/slug filtering, NO name-substring fallback. A slug is
+      // the stable template identity, so a backend rename can never break us.
+      const response = await tx.get<{ results?: WorkflowTemplate[] }>(
+        'api/v1/workflows/',
+        { isTemplate: true, slug },
+      );
+      return response?.results?.[0] ?? null;
     },
 
     async findEvaluationTemplate(): Promise<WorkflowTemplate | null> {
-      // Primary: resolve by the stable slug so a backend rename can't break us.
-      const slug = getEvalTemplateSlug();
-      const bySlug = await service.findTemplateBySlug(slug);
-      if (bySlug) return bySlug;
-      // Fallback (interim, until backend contract sentinal-k8x1f.8 lands): the
-      // name is specific enough to skip 'App Evaluation Brain' (subworkflow, no
-      // browser lifecycle) which also contains 'app evaluation'.
-      return service.findTemplateByName(EVAL_TEMPLATE_NAME_FALLBACK);
+      // Resolve the App Evaluation template purely by its stable slug.
+      return service.findTemplateBySlug(getEvalTemplateSlug());
     },
 
     async executeWorkflow(workflowUuid: string, contextData: Record<string, any>, env?: WorkflowEnv): Promise<WorkflowExecuteResponse> {

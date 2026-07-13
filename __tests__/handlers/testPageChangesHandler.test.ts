@@ -283,6 +283,83 @@ describe('TestPageChangesInputSchema — url validation', () => {
   });
 });
 
+// ── Bead 56kd.6: auth-precondition deep-link request schema ──────────────────
+// The tool must accept a first-class "log in THEN deep-navigate to X" intent:
+// an auth block { environmentId, precondition, entryUrl?, deepUrl? } aligned to
+// backend contract sentinal-k8x1f.8. The MCP is a THIN relay — it accepts the
+// intent and forwards it; it invents no auth logic.
+describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () => {
+  test('accepts a login-then-deep-navigate auth block', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'verify the settings page renders after login',
+      url: 'https://app.example.com',
+      auth: {
+        environmentId: '11111111-1111-1111-1111-111111111111',
+        precondition: 'login',
+        entryUrl: 'https://app.example.com/login',
+        deepUrl: 'https://app.example.com/settings/profile',
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('accepts precondition "none" (the default, unauthenticated case)', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'check homepage',
+      url: 'https://app.example.com',
+      auth: { precondition: 'none' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('auth is optional — omitting it still validates', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'check homepage',
+      url: 'https://app.example.com',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('normalizes a bare-host deepUrl the same way as url', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'check settings after login',
+      url: 'localhost:3000',
+      auth: { precondition: 'login', deepUrl: 'localhost:3000/settings' },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.auth?.deepUrl).toBe('http://localhost:3000/settings');
+    }
+  });
+
+  test('rejects an unknown precondition value', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'check',
+      url: 'https://app.example.com',
+      auth: { precondition: 'sudo' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects a non-uuid environmentId', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'check',
+      url: 'https://app.example.com',
+      auth: { environmentId: 'not-a-uuid', precondition: 'login' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects unknown keys inside auth (strict)', () => {
+    const result = TestPageChangesInputSchema.safeParse({
+      description: 'check',
+      url: 'https://app.example.com',
+      auth: { precondition: 'login', bogus: true },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('pollExecution — AbortSignal cancellation', () => {
   const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
@@ -1376,6 +1453,61 @@ describe('testPageChangesHandler — full handler flow', () => {
 
       const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
       expect(contextData.projectId).toBe('proj-xyz');
+    });
+  });
+
+  // ── Bead 56kd.6: forward the auth-precondition deep-link intent ────────────
+  // The MCP relays the caller's "log in THEN deep-navigate" intent verbatim into
+  // contextData.auth per backend contract sentinal-k8x1f.8. It invents nothing:
+  // no auth block in → no auth key out; only the fields the caller set are sent.
+  describe('auth-precondition forwarding (bead 56kd.6)', () => {
+    test('forwards input.auth into contextData.auth (camelCase; axiosTransport snake-cases on the wire)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const input = {
+        description: 'verify settings after login',
+        url: 'https://example.com',
+        auth: {
+          environmentId: 'env-uuid-1',
+          precondition: 'login',
+          entryUrl: 'https://example.com/login',
+          deepUrl: 'https://example.com/settings',
+        },
+      };
+
+      await testPageChangesHandler(input as any, defaultContext);
+
+      const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+      expect(contextData.auth).toEqual({
+        environmentId: 'env-uuid-1',
+        precondition: 'login',
+        entryUrl: 'https://example.com/login',
+        deepUrl: 'https://example.com/settings',
+      });
+    });
+
+    test('no auth block → no contextData.auth key (thin: only forward what was asked)', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+      expect(contextData.auth).toBeUndefined();
+    });
+
+    test('omits unset auth sub-fields (only the fields the caller provided are forwarded)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const input = {
+        description: 'x',
+        url: 'https://example.com',
+        auth: { environmentId: 'env-uuid-2', precondition: 'login' },
+      };
+
+      await testPageChangesHandler(input as any, defaultContext);
+
+      const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+      expect(contextData.auth).toEqual({ environmentId: 'env-uuid-2', precondition: 'login' });
+      expect(contextData.auth).not.toHaveProperty('entryUrl');
+      expect(contextData.auth).not.toHaveProperty('deepUrl');
     });
   });
 });

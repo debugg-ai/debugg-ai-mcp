@@ -11,7 +11,7 @@ import { jest } from '@jest/globals';
 import { ToolContext, ProbePageInput } from '../../types/index.js';
 
 const mockProvision = jest.fn<() => Promise<any>>();
-const mockFindTemplateByName = jest.fn<(kw: string) => Promise<any>>();
+const mockFindTemplateBySlug = jest.fn<(kw: string) => Promise<any>>();
 const mockExecute = jest.fn<(...args: any[]) => Promise<any>>();
 const mockPoll = jest.fn<() => Promise<any>>();
 const mockRevokeKey = jest.fn<() => Promise<void>>();
@@ -32,7 +32,7 @@ jest.unstable_mockModule('../../services/index.js', () => ({
     init: mockInit,
     tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
     workflows: {
-      findTemplateByName: mockFindTemplateByName,
+      findTemplateBySlug: mockFindTemplateBySlug,
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
     },
@@ -73,7 +73,7 @@ function setupHappyPath({ isLocalhost = false } = {}) {
   });
   mockFindExistingTunnel.mockReturnValue(null);
   mockSanitizeResponseUrls.mockImplementation((val: any) => val);
-  mockFindTemplateByName.mockResolvedValue(TEMPLATE);
+  mockFindTemplateBySlug.mockResolvedValue(TEMPLATE);
   mockExecute.mockResolvedValue({
     executionUuid: 'exec-uuid-1',
     resolvedEnvironmentId: null,
@@ -134,10 +134,19 @@ describe('probePageHandler — happy path', () => {
     invalidateTemplateCache();
   });
 
-  test('looks up the page-probe template via findTemplateByName("page probe")', async () => {
+  test('resolves the page-probe template by its stable slug (flow/tools/probe) — no fuzzy name (bead 56kd.8)', async () => {
     setupHappyPath();
     await probePageHandler(singleInput, defaultContext);
-    expect(mockFindTemplateByName).toHaveBeenCalledWith('page probe');
+    expect(mockFindTemplateBySlug).toHaveBeenCalledWith('flow/tools/probe');
+  });
+
+  test('a backend RENAME of the page-probe template breaks nothing (slug is the identity)', async () => {
+    setupHappyPath();
+    // Backend returns the template under a totally different display name; the
+    // handler dispatched by slug, so it still gets a uuid and proceeds.
+    mockFindTemplateBySlug.mockResolvedValue({ uuid: 'tmpl-uuid-page-probe', name: 'Totally Renamed' });
+    const result = await probePageHandler(singleInput, defaultContext);
+    expect(JSON.parse(result.content[0].text!).executionId).toBe('exec-uuid-1');
   });
 
   test('returns response with executionId, durationMs, results[]', async () => {
@@ -320,9 +329,70 @@ describe('probePageHandler — template not found', () => {
 
   test('throws clear "PageProbeTemplateNotConfigured"-style error if backend template missing', async () => {
     setupHappyPath();
-    mockFindTemplateByName.mockResolvedValue(null);
+    mockFindTemplateBySlug.mockResolvedValue(null);
     await expect(probePageHandler(singleInput, defaultContext)).rejects.toThrow(
       /[Pp]age [Pp]robe.*[Tt]emplate|TemplateNotConfigured/,
     );
+  });
+});
+
+// ── Bead 56kd.7: cancellation via the request/transport signal ───────────────
+// Cancellation must be driven by context.signal (the MCP request/transport
+// lifecycle), NOT process.stdin. Under the stateless HTTP transport stdin is
+// not the transport, so the old stdin 'close' listener never fired — a dropped
+// client kept polling for up to ~10 min. Wiring to context.signal cancels the
+// poll immediately, exactly like check_app_in_browser (bead 56kd.5).
+describe('probePageHandler — lifecycle cancellation via request signal (bead 56kd.7)', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const { invalidateTemplateCache } = await import('../../utils/handlerCaches.js');
+    invalidateTemplateCache();
+  });
+
+  test('aborting the request signal cancels the poll (wired through to pollExecution)', async () => {
+    setupHappyPath();
+    let pollSignal: AbortSignal | undefined;
+    mockPoll.mockImplementation((async (_uuid: string, _onUpdate: any, signal: AbortSignal) => {
+      pollSignal = signal;
+      return await new Promise((_resolve, reject) => {
+        const fail = () => reject(new Error('poll cancelled'));
+        if (signal?.aborted) return fail();
+        signal?.addEventListener('abort', fail, { once: true });
+      });
+    }) as any);
+
+    const controller = new AbortController();
+    const ctx: ToolContext = { requestId: 'probe-abort-1', timestamp: new Date(), signal: controller.signal };
+    const p = probePageHandler(singleInput, ctx);
+    await new Promise((r) => setImmediate(r)); // let the handler reach pollExecution
+    controller.abort();
+
+    await expect(p).rejects.toThrow();
+    expect(pollSignal).toBeDefined();
+    expect(pollSignal!.aborted).toBe(true);
+  });
+
+  test('an already-aborted request signal cancels immediately', async () => {
+    setupHappyPath();
+    let pollSignal: AbortSignal | undefined;
+    mockPoll.mockImplementation((async (_uuid: string, _onUpdate: any, signal: AbortSignal) => {
+      pollSignal = signal;
+      if (signal?.aborted) throw new Error('poll cancelled');
+      return { uuid: 'exec-uuid-1', status: 'completed', durationMs: 1, nodeExecutions: [] };
+    }) as any);
+
+    const controller = new AbortController();
+    controller.abort();
+    const ctx: ToolContext = { requestId: 'probe-abort-2', timestamp: new Date(), signal: controller.signal };
+
+    await expect(probePageHandler(singleInput, ctx)).rejects.toThrow();
+    expect(pollSignal!.aborted).toBe(true);
+  });
+
+  test('no request signal (stdio without cancellation) → handler still completes', async () => {
+    setupHappyPath();
+    const ctx: ToolContext = { requestId: 'probe-no-signal', timestamp: new Date() }; // no signal
+    const result = await probePageHandler(singleInput, ctx);
+    expect(JSON.parse(result.content[0].text!).executionId).toBe('exec-uuid-1');
   });
 });

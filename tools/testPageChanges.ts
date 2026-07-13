@@ -95,6 +95,30 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
           type: "string",
           description: "GitHub repository name (e.g. 'my-org/my-repo'). Auto-detected from the current git repo — only provide this if you want to run against a different project than the one you're in."
         },
+        auth: {
+          type: "object",
+          description: "Optional auth-precondition for a 'log in THEN deep-navigate' check. Set precondition:'login' to authenticate first (using the environment's credentials), then land on deepUrl. Use this instead of hoping the agent signs itself in at a login wall.",
+          properties: {
+            environmentId: {
+              type: "string",
+              description: "UUID of the environment whose credentials to log in with. See available environments in the tool description above."
+            },
+            precondition: {
+              type: "string",
+              enum: ["login", "none"],
+              description: "'login' = authenticate before evaluating; 'none' (default) = no login precondition."
+            },
+            entryUrl: {
+              type: "string",
+              description: "Optional URL of the login page to authenticate on."
+            },
+            deepUrl: {
+              type: "string",
+              description: "Optional URL to navigate to and evaluate AFTER login (e.g. a deep settings page). Falls back to `url` if omitted."
+            },
+          },
+          additionalProperties: false
+        },
       },
       required: ["description", "url"],
       additionalProperties: false

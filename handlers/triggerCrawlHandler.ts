@@ -34,12 +34,11 @@ import {
   touchTunnelById,
 } from '../utils/tunnelContext.js';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
+import { getCrawlTemplateSlug } from '../services/workflows.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const logger = new Logger({ module: 'triggerCrawlHandler' });
-
-const TEMPLATE_KEYWORD = 'raw crawl';
 
 // Bead kbo9: same env-driven retry budget as testPageChangesHandler (kbxy).
 function getMaxTransientRetries(): number {
@@ -81,12 +80,23 @@ export async function triggerCrawlHandler(
   let ctx = buildContext(originalUrl);
   let keyId: string | undefined;
 
+  // Bead 56kd.7: cancellation is driven by the MCP request/transport lifecycle
+  // (context.signal), NOT process.stdin. The SDK aborts context.signal when the
+  // client cancels the call OR the transport closes — e.g. an HTTP client drops
+  // the connection. Under the stateless HTTP transport that is the ONLY signal
+  // we get: stdin is not the transport, so the old stdin 'close' listener never
+  // fired and a dropped client kept polling for up to ~10 min. Wiring to
+  // context.signal cancels the poll immediately (parity with 56kd.5).
   const abortController = new AbortController();
-  const onStdinClose = () => {
+  const onAbort = () => {
     abortController.abort();
-    progressDisabled = true;
+    progressDisabled = true; // client is gone — stop emitting
   };
-  process.stdin.once('close', onStdinClose);
+  const requestSignal = context.signal;
+  if (requestSignal) {
+    if (requestSignal.aborted) onAbort();
+    else requestSignal.addEventListener('abort', onAbort, { once: true });
+  }
 
   try {
     // --- Tunnel: reuse existing or provision a fresh one ---
@@ -172,13 +182,17 @@ export async function triggerCrawlHandler(
       await progressCallback({ progress: 2, total: 4, message: 'Locating crawl workflow template...' });
     }
 
-    const templateUuid = await getCachedTemplateUuid(TEMPLATE_KEYWORD, async (name) => {
-      return client.workflows!.findTemplateByName(name);
+    // Pin dispatch to the stable slug (bead 56kd.8) — no fuzzy name resolution.
+    // Cache key = the slug so the key and the lookup can never drift apart.
+    const templateSlug = getCrawlTemplateSlug();
+    const templateUuid = await getCachedTemplateUuid(templateSlug, async () => {
+      return client.workflows!.findTemplateBySlug(templateSlug);
     });
     if (!templateUuid) {
       throw new Error(
-        `Raw Crawl Workflow Template not found. ` +
-        `Ensure the backend has a template matching "${TEMPLATE_KEYWORD}" seeded and accessible.`,
+        `Crawl Workflow Template not found (slug "${templateSlug}"). ` +
+        `Ensure the backend has that template seeded and accessible ` +
+        `(GET /api/v1/workflows/?slug=${templateSlug}).`,
       );
     }
 
@@ -339,7 +353,7 @@ export async function triggerCrawlHandler(
     }
     throw handleExternalServiceError(error, 'DebuggAI', 'crawl execution');
   } finally {
-    process.stdin.removeListener('close', onStdinClose);
+    if (requestSignal) requestSignal.removeEventListener('abort', onAbort);
     // Tunnel intentionally NOT torn down (reuse path per bead vwd).
     // If tunnel creation failed after key provision, revoke the orphaned key.
     if (!ctx.tunnelId && keyId) {

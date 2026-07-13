@@ -312,6 +312,19 @@ async function testPageChangesHandlerInner(
     }
     contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
 
+    // Bead 56kd.6: forward the auth-precondition deep-link intent verbatim per
+    // backend contract sentinal-k8x1f.8 (contextData.auth). Thin relay — express
+    // intent + forward; the backend authenticates then navigates to deepUrl. Only
+    // the fields the caller set are sent (camelCase here → snake_case on the wire).
+    if (input.auth) {
+      const auth: Record<string, any> = {};
+      if (input.auth.environmentId) auth.environmentId = input.auth.environmentId;
+      if (input.auth.precondition) auth.precondition = input.auth.precondition;
+      if (input.auth.entryUrl) auth.entryUrl = input.auth.entryUrl;
+      if (input.auth.deepUrl) auth.deepUrl = input.auth.deepUrl;
+      if (Object.keys(auth).length > 0) contextData.auth = auth;
+    }
+
     // --- Build env (credentials/environment) ---
     const env: Record<string, any> = {};
     if (input.environmentId) env.environmentId = input.environmentId;
