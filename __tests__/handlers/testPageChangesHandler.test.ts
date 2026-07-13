@@ -383,6 +383,7 @@ const mockExecute = jest.fn<() => Promise<any>>();
 const mockPoll = jest.fn<() => Promise<any>>();
 const mockRevokeKey = jest.fn<() => Promise<void>>();
 const mockInit = jest.fn<() => Promise<void>>();
+const mockFindProject = jest.fn<(repo: string) => Promise<any>>();
 
 const mockEnsureTunnel = jest.fn<(...args: any[]) => Promise<any>>();
 const mockFindExistingTunnel = jest.fn<(ctx: any) => any>();
@@ -404,6 +405,7 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       pollExecution: mockPoll,
     },
     revokeNgrokKey: mockRevokeKey,
+    findProjectByRepoName: mockFindProject,
   })),
 }));
 
@@ -508,6 +510,8 @@ function setupHappyPath(options: { isLocalhost: boolean; reuseExisting?: boolean
   mockExecute.mockResolvedValue(EXECUTE_RESPONSE);
   mockPoll.mockResolvedValue(COMPLETED_EXECUTION);
   mockRevokeKey.mockResolvedValue(undefined);
+  // project_id is required (bead 56kd.5) — happy path resolves a linked project.
+  mockFindProject.mockResolvedValue({ uuid: 'proj-xyz', name: 'Test Project' });
 
   if (options.isLocalhost) {
     if (options.reuseExisting) {
@@ -546,6 +550,9 @@ async function invalidateTemplateCache() {
   mockFindExistingTunnel.mockReturnValue(null);
   mockSanitizeResponseUrls.mockImplementation((val: any) => val);
   mockFindTemplate.mockResolvedValue(TEMPLATE);
+  // Resolve a project so execution reaches executeWorkflow (the 'not found'
+  // there is what clears the module-level template + project caches).
+  mockFindProject.mockResolvedValue({ uuid: 'proj-xyz', name: 'Test Project' });
   // Throw 'not found' from executeWorkflow — always runs, bypasses cache check
   mockExecute.mockRejectedValue(new Error('not found'));
   try {
@@ -1256,5 +1263,119 @@ describe('testPageChangesHandler — full handler flow', () => {
         else process.env.DEBUGGAI_TRANSIENT_RETRIES = saved;
       }
     }, 15_000);
+  });
+
+  // ── Bead 56kd.5: robust lifecycle — cancellation via request signal ───────
+  // Cancellation is wired to context.signal (the MCP request/transport
+  // lifecycle), NOT process.stdin. Under the HTTP transport a dropped client
+  // aborts context.signal, which must cancel the poll and free the slot.
+  describe('lifecycle cancellation via request signal (bead 56kd.5)', () => {
+    test('aborting the request signal cancels the poll (wired through to pollExecution)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      let pollSignal: AbortSignal | undefined;
+      mockPoll.mockImplementation((async (_uuid: string, _onUpdate: any, signal: AbortSignal) => {
+        pollSignal = signal;
+        return await new Promise((_resolve, reject) => {
+          const fail = () => reject(new Error('poll cancelled'));
+          if (signal?.aborted) return fail();
+          signal?.addEventListener('abort', fail, { once: true });
+        });
+      }) as any);
+
+      const controller = new AbortController();
+      const ctx: ToolContext = { requestId: 'abort-1', timestamp: new Date(), signal: controller.signal };
+      const p = testPageChangesHandler(defaultInput, ctx);
+      await new Promise((r) => setImmediate(r)); // let the handler reach pollExecution
+      controller.abort();
+
+      await expect(p).rejects.toThrow();
+      expect(pollSignal).toBeDefined();
+      expect(pollSignal!.aborted).toBe(true);
+    });
+
+    test('an already-aborted request signal cancels immediately', async () => {
+      setupHappyPath({ isLocalhost: false });
+      let pollSignal: AbortSignal | undefined;
+      mockPoll.mockImplementation((async (_uuid: string, _onUpdate: any, signal: AbortSignal) => {
+        pollSignal = signal;
+        if (signal?.aborted) throw new Error('poll cancelled');
+        return COMPLETED_EXECUTION;
+      }) as any);
+
+      const controller = new AbortController();
+      controller.abort();
+      const ctx: ToolContext = { requestId: 'abort-2', timestamp: new Date(), signal: controller.signal };
+
+      await expect(testPageChangesHandler(defaultInput, ctx)).rejects.toThrow();
+      expect(pollSignal!.aborted).toBe(true);
+    });
+
+    test('after an aborted request the concurrency slot is freed (next call succeeds)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockPoll.mockImplementationOnce((async (_uuid: string, _onUpdate: any, signal: AbortSignal) => {
+        return await new Promise((_resolve, reject) => {
+          const fail = () => reject(new Error('poll cancelled'));
+          if (signal?.aborted) return fail();
+          signal?.addEventListener('abort', fail, { once: true });
+        });
+      }) as any);
+
+      const controller = new AbortController();
+      const ctx: ToolContext = { requestId: 'abort-3', timestamp: new Date(), signal: controller.signal };
+      const p = testPageChangesHandler(defaultInput, ctx);
+      await new Promise((r) => setImmediate(r));
+      controller.abort();
+      await expect(p).rejects.toThrow();
+
+      // Slot must be released — a fresh call runs to completion, doesn't hang.
+      mockPoll.mockResolvedValue(COMPLETED_EXECUTION);
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+      expect(JSON.parse(result.content[0].text!).outcome).toBe('pass');
+    });
+
+    test('no request signal (stdio without cancellation) → handler still completes', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const ctx: ToolContext = { requestId: 'no-signal', timestamp: new Date() }; // no signal
+      const result = await testPageChangesHandler(defaultInput, ctx);
+      expect(JSON.parse(result.content[0].text!).outcome).toBe('pass');
+    });
+  });
+
+  // ── Bead 56kd.5: fail-fast on unresolved-but-required project_id ──────────
+  describe('fail-fast on unresolved project_id (bead 56kd.5)', () => {
+    test('repo detected but not linked → ProjectRequired, no execute/poll', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockFindProject.mockResolvedValue(null); // repo resolves, but no linked project
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectRequired');
+      expect(body.message).toContain('project_id is required');
+      expect(body.message).toContain('Link this repo to a project');
+      // Fails fast — never dispatches to the backend.
+      expect(mockExecute).not.toHaveBeenCalled();
+      expect(mockPoll).not.toHaveBeenCalled();
+    });
+
+    test('fail-fast is after template resolution but before executeWorkflow', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockFindProject.mockResolvedValue(null);
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(mockFindTemplate).toHaveBeenCalled(); // template resolution ran
+      expect(mockExecute).not.toHaveBeenCalled();  // execution did not
+    });
+
+    test('resolved project → proceeds and passes project_id in contextData', async () => {
+      setupHappyPath({ isLocalhost: false }); // findProject resolves proj-xyz
+
+      await testPageChangesHandler(defaultInput, defaultContext);
+
+      const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+      expect(contextData.projectId).toBe('proj-xyz');
+    });
   });
 });

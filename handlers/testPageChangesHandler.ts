@@ -118,12 +118,24 @@ async function testPageChangesHandlerInner(
   let ctx = buildContext(originalUrl);
   let keyId: string | undefined;
 
+  // Cancellation is driven by the MCP request/transport lifecycle, not
+  // process.stdin. The SDK aborts context.signal when the client cancels the
+  // call OR the transport closes — e.g. an HTTP client drops the connection.
+  // Under the stateless HTTP transport that is the ONLY signal we get: stdin is
+  // not the transport, so the old stdin 'close' listener never fired and a
+  // dropped client kept polling for up to ~10 min, holding one of just
+  // MAX_CONCURRENT=2 slots. Wiring to context.signal cancels the poll and frees
+  // the slot immediately.
   const abortController = new AbortController();
-  const onStdinClose = () => {
+  const onAbort = () => {
     abortController.abort();
     progressDisabled = true; // client is gone — stop emitting
   };
-  process.stdin.once('close', onStdinClose);
+  const requestSignal = context.signal;
+  if (requestSignal) {
+    if (requestSignal.aborted) onAbort();
+    else requestSignal.addEventListener('abort', onAbort, { once: true });
+  }
 
   // Progress budget: 3 setup steps + 25 execution steps = 28 total
   const SETUP_STEPS = 3;
@@ -271,8 +283,23 @@ async function testPageChangesHandlerInner(
         'Ensure the template is seeded in the backend (GET /api/v1/workflows/?is_template=true).'
       );
     }
-    if (repoName && !projectUuid) {
-      logger.info(`No project found for repo "${repoName}" — proceeding without project_id`);
+    // Fail fast + actionable when project_id can't be resolved (pinned backend
+    // semantics: project_id is required). Surfacing "link this repo to a
+    // project" now — before executeWorkflow — beats letting a backend workflow
+    // node fail mid-run several minutes into the evaluation.
+    if (!projectUuid) {
+      const detail = repoName
+        ? `Repo "${repoName}" isn't linked to a DebuggAI project.`
+        : 'No git repository was detected to resolve a project from.';
+      const payload = {
+        error: 'ProjectRequired',
+        message:
+          `project_id is required but could not be resolved. ${detail} ` +
+          'Link this repo to a project at https://debugg.ai (Projects → connect your repository), then retry. ' +
+          'To evaluate a different repo than the current one, pass repoName.',
+      };
+      logger.warn(`check_app_in_browser: ${payload.message}`);
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
     }
 
     // --- Build context data (camelCase here — axiosTransport auto-converts to snake_case) ---
@@ -661,7 +688,7 @@ async function testPageChangesHandlerInner(
 
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
-    process.stdin.removeListener('close', onStdinClose);
+    if (requestSignal) requestSignal.removeEventListener('abort', onAbort);
     // Tunnel is intentionally NOT torn down here — tunnelManager reuses it on
     // subsequent calls to the same port and auto-shutoffs after 55 min idle.
     // Process-exit cleanup happens via stopAllTunnels() in the SIGINT/SIGTERM

@@ -1,7 +1,12 @@
 /**
  * Project Context Service
- * At startup: detect repo → resolve project → fetch environments + credentials.
- * Exposes the result so tool descriptions can be enriched dynamically.
+ * At startup (lazily, on first tool call): detect repo → resolve project →
+ * fetch environments + credential LABELS. Exposes the result so tool
+ * descriptions can be enriched dynamically (see tools/index.ts).
+ *
+ * Thin relay: we consume the backend's environment/credential contract and
+ * surface LABELS ONLY — never a password or any other secret. The
+ * backend→internal field mapping lives in ONE place: mapEnvironments().
  */
 
 import { config } from '../config/index.js';
@@ -12,18 +17,28 @@ import { Logger } from '../utils/logger.js';
 const logger = new Logger({ module: 'projectContext' });
 
 export interface CredentialInfo {
-  uuid: string;
+  /** Human-readable label from the backend contract. */
   label: string;
+  /** Login username. Not a secret — safe to surface to the agent. */
   username: string;
-  role: string | null;
-  environmentName: string;
-  environmentUuid: string;
+  /** Optional — present only if the backend contract includes it. */
+  uuid?: string;
+  /** Optional — present only if the backend contract includes it. */
+  role?: string | null;
+  environmentName?: string;
+  environmentUuid?: string;
 }
 
 export interface EnvironmentInfo {
   uuid: string;
   name: string;
   url: string;
+  /** Optional — from the backend contract (is_default). */
+  isDefault?: boolean;
+  /** Optional — from the backend contract (is_active). */
+  isActive?: boolean;
+  /** Optional — from the backend contract (endpoint_type). */
+  endpointType?: string | null;
   credentials: CredentialInfo[];
 }
 
@@ -36,15 +51,56 @@ export interface ProjectContext {
 let cached: ProjectContext | null = null;
 let inFlight: Promise<ProjectContext | null> | null = null;
 
-/**
- * Resolve the current project context: repo → project → environments → credentials.
- *
- * Caches the first successful result. Concurrent calls share a single in-flight
- * promise. Failures are NOT cached — the next call will retry — so a transient
- * network error on the first tool call doesn't permanently disable the service.
- */
 const STARTUP_TIMEOUT_MS = 10_000;
 
+/**
+ * The ONE place the backend environment/credential contract is mapped to our
+ * internal shape. Pinned contract (backend epic sentinal-k8x1f.8):
+ *
+ *   GET /api/v1/environments/?project=<uuid>
+ *     → [{ uuid, name, url, is_default, is_active, endpoint_type,
+ *          credentials: [{ label, username }] }]
+ *
+ * (The axios transport auto-converts snake_case → camelCase, so we read
+ * `isDefault`/`isActive`/`endpointType` here.) Password is write-only and
+ * NEVER returned; we defensively copy only label/username (+ uuid/role if the
+ * backend ever includes them) — we never spread a raw credential object, so a
+ * secret can't leak into a tool description even if the contract regresses.
+ */
+export function mapEnvironments(rawEnvs: any[]): EnvironmentInfo[] {
+  return (rawEnvs ?? [])
+    // Surface only active environments (is_active !== false).
+    .filter((e: any) => e?.isActive !== false)
+    .map((env: any): EnvironmentInfo => ({
+      uuid: env.uuid,
+      name: env.name,
+      url: env.url || env.activeUrl || '',
+      isDefault: env.isDefault ?? false,
+      isActive: env.isActive ?? true,
+      endpointType: env.endpointType ?? null,
+      credentials: (env.credentials ?? [])
+        .filter((c: any) => c && c.isActive !== false)
+        .map((c: any): CredentialInfo => ({
+          label: c.label || c.username,
+          username: c.username,
+          ...(c.uuid ? { uuid: c.uuid } : {}),
+          ...(c.role !== undefined ? { role: c.role } : {}),
+          environmentName: env.name,
+          environmentUuid: env.uuid,
+        })),
+    }));
+}
+
+/**
+ * Resolve the current project context: repo → project → environments →
+ * credential labels.
+ *
+ * Caches the first successful result. Concurrent calls share a single in-flight
+ * promise. Failures are NOT cached — the next call retries — so a transient
+ * network error on the first tool call doesn't permanently disable enrichment.
+ * The whole resolution is bounded by STARTUP_TIMEOUT_MS so a slow/hung backend
+ * can never block boot or a tool call.
+ */
 export async function resolveProjectContext(): Promise<ProjectContext | null> {
   if (cached) return cached;
   if (inFlight) return inFlight;
@@ -94,48 +150,17 @@ async function resolveProjectContextInner(repoName: string): Promise<ProjectCont
     }
     logger.info(`Resolved project: ${project.name} (${project.uuid})`);
 
-    // Fetch environments for this project
-    const envResponse = await client.tx!.get<{ results: any[] }>(
-      `api/v1/projects/${project.uuid}/environments/`
-    );
-    const rawEnvs = envResponse?.results ?? [];
-
-    // Fetch credentials for each environment in parallel
-    const environments: EnvironmentInfo[] = await Promise.all(
-      rawEnvs
-        .filter((e: any) => e.isActive)
-        .map(async (env: any): Promise<EnvironmentInfo> => {
-          let credentials: CredentialInfo[] = [];
-          try {
-            const credResponse = await client.tx!.get<{ results: any[] }>(
-              `api/v1/projects/${project.uuid}/environments/${env.uuid}/credentials/`
-            );
-            credentials = (credResponse?.results ?? [])
-              .filter((c: any) => c.isActive)
-              .map((c: any) => ({
-                uuid: c.uuid,
-                label: c.label || c.username,
-                username: c.username,
-                role: c.role,
-                environmentName: env.name,
-                environmentUuid: env.uuid,
-              }));
-          } catch {
-            // Some environments may not support credentials
-          }
-          return {
-            uuid: env.uuid,
-            name: env.name,
-            url: env.url || env.activeUrl || '',
-            credentials,
-          };
-        })
-    );
+    // Pinned contract: environments (with credentials inlined) for the project.
+    const envResponse = await client.tx!.get<any>('api/v1/environments/', {
+      project: project.uuid,
+    });
+    const rawEnvs = Array.isArray(envResponse) ? envResponse : (envResponse?.results ?? []);
+    const environments = mapEnvironments(rawEnvs);
 
     cached = { repoName, project, environments };
 
     const totalCreds = environments.reduce((n, e) => n + e.credentials.length, 0);
-    logger.info(`Project context ready: ${environments.length} environments, ${totalCreds} credentials`);
+    logger.info(`Project context ready: ${environments.length} environments, ${totalCreds} credential labels`);
 
     return cached;
 
@@ -147,4 +172,10 @@ async function resolveProjectContextInner(repoName: string): Promise<ProjectCont
 
 export function getProjectContext(): ProjectContext | null {
   return cached;
+}
+
+/** Test-only: reset the module cache so each test starts clean. */
+export function __resetProjectContextForTests(): void {
+  cached = null;
+  inFlight = null;
 }

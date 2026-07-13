@@ -59,6 +59,34 @@ describe('buildToolDescription', () => {
     expect(desc).toContain('pass environmentId and credentialId');
   });
 
+  it('surfaces labels-only credentials (pinned contract: no uuid/role) and marks the default env', () => {
+    const ctx: ProjectContext = {
+      repoName: 'org/repo',
+      project: { uuid: 'p1', name: 'My App', slug: 'my-app' },
+      environments: [
+        {
+          uuid: 'env-1',
+          name: 'Production',
+          url: 'https://app.test.com',
+          isDefault: true,
+          isActive: true,
+          endpointType: 'frontend',
+          credentials: [
+            // Pinned contract exposes label + username only — no uuid, no role.
+            { label: 'Admin', username: 'admin@test.com' },
+          ],
+        },
+      ],
+    };
+    const desc = buildToolDescription(ctx);
+    expect(desc).toContain('DETECTED PROJECT: "My App"');
+    expect(desc).toContain('Environment: "Production" (env-1) [default]');
+    // Label + username surfaced; NO parenthesised credential uuid, NO role.
+    expect(desc).toContain('"Admin" — user: admin@test.com');
+    expect(desc).not.toContain('"Admin" (');
+    expect(desc).not.toContain('role:');
+  });
+
   it('skips environments with zero credentials in the credentials section', () => {
     const ctx: ProjectContext = {
       repoName: 'org/repo',
