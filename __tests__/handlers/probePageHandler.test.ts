@@ -11,7 +11,7 @@ import { jest } from '@jest/globals';
 import { ToolContext, ProbePageInput } from '../../types/index.js';
 
 const mockProvision = jest.fn<() => Promise<any>>();
-const mockFindTemplateByName = jest.fn<(kw: string) => Promise<any>>();
+const mockFindTemplateBySlug = jest.fn<(kw: string) => Promise<any>>();
 const mockExecute = jest.fn<(...args: any[]) => Promise<any>>();
 const mockPoll = jest.fn<() => Promise<any>>();
 const mockRevokeKey = jest.fn<() => Promise<void>>();
@@ -32,7 +32,7 @@ jest.unstable_mockModule('../../services/index.js', () => ({
     init: mockInit,
     tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
     workflows: {
-      findTemplateByName: mockFindTemplateByName,
+      findTemplateBySlug: mockFindTemplateBySlug,
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
     },
@@ -73,7 +73,7 @@ function setupHappyPath({ isLocalhost = false } = {}) {
   });
   mockFindExistingTunnel.mockReturnValue(null);
   mockSanitizeResponseUrls.mockImplementation((val: any) => val);
-  mockFindTemplateByName.mockResolvedValue(TEMPLATE);
+  mockFindTemplateBySlug.mockResolvedValue(TEMPLATE);
   mockExecute.mockResolvedValue({
     executionUuid: 'exec-uuid-1',
     resolvedEnvironmentId: null,
@@ -134,10 +134,19 @@ describe('probePageHandler — happy path', () => {
     invalidateTemplateCache();
   });
 
-  test('looks up the page-probe template via findTemplateByName("page probe")', async () => {
+  test('resolves the page-probe template by its stable slug (flow/tools/probe) — no fuzzy name (bead 56kd.8)', async () => {
     setupHappyPath();
     await probePageHandler(singleInput, defaultContext);
-    expect(mockFindTemplateByName).toHaveBeenCalledWith('page probe');
+    expect(mockFindTemplateBySlug).toHaveBeenCalledWith('flow/tools/probe');
+  });
+
+  test('a backend RENAME of the page-probe template breaks nothing (slug is the identity)', async () => {
+    setupHappyPath();
+    // Backend returns the template under a totally different display name; the
+    // handler dispatched by slug, so it still gets a uuid and proceeds.
+    mockFindTemplateBySlug.mockResolvedValue({ uuid: 'tmpl-uuid-page-probe', name: 'Totally Renamed' });
+    const result = await probePageHandler(singleInput, defaultContext);
+    expect(JSON.parse(result.content[0].text!).executionId).toBe('exec-uuid-1');
   });
 
   test('returns response with executionId, durationMs, results[]', async () => {
@@ -320,7 +329,7 @@ describe('probePageHandler — template not found', () => {
 
   test('throws clear "PageProbeTemplateNotConfigured"-style error if backend template missing', async () => {
     setupHappyPath();
-    mockFindTemplateByName.mockResolvedValue(null);
+    mockFindTemplateBySlug.mockResolvedValue(null);
     await expect(probePageHandler(singleInput, defaultContext)).rejects.toThrow(
       /[Pp]age [Pp]robe.*[Tt]emplate|TemplateNotConfigured/,
     );

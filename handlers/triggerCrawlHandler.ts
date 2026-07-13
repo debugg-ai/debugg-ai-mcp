@@ -34,12 +34,11 @@ import {
   touchTunnelById,
 } from '../utils/tunnelContext.js';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
+import { getCrawlTemplateSlug } from '../services/workflows.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 
 const logger = new Logger({ module: 'triggerCrawlHandler' });
-
-const TEMPLATE_KEYWORD = 'raw crawl';
 
 // Bead kbo9: same env-driven retry budget as testPageChangesHandler (kbxy).
 function getMaxTransientRetries(): number {
@@ -183,13 +182,17 @@ export async function triggerCrawlHandler(
       await progressCallback({ progress: 2, total: 4, message: 'Locating crawl workflow template...' });
     }
 
-    const templateUuid = await getCachedTemplateUuid(TEMPLATE_KEYWORD, async (name) => {
-      return client.workflows!.findTemplateByName(name);
+    // Pin dispatch to the stable slug (bead 56kd.8) — no fuzzy name resolution.
+    // Cache key = the slug so the key and the lookup can never drift apart.
+    const templateSlug = getCrawlTemplateSlug();
+    const templateUuid = await getCachedTemplateUuid(templateSlug, async () => {
+      return client.workflows!.findTemplateBySlug(templateSlug);
     });
     if (!templateUuid) {
       throw new Error(
-        `Raw Crawl Workflow Template not found. ` +
-        `Ensure the backend has a template matching "${TEMPLATE_KEYWORD}" seeded and accessible.`,
+        `Crawl Workflow Template not found (slug "${templateSlug}"). ` +
+        `Ensure the backend has that template seeded and accessible ` +
+        `(GET /api/v1/workflows/?slug=${templateSlug}).`,
       );
     }
 

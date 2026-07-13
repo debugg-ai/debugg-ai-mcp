@@ -18,7 +18,7 @@ jest.unstable_mockModule('../../config/index.js', () => ({
 }));
 
 const mockInit = jest.fn<() => Promise<void>>();
-const mockFindTemplateByName = jest.fn<(kw: string) => Promise<any>>();
+const mockFindTemplateBySlug = jest.fn<(kw: string) => Promise<any>>();
 const mockExecute = jest.fn<(...args: any[]) => Promise<any>>();
 const mockPoll = jest.fn<(...args: any[]) => Promise<any>>();
 const mockProvision = jest.fn<() => Promise<any>>();
@@ -29,7 +29,7 @@ jest.unstable_mockModule('../../services/index.js', () => ({
     init: mockInit,
     tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
     workflows: {
-      findTemplateByName: mockFindTemplateByName,
+      findTemplateBySlug: mockFindTemplateBySlug,
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
     },
@@ -93,7 +93,7 @@ describe('triggerCrawlHandler — dev mode', () => {
     mockFindExistingTunnel.mockReturnValue(null);
     mockSanitizeResponseUrls.mockImplementation((v) => v);
     mockProbeLocalPort.mockResolvedValue({ reachable: true, code: 'OK', elapsedMs: 5 });
-    mockFindTemplateByName.mockResolvedValue({ uuid: 'tmpl-crawl-uuid' });
+    mockFindTemplateBySlug.mockResolvedValue({ uuid: 'tmpl-crawl-uuid' });
     mockExecute.mockResolvedValue({ executionUuid: 'crawl-exec-1', resolvedEnvironmentId: null, resolvedCredentialId: null });
     mockPoll.mockImplementation(async (_uuid, onUpdate) => {
       await onUpdate(COMPLETED_EXECUTION);

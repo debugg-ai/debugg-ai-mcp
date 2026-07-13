@@ -38,12 +38,11 @@ import {
   TunnelContext,
 } from '../utils/tunnelContext.js';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
+import { getPageProbeTemplateSlug } from '../services/workflows.js';
 import { reaggregateByOriginPath, mapConsoleSlice } from '../utils/harSummarizer.js';
 import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 
 const logger = new Logger({ module: 'probePageHandler' });
-
-const TEMPLATE_KEYWORD = 'page probe';
 
 export async function probePageHandler(
   input: ProbePageInput,
@@ -205,13 +204,17 @@ export async function probePageHandler(
       await progressCallback({ progress: ++progressStep, total: TOTAL_STEPS, message: 'Locating page-probe workflow template...' });
     }
 
-    const templateUuid = await getCachedTemplateUuid(TEMPLATE_KEYWORD, async (name) => {
-      return client.workflows!.findTemplateByName(name);
+    // Pin dispatch to the stable slug (bead 56kd.8) — no fuzzy name resolution.
+    // Cache key = the slug so the key and the lookup can never drift apart.
+    const templateSlug = getPageProbeTemplateSlug();
+    const templateUuid = await getCachedTemplateUuid(templateSlug, async () => {
+      return client.workflows!.findTemplateBySlug(templateSlug);
     });
     if (!templateUuid) {
       throw new Error(
-        `Page Probe Workflow Template not found. ` +
-        `Ensure the backend has a template matching "${TEMPLATE_KEYWORD}" seeded and accessible.`,
+        `Page Probe Workflow Template not found (slug "${templateSlug}"). ` +
+        `Ensure the backend has that template seeded and accessible ` +
+        `(GET /api/v1/workflows/?slug=${templateSlug}).`,
       );
     }
 

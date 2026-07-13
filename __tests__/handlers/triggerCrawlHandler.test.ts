@@ -2,15 +2,16 @@
  * Tests for triggerCrawlHandler — proof point for bead ew8 + bead 8ji.
  *
  * Structure mirrors testPageChangesHandler.test.ts (same mock scaffolding)
- * but the surface under test calls findTemplateByName('raw crawl') and
- * returns a crawl-shaped response without outcome pass/fail semantics.
+ * but the surface under test resolves the crawl template by stable slug
+ * (findTemplateBySlug, bead 56kd.8) and returns a crawl-shaped response without
+ * outcome pass/fail semantics.
  */
 
 import { jest } from '@jest/globals';
 import { ToolContext } from '../../types/index.js';
 
 const mockProvision = jest.fn<() => Promise<any>>();
-const mockFindTemplateByName = jest.fn<(kw: string) => Promise<any>>();
+const mockFindTemplateBySlug = jest.fn<(kw: string) => Promise<any>>();
 const mockFindEvaluationTemplate = jest.fn<() => Promise<any>>();
 const mockExecute = jest.fn<(...args: any[]) => Promise<any>>();
 const mockPoll = jest.fn<() => Promise<any>>();
@@ -29,7 +30,7 @@ jest.unstable_mockModule('../../services/index.js', () => ({
     init: mockInit,
     tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
     workflows: {
-      findTemplateByName: mockFindTemplateByName,
+      findTemplateBySlug: mockFindTemplateBySlug,
       findEvaluationTemplate: mockFindEvaluationTemplate,
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
@@ -146,7 +147,7 @@ function setupHappyPath(options: { isLocalhost: boolean } = { isLocalhost: false
   mockBuildContext.mockReturnValue({ originalUrl: url, isLocalhost: options.isLocalhost });
   mockSanitizeResponseUrls.mockImplementation((val) => val);
   mockInit.mockResolvedValue(undefined);
-  mockFindTemplateByName.mockResolvedValue(TEMPLATE);
+  mockFindTemplateBySlug.mockResolvedValue(TEMPLATE);
   mockExecute.mockResolvedValue(EXECUTE_RESPONSE);
   mockPoll.mockResolvedValue(COMPLETED_EXECUTION);
   mockRevokeKey.mockResolvedValue(undefined);
@@ -171,17 +172,27 @@ describe('triggerCrawlHandler', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     // Tests share a process-scoped template cache (utils/handlerCaches.ts).
-    // Clear it between tests so mockFindTemplateByName.mockResolvedValue(null)
+    // Clear it between tests so mockFindTemplateBySlug.mockResolvedValue(null)
     // is honored instead of a previously-cached uuid being returned.
     const { invalidateTemplateCache, invalidateProjectCache } = await import('../../utils/handlerCaches.js');
     invalidateTemplateCache();
     invalidateProjectCache();
   });
 
-  test('looks up the crawl template via findTemplateByName("raw crawl")', async () => {
+  test('resolves the crawl template by its stable slug (crawl-execution-workflow-template) — no fuzzy name (bead 56kd.8)', async () => {
     setupHappyPath({ isLocalhost: false });
     await triggerCrawlHandler(publicInput, defaultContext);
-    expect(mockFindTemplateByName).toHaveBeenCalledWith('raw crawl');
+    expect(mockFindTemplateBySlug).toHaveBeenCalledWith('crawl-execution-workflow-template');
+  });
+
+  test('a backend RENAME of the crawl template breaks nothing (slug is the identity)', async () => {
+    setupHappyPath({ isLocalhost: false });
+    // The "Raw Crawl Workflow Template" name was retired in favor of "Crawl
+    // Execution Workflow Template"; dispatching by slug means a rename like that
+    // never breaks the handler.
+    mockFindTemplateBySlug.mockResolvedValue({ uuid: 'tmpl-raw-crawl-uuid', name: 'Renamed Crawl Template' });
+    const result = await triggerCrawlHandler(publicInput, defaultContext);
+    expect(JSON.parse(result.content[0].text!).executionId).toBe('crawl-exec-uuid-1');
   });
 
   test('public URL: no tunnel provisioned; contextData.targetUrl echoes input url', async () => {
@@ -297,7 +308,7 @@ describe('triggerCrawlHandler', () => {
 
   test('template not found: throws a clear error', async () => {
     setupHappyPath({ isLocalhost: false });
-    mockFindTemplateByName.mockResolvedValue(null);
+    mockFindTemplateBySlug.mockResolvedValue(null);
     await expect(triggerCrawlHandler(publicInput, defaultContext)).rejects.toThrow(
       /[Cc]rawl.*[Tt]emplate|Raw Crawl/,
     );
