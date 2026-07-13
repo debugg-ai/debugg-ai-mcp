@@ -33,11 +33,15 @@ export function buildToolDescription(ctx: ProjectContext | null): string {
   ];
 
   for (const env of envsWithCreds) {
-    lines.push(`\n  Environment: "${env.name}" (${env.uuid})${env.url ? ` — ${env.url}` : ''}`);
+    const defaultTag = env.isDefault ? ' [default]' : '';
+    lines.push(`\n  Environment: "${env.name}" (${env.uuid})${defaultTag}${env.url ? ` — ${env.url}` : ''}`);
     for (const cred of env.credentials) {
-      const parts = [`    - "${cred.label}" (${cred.uuid}) — user: ${cred.username}`];
-      if (cred.role) parts[0] += `, role: ${cred.role}`;
-      lines.push(parts[0]);
+      // The backend contract surfaces credential LABELS (never passwords). The
+      // uuid/role are optional — shown only when the backend includes them.
+      const idPart = cred.uuid ? ` (${cred.uuid})` : '';
+      let line = `    - "${cred.label}"${idPart} — user: ${cred.username}`;
+      if (cred.role) line += `, role: ${cred.role}`;
+      lines.push(line);
     }
   }
 
