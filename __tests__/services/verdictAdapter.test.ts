@@ -6,27 +6,30 @@
  * invent. It must NOT fabricate a failure or an assertion-mismatch from thin
  * state — a missing/unknown verdict surfaces as `inconclusive`, not `fail`.
  *
- * Backend contract (camelCase after axiosTransport conversion), on execution.state:
- *   verdict:  { outcome: pass|fail|inconclusive|error|timeout, reason }
- *   budget:   { maxSteps, usedSteps }
- *   evidence: { screenshot, actionTrace }
+ * Backend contract (camelCase after axiosTransport conversion). The containers
+ * are TOP-LEVEL siblings of `state` on the execution-detail response:
+ *   execution.verdict:  { outcome: pass|fail|inconclusive|error|timeout, reason }
+ *   execution.budget:   { maxSteps, usedSteps }
+ *   execution.evidence: { screenshot, actionTrace }
+ * `verdict` is SINGULAR — NOT the plural `verdicts` array nor the raw `outcome`
+ * string that also live on the response.
  */
 
 import type { WorkflowExecution } from '../../services/workflows.js';
 import { adaptVerdict } from '../../services/verdictAdapter.js';
 
-function makeExecution(state: any, overrides: Partial<WorkflowExecution> = {}): WorkflowExecution {
+function makeExecution(fields: Partial<WorkflowExecution> = {}): WorkflowExecution {
   return {
     uuid: 'exec-1',
     status: 'completed',
     startedAt: null,
     completedAt: null,
     durationMs: null,
-    state,
+    state: null,
     errorMessage: '',
     errorInfo: null,
     nodeExecutions: [],
-    ...overrides,
+    ...fields,
   };
 }
 
@@ -52,14 +55,14 @@ describe('adaptVerdict — explicit verdict relay', () => {
   );
 
   test('thin state (no verdict, no outcome) → inconclusive, NOT fail', () => {
-    const v = adaptVerdict(makeExecution({ stepsTaken: 0, error: '' }));
+    const v = adaptVerdict(makeExecution({ state: { outcome: '', success: false, stepsTaken: 0, error: '' } }));
     expect(v.outcome).toBe('inconclusive');
     expect(v.success).toBe(false);
     expect(v.failureCategory).toBe('inconclusive');
   });
 
-  test('null state → inconclusive (never throws)', () => {
-    const v = adaptVerdict(makeExecution(null));
+  test('null state and no verdict → inconclusive (never throws)', () => {
+    const v = adaptVerdict(makeExecution({ state: null }));
     expect(v.outcome).toBe('inconclusive');
     expect(v.success).toBe(false);
   });
@@ -73,15 +76,24 @@ describe('adaptVerdict — explicit verdict relay', () => {
     // Old bug: outcome = state?.outcome ?? execution.status → "failed"/"completed"
     // leaked into the outcome field. A failed status with no verdict must be
     // inconclusive, not "failed".
-    const v = adaptVerdict(makeExecution(null, { status: 'failed' }));
+    const v = adaptVerdict(makeExecution({ state: null, status: 'failed' }));
     expect(v.outcome).toBe('inconclusive');
     expect(v.outcome).not.toBe('failed');
   });
 
-  test('legacy state.outcome (pre-verdict backend) still relayed when it is a known verdict', () => {
-    const v = adaptVerdict(makeExecution({ outcome: 'fail', success: false, stepsTaken: 2, error: 'x' }));
+  test('legacy state.outcome (defensive fallback) still relayed when it is a known verdict', () => {
+    const v = adaptVerdict(makeExecution({ state: { outcome: 'fail', success: false, stepsTaken: 2, error: 'x' } }));
     expect(v.outcome).toBe('fail');
     expect(v.failureCategory).toBe('fail');
+  });
+
+  test('top-level verdict wins over legacy state.outcome', () => {
+    const v = adaptVerdict(makeExecution({
+      verdict: { outcome: 'pass' },
+      state: { outcome: 'fail', success: false, stepsTaken: 1, error: '' },
+    }));
+    expect(v.outcome).toBe('pass');
+    expect(v.success).toBe(true);
   });
 
   test('outcomeOverride wins (used by the timeout path)', () => {
@@ -103,7 +115,7 @@ describe('adaptVerdict — budget sourced from the response', () => {
   });
 
   test('no budget in response → falls back to the provided client constant', () => {
-    const exec = makeExecution({ outcome: 'pass', success: true, stepsTaken: 3, error: '' });
+    const exec = makeExecution({ verdict: { outcome: 'pass' }, state: { outcome: 'pass', success: true, stepsTaken: 3, error: '' } });
     const v = adaptVerdict(exec, { fallbackBudget: 25 });
     expect(v.stepsBudget).toBe(25);
     expect(v.stepsTaken).toBe(3); // legacy state.stepsTaken

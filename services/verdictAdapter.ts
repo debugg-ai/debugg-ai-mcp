@@ -5,11 +5,13 @@
  * contract onto the MCP relay fields. If the backend's final field shape
  * differs, re-align it here and nowhere else.
  *
- * Backend contract (camelCase after axiosTransport conversion), on
- * `execution.state`:
- *   verdict:  { outcome: pass|fail|inconclusive|error|timeout, reason }
- *   budget:   { maxSteps, usedSteps }
- *   evidence: { screenshot, actionTrace }
+ * Backend contract (camelCase after axiosTransport conversion). The containers
+ * are TOP-LEVEL siblings of `state` on the execution-detail response:
+ *   execution.verdict:  { outcome: pass|fail|inconclusive|error|timeout, reason }
+ *   execution.budget:   { maxSteps, usedSteps }
+ *   execution.evidence: { screenshot, actionTrace }
+ * `verdict` is SINGULAR — distinct from the pre-existing plural `verdicts`
+ * (RunVerdict array) and the raw `outcome` string, neither of which we read.
  *
  * Principle: relay, never invent.
  *   - `verdict.outcome` is relayed VERBATIM; `success` = (outcome === 'pass').
@@ -68,9 +70,11 @@ export function adaptVerdict(
   opts: AdaptVerdictOptions = {},
 ): RelayVerdict {
   const state = execution?.state ?? null;
-  const verdict = state?.verdict ?? null;
-  const budget = state?.budget ?? null;
-  const evidence = state?.evidence ?? null;
+  // Contract containers live at the TOP LEVEL of the execution response
+  // (siblings of `state`), NOT nested under state.
+  const verdict = execution?.verdict ?? null;
+  const budget = execution?.budget ?? null;
+  const evidence = execution?.evidence ?? null;
 
   // --- Outcome (verbatim relay, inconclusive on anything unrecognized) ---
   let outcome: string;

@@ -983,10 +983,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
         status: 'completed',
-        state: {
-          outcome: '', success: false, stepsTaken: 5, error: '',
-          verdict: { outcome: 'fail', reason: 'heading missing' },
-        },
+        state: { outcome: '', success: false, stepsTaken: 5, error: '' },
+        verdict: { outcome: 'fail', reason: 'heading missing' },  // TOP-LEVEL
         errorMessage: '',
       });
 
@@ -1004,10 +1002,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
         status: 'failed',
-        state: {
-          outcome: '', success: false, stepsTaken: 0, error: 'boom',
-          verdict: { outcome: 'error' },
-        },
+        state: { outcome: '', success: false, stepsTaken: 0, error: 'boom' },
+        verdict: { outcome: 'error' },  // TOP-LEVEL
         errorMessage: 'transport-level: connection reset by peer',
       });
 
@@ -1023,7 +1019,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
         status: 'completed',
-        state: { outcome: '', success: false, stepsTaken: 4, error: '', verdict: { outcome: 'inconclusive' } },
+        state: { outcome: '', success: false, stepsTaken: 4, error: '' },
+        verdict: { outcome: 'inconclusive' },  // TOP-LEVEL
         errorMessage: '',
       });
 
@@ -1055,11 +1052,9 @@ describe('testPageChangesHandler — full handler flow', () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
-        state: {
-          outcome: '', success: false, stepsTaken: 0, error: '',
-          verdict: { outcome: 'pass' },
-          budget: { maxSteps: 40, usedSteps: 12 },
-        },
+        state: { outcome: '', success: false, stepsTaken: 0, error: '' },
+        verdict: { outcome: 'pass' },              // TOP-LEVEL
+        budget: { maxSteps: 40, usedSteps: 12 },   // TOP-LEVEL
       });
 
       const result = await testPageChangesHandler(defaultInput, defaultContext);
@@ -1100,12 +1095,10 @@ describe('testPageChangesHandler — full handler flow', () => {
       startedAt: '2026-02-25T10:00:00Z',
       completedAt: null,
       durationMs: null,
-      state: {
-        outcome: '', success: false, stepsTaken: 4, error: '',
-        evidence: {
-          screenshot: 'iVBORw0KGgoPARTIALBASE64',
-          actionTrace: [{ step: 1, action: 'click', intent: 'open menu' }],
-        },
+      state: { outcome: '', success: false, stepsTaken: 4, error: '' },
+      evidence: {                           // TOP-LEVEL contract field
+        screenshot: 'iVBORw0KGgoPARTIALBASE64',
+        actionTrace: [{ step: 1, action: 'click', intent: 'open menu' }],
       },
       errorMessage: '',
       errorInfo: null,
