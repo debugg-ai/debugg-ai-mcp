@@ -102,7 +102,17 @@ export interface WorkflowExecution {
     success: boolean;
     stepsTaken: number;
     error: string;
+    // Backend explicit-verdict + evidence contract (sentinal-k8x1f.2/.3/.4).
+    // camelCase after axiosTransport conversion. All optional until the backend
+    // deploy lands; consumed via services/verdictAdapter.ts.
+    verdict?: { outcome?: string; reason?: string } | null;
+    budget?: { maxSteps?: number; usedSteps?: number } | null;
+    evidence?: { screenshot?: string; actionTrace?: any[] } | null;
   } | null;
+  // Client-side marker set by pollExecution when the 10-min poll deadline is
+  // hit — signals the handler to shape a partial 'timeout' result (bead 56kd.3)
+  // instead of the service throwing and discarding evidence.
+  timedOut?: boolean;
   errorMessage: string;
   errorInfo: { message?: string; failedNodeId?: string } | null;
   nodeExecutions: NodeExecution[];

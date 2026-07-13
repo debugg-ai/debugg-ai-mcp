@@ -16,6 +16,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { getEvalTemplateSlug } from '../services/workflows.js';
+import { adaptVerdict } from '../services/verdictAdapter.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
@@ -437,7 +438,6 @@ async function testPageChangesHandlerInner(
     const duration = Date.now() - startTime;
 
     // --- Format result ---
-    const outcome = finalExecution.state?.outcome ?? finalExecution.status;
     const nodes = finalExecution.nodeExecutions ?? [];
 
     // subworkflow.run is the current graph shape — carries outcome, actionHistory, screenshot
@@ -497,45 +497,35 @@ async function testPageChangesHandlerInner(
       };
     }
 
-    const stepsTaken = finalExecution.state?.stepsTaken ?? subworkflowNode?.outputData?.stepsTaken ?? actionTrace.length;
-    const success = finalExecution.state?.success ?? subworkflowNode?.outputData?.success ?? false;
+    // --- Relay the backend's explicit verdict (bead 56kd.2) ---
+    // ONE adapter owns the backend-field → MCP mapping (services/verdictAdapter).
+    // We consume the verdict/budget/evidence VERBATIM — no fabricated outcome,
+    // no success default-false, no synthesized 'assertion-mismatch'. A
+    // missing/unknown verdict surfaces as 'inconclusive', never as a failure.
+    const verdict = adaptVerdict(finalExecution, { fallbackBudget: MAX_EXEC_STEPS });
+
+    // Evidence: prefer the backend's contract evidence.actionTrace; fall back to
+    // the legacy node-extracted trace while the backend contract deploys.
+    const relayActionTrace = verdict.actionTrace ?? actionTrace;
 
     const responsePayload: Record<string, any> = {
-      outcome,
-      success,
+      outcome: verdict.outcome,
+      success: verdict.success,
       status: finalExecution.status,
-      stepsTaken,
-      stepsBudget: MAX_EXEC_STEPS,                                      // bead qmdd
-      stepsRemaining: Math.max(0, MAX_EXEC_STEPS - (stepsTaken ?? 0)),  // bead qmdd
+      stepsTaken: verdict.stepsTaken,
+      stepsBudget: verdict.stepsBudget,          // from the response (bead 56kd.2)
+      stepsRemaining: verdict.stepsRemaining,
       targetUrl: originalUrl,
       executionId: executionUuid,
       durationMs: finalExecution.durationMs ?? duration,
     };
 
-    // Bead jqmj: failureCategory disambiguates the three meanings of 'fail':
-    //   'agent-error'        — workflow/infra failure (Pydantic parse error,
-    //                          backend exception, transport issue). Caller's
-    //                          right move: retry-with-backoff.
-    //   'assertion-mismatch' — agent ran the scenario but page state didn't
-    //                          match expectations. Caller's right move: fix
-    //                          code or update the test description.
-    //   ('page-error' is reserved for v2 — needs a structured signal from
-    //   backend to distinguish from assertion-mismatch reliably; today's
-    //   inferrable info is too fragile.)
-    // Field is OMITTED on success (no failure to categorize).
-    if (!success) {
-      // state.error is the AGENT's narrative — it can describe assertion
-      // failures ("expected heading to contain Welcome") OR infrastructure
-      // failures ("Pydantic JSON parse error"). Without a structured signal,
-      // we only count it as 'agent-error' when paired with workflow-level
-      // failure (status='failed') or transient signature.
-      // status='failed' or errorMessage set → workflow-level / transport error.
-      const hasInfraFailure = finalExecution.status === 'failed'
-        || !!finalExecution.errorMessage;
-      responsePayload.failureCategory = hasInfraFailure ? 'agent-error' : 'assertion-mismatch';
-    }
+    // failureCategory = the outcome verbatim (fail | inconclusive | error |
+    // timeout); OMITTED on success. No inference, no 'assertion-mismatch'.
+    if (verdict.failureCategory) responsePayload.failureCategory = verdict.failureCategory;
+    if (verdict.reason) responsePayload.reason = verdict.reason;
 
-    if (actionTrace.length > 0) responsePayload.actionTrace = actionTrace;
+    if (Array.isArray(relayActionTrace) && relayActionTrace.length > 0) responsePayload.actionTrace = relayActionTrace;
     if (evaluation) responsePayload.evaluation = evaluation;
     if (finalExecution.state?.error) responsePayload.agentError = finalExecution.state.error;
     if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
@@ -575,16 +565,31 @@ async function testPageChangesHandlerInner(
 
     let screenshotEmbedded = false;
     let gifUrl: string | null = null;
+    let screenshotUrl: string | null = null;
+
+    // Contract evidence.screenshot (bead 56kd.2/.3) is the preferred source and
+    // is present on EVERY terminal state — including fail and timeout — so we
+    // always have the last screenshot on non-success. Base64 embeds inline; an
+    // http(s) URL is fetched below via the same path as legacy node URLs.
+    const evidenceScreenshot = verdict.screenshot;
+    if (typeof evidenceScreenshot === 'string' && evidenceScreenshot) {
+      if (/^https?:\/\//i.test(evidenceScreenshot)) {
+        screenshotUrl = evidenceScreenshot;
+      } else {
+        logger.info('Embedding inline base64 screenshot from backend evidence');
+        content.push(imageContentBlock(evidenceScreenshot, 'image/png'));
+        screenshotEmbedded = true;
+      }
+    }
 
     // subworkflow.run carries screenshotB64 directly — no fetch needed
     const screenshotB64 = subworkflowNode?.outputData?.screenshotB64;
-    if (typeof screenshotB64 === 'string' && screenshotB64) {
+    if (!screenshotEmbedded && !screenshotUrl && typeof screenshotB64 === 'string' && screenshotB64) {
       logger.info('Embedding inline base64 screenshot from subworkflow.run');
       content.push(imageContentBlock(screenshotB64, 'image/png'));
       screenshotEmbedded = true;
     }
 
-    let screenshotUrl: string | null = null;
     for (const node of nodes) {
       const data = node.outputData ?? {};
       if (!screenshotEmbedded && !screenshotUrl) {
