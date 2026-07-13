@@ -7,6 +7,30 @@ import { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { normalizeUrl } from '../utils/urlParser.js';
 
 /**
+ * Auth-precondition deep-link block (bead debugg_ai_mcp-56kd.6).
+ *
+ * A first-class way to express "log in THEN deep-navigate to /settings/x" —
+ * forwarded verbatim into the dispatch contextData.auth per backend contract
+ * sentinal-k8x1f.8. The MCP is a THIN relay: it accepts the intent and forwards
+ * it; the backend authenticates (using the environment's credentials) and then
+ * navigates to deepUrl (falling back to the run's target_url). entryUrl/deepUrl
+ * are normalized the same way as the top-level url.
+ */
+export const AuthPreconditionSchema = z.object({
+  environmentId: z.string().uuid().optional(),
+  precondition: z.enum(['login', 'none']).optional(),
+  entryUrl: z.preprocess(
+    normalizeUrl,
+    z.string().url('entryUrl must be a valid URL (the login page to authenticate on).').optional(),
+  ),
+  deepUrl: z.preprocess(
+    normalizeUrl,
+    z.string().url('deepUrl must be a valid URL (the page to evaluate AFTER login).').optional(),
+  ),
+}).strict();
+export type AuthPrecondition = z.infer<typeof AuthPreconditionSchema>;
+
+/**
  * Tool input validation schemas
  */
 export const TestPageChangesInputSchema = z.object({
@@ -22,6 +46,8 @@ export const TestPageChangesInputSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
   repoName: z.string().optional(),
+  // Auth-precondition deep-link intent (bead 56kd.6) — "log in THEN go to X".
+  auth: AuthPreconditionSchema.optional(),
 });
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
