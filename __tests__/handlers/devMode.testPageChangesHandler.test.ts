@@ -16,7 +16,9 @@ const mockPollExecution = jest.fn<(...args: any[]) => Promise<any>>();
 const mockFindEvaluationTemplate = jest.fn<() => Promise<any>>();
 const mockProvisionWithRetry = jest.fn<(...args: any[]) => Promise<any>>();
 const mockRevokeNgrokKey = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
-const mockFindProjectByRepoName = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(null);
+// project_id is required (bead 56kd.5) — resolve a linked project so the
+// dev-mode flow proceeds past the fail-fast guard.
+const mockFindProjectByRepoName = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({ uuid: 'proj-dev', name: 'Dev Project' });
 
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
@@ -94,6 +96,7 @@ describe('testPageChangesHandler — dev mode', () => {
 
     jest.clearAllMocks();
     mockInit.mockResolvedValue(undefined);
+    mockFindProjectByRepoName.mockResolvedValue({ uuid: 'proj-dev', name: 'Dev Project' });
     mockResolveTargetUrl.mockReturnValue(LOCALHOST_URL);
     mockBuildContext.mockReturnValue({ originalUrl: LOCALHOST_URL, isLocalhost: true, targetUrl: LOCALHOST_URL, tunnelId: undefined });
     mockFindExistingTunnel.mockReturnValue(null);

@@ -122,7 +122,7 @@ export function buildConfiguredServer(): Server {
  * singleton in main(), and once per request by the HTTP transport (stateless).
  */
 function registerHandlers(srv: Server): void {
-  srv.setRequestHandler(CallToolRequestSchema as any, async (req: any): Promise<any> => {
+  srv.setRequestHandler(CallToolRequestSchema as any, async (req: any, extra: any): Promise<any> => {
     const typedReq = req as CallToolRequest;
     const requestId = `req_${Date.now()}`;
     const requestLogger = logger.child({ requestId });
@@ -165,6 +165,9 @@ function registerHandlers(srv: Server): void {
         progressToken: typeof progressToken === 'string' ? progressToken : undefined,
         requestId,
         timestamp: new Date(),
+        // Cancellation source for long-running handlers: the SDK aborts this
+        // signal when the client cancels the call or the transport closes.
+        signal: extra?.signal,
       };
 
       const progressCallback = createProgressCallback(srv, typeof progressToken === 'string' || typeof progressToken === 'number' ? String(progressToken) : undefined);

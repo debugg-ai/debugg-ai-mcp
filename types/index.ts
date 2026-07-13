@@ -183,6 +183,13 @@ export interface ToolContext {
   timestamp: Date;
   /** Present only when the client supports elicitation; otherwise undefined. */
   elicit?: ElicitFn;
+  /**
+   * Aborts when the client cancels the call or the transport closes (e.g. an
+   * HTTP client drops the connection). Threaded from the MCP request lifecycle
+   * (RequestHandlerExtra.signal) so long-running handlers can stop promptly and
+   * free their resources instead of polling to their own deadline.
+   */
+  signal?: AbortSignal;
 }
 
 /**
