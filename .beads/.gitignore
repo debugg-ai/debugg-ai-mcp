@@ -1,6 +1,13 @@
 # Dolt database (managed by Dolt, not git)
 dolt/
 dolt-access.lock
+embeddeddolt/
+
+# Credentials — NEVER commit (local-only, per-machine secret)
+.beads-credential-key
+
+# Local export/sync state (machine-specific)
+export-state.json
 
 # Runtime files
 bd.sock
