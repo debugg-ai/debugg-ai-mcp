@@ -28,7 +28,8 @@ import {
 } from '../utils/tunnelContext.js';
 import { detectRepoName } from '../utils/gitContext.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
-import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
+import { probeLocalPort, probeTunnelHealth, extractNgrokErrorCode } from '../utils/localReachability.js';
+import type { TunnelHealthProbeResult } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
 import {
   getCachedTemplateUuid,
@@ -51,6 +52,26 @@ function getMaxTransientRetries(): number {
   const n = parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 0) return 1;
   return Math.min(n, 3);
+}
+
+// Bug z15n: scan run evidence for ngrok's interstitial marker. The marker is a
+// stable, recognizable string the REMOTE BROWSER saw — positive evidence that it
+// hit our tunnel's error page rather than the user's app. Non-string parts are
+// serialized (the action trace is the usual carrier); a part we can't serialize
+// is simply skipped — it is not evidence either way.
+function findNgrokErrorMarker(parts: unknown[]): string | undefined {
+  for (const part of parts) {
+    if (part === undefined || part === null || part === '') continue;
+    let text: string;
+    try {
+      text = typeof part === 'string' ? part : JSON.stringify(part) ?? '';
+    } catch {
+      continue;
+    }
+    const code = extractNgrokErrorCode(text);
+    if (code) return code;
+  }
+  return undefined;
 }
 
 // Concurrency control — max 2 simultaneous browser checks.
@@ -126,10 +147,38 @@ async function testPageChangesHandlerInner(
   // dropped client kept polling for up to ~10 min, holding one of just
   // MAX_CONCURRENT=2 slots. Wiring to context.signal cancels the poll and frees
   // the slot immediately.
+  //
+  // Bead 5er7: aborting the poll frees our slot but does NOT stop the BACKEND
+  // execution — it runs on to its own contextData.timeoutSeconds (720), driving
+  // a real browser session and burning quota with nobody reading the result.
+  // cancelExecution() existed for exactly this and had zero callers. Cancel the
+  // in-flight execution best-effort on abort.
+  //
+  // Contract for the cancel path: NEVER throw and NEVER await. The client is
+  // already gone, so a failed cancel is not worth surfacing, and the abort path
+  // must not delay slot release. Strictly fire-and-forget, rejection swallowed.
+  let clientAborted = false;
+  let currentExecutionUuid = '';
+  const cancelCurrentExecution = () => {
+    const uuid = currentExecutionUuid;
+    if (!uuid) return;         // nothing queued yet — never POST cancel/<empty>/
+    currentExecutionUuid = ''; // cancel any given execution at most once
+    try {
+      client.workflows?.cancelExecution(uuid).then(
+        () => logger.info(`Cancelled abandoned execution ${uuid}`),
+        (err) => logger.warn(`Best-effort cancel of abandoned execution ${uuid} failed: ${err}`),
+      );
+    } catch (err) {
+      logger.warn(`Best-effort cancel of abandoned execution ${uuid} threw synchronously: ${err}`);
+    }
+  };
+
   const abortController = new AbortController();
   const onAbort = () => {
+    clientAborted = true;
     abortController.abort();
     progressDisabled = true; // client is gone — stop emitting
+    cancelCurrentExecution();
   };
   const requestSignal = context.signal;
   if (requestSignal) {
@@ -383,7 +432,17 @@ async function testPageChangesHandlerInner(
         Object.keys(env).length > 0 ? env : undefined,
       );
       executionUuid = executeResponse.executionUuid;
+      // Bead 5er7: this is now the execution an abort must cancel (a retry moves
+      // the target forward; the previous attempt already reached a terminal
+      // state, so there is nothing to cancel there).
+      currentExecutionUuid = executionUuid;
       logger.info(`Execution queued: ${executionUuid}${attempt > 1 ? ` (retry ${attempt - 1}/${MAX_RETRIES})` : ''}`);
+
+      // The abort can fire BEFORE anything is queued — while provisioning the
+      // tunnel or resolving the template — and there is no abort check between
+      // there and here. Without this, a client that dropped during setup still
+      // gets a ~12-minute browser run queued on its behalf and abandoned.
+      if (clientAborted) cancelCurrentExecution();
 
       // Closure state — reset PER ATTEMPT so progress numbers don't double-count
       // across retries.
@@ -463,6 +522,13 @@ async function testPageChangesHandlerInner(
 
       await progressCallback({ progress: execProgress, total: TOTAL_STEPS, message });
     }, abortController.signal);
+
+      // Bead 5er7: pollExecution returned, so the execution reached a terminal
+      // state — there is nothing left to cancel and a late abort (while we shape
+      // the response) must not POST a cancel for finished work. EXCEPTION: on a
+      // poll-deadline timeout the execution may still be running backend-side,
+      // so keep it cancellable.
+      if (!finalExecution.timedOut) currentExecutionUuid = '';
 
       // Decide retry vs exit: only retry on documented transient signatures
       // AND while we still have budget. Otherwise break and surface whatever
@@ -558,6 +624,48 @@ async function testPageChangesHandlerInner(
     // the legacy node-extracted trace while the backend contract deploys.
     const relayActionTrace = verdict.actionTrace ?? actionTrace;
 
+    // --- Post-hoc tunnel reclassification (bug z15n) ---
+    // The pre-flight probe above proves the tunnel was alive when we handed it to
+    // the remote browser — it can still die mid-run. When it does, the browser
+    // lands on ngrok's ERR_NGROK_* interstitial and the backend, which only sees
+    // "the page didn't contain what I was asked about", returns a normal 'fail'
+    // whose reason blames the USER'S page for OUR dead tunnel (execution
+    // a8f07747: 217s, 7 steps, failureCategory 'fail').
+    //
+    // Epic 56kd is "relay honestly, invent nothing", so this reclassifies ONLY on
+    // POSITIVE local evidence that the tunnel is dead:
+    //   - our own re-probe failing NOW, or
+    //   - an explicit ERR_NGROK_* marker the run itself recorded.
+    // Reporting our own probe observation is honest; inferring a cause from the
+    // absence of evidence is not. A healthy re-probe with no marker relays the
+    // backend verdict untouched — a genuine UI failure must never be laundered
+    // into an infrastructure excuse. The backend's verdict is preserved verbatim
+    // under `backendVerdict` either way.
+    let tunnelFault: { probe?: TunnelHealthProbeResult; ngrokErrorCode?: string } | undefined;
+    if (verdict.outcome === 'fail' && ctx.isLocalhost && ctx.tunnelId && ctx.targetUrl) {
+      const marker = findNgrokErrorMarker([
+        verdict.reason,
+        finalExecution.state?.error,
+        finalExecution.errorMessage,
+        relayActionTrace,
+      ]);
+      // probeTunnelHealth never throws by contract; guard anyway — a probe we
+      // couldn't run is NOT evidence of a fault.
+      const probe = await probeTunnelHealth(ctx.targetUrl).catch(() => undefined);
+      if (probe && !probe.healthy) {
+        tunnelFault = { probe, ngrokErrorCode: marker ?? probe.ngrokErrorCode };
+      } else if (marker) {
+        tunnelFault = { probe, ngrokErrorCode: marker };
+      }
+      if (tunnelFault) {
+        logger.warn(
+          `Reclassifying backend 'fail' as an infrastructure fault for ${executionUuid}: ` +
+          `re-probe=${probe ? (probe.healthy ? 'healthy' : probe.code) : 'unavailable'}, ` +
+          `marker=${marker ?? 'none'}`,
+        );
+      }
+    }
+
     const responsePayload: Record<string, any> = {
       outcome: verdict.outcome,
       success: verdict.success,
@@ -574,6 +682,36 @@ async function testPageChangesHandlerInner(
     // timeout); OMITTED on success. No inference, no 'assertion-mismatch'.
     if (verdict.failureCategory) responsePayload.failureCategory = verdict.failureCategory;
     if (verdict.reason) responsePayload.reason = verdict.reason;
+
+    // Bug z15n: OUR tunnel died, so this 'fail' describes our error page, not the
+    // user's app. Relay it as a distinct, retryable infrastructure class so an
+    // automated caller doesn't record a UI regression that never happened. The
+    // backend's original verdict is preserved verbatim, never swallowed.
+    if (tunnelFault) {
+      const { probe, ngrokErrorCode } = tunnelFault;
+      responsePayload.backendVerdict = { outcome: verdict.outcome, reason: verdict.reason };
+      responsePayload.outcome = 'error';
+      responsePayload.success = false;
+      responsePayload.failureCategory = 'infrastructure';
+      responsePayload.error = 'TunnelOfflineDuringRun';
+      responsePayload.message =
+        'The secure tunnel to your local dev server was not reachable after this run, so the remote ' +
+        'browser was most likely evaluating an ngrok error page rather than your app. This is an ' +
+        'infrastructure fault on our side, not a failed check — retry it. The backend\'s original ' +
+        'verdict is preserved under `backendVerdict`.';
+      responsePayload.reason = probe && !probe.healthy
+        ? `Our own re-probe of the tunnel after the run failed: ${probe.code}` +
+          `${probe.status ? ` (HTTP ${probe.status})` : ''}${probe.detail ? ` — ${probe.detail}` : ''}.`
+        : `The run recorded ngrok's ${ngrokErrorCode} interstitial, so the remote browser reached ` +
+          'our tunnel error page instead of your app.';
+      responsePayload.detail = {
+        ngrokErrorCode,
+        probeCode: probe?.code,
+        probeStatus: probe?.status,
+        probeHealthy: probe?.healthy,
+        probeElapsedMs: probe?.elapsedMs,
+      };
+    }
 
     if (Array.isArray(relayActionTrace) && relayActionTrace.length > 0) responsePayload.actionTrace = relayActionTrace;
     if (evaluation) responsePayload.evaluation = evaluation;
@@ -688,7 +826,10 @@ async function testPageChangesHandlerInner(
       }
     }
 
-    return { content };
+    // Bug z15n: an infrastructure fault is an error, not a check result — same
+    // posture as the LocalServerUnreachable / TunnelTrafficBlocked pre-checks.
+    // The evidence (screenshot, trace, artifacts) still rides along in `content`.
+    return tunnelFault ? { content, isError: true } : { content };
 
   } catch (error) {
     const duration = Date.now() - startTime;
