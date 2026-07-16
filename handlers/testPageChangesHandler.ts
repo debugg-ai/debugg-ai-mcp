@@ -644,9 +644,12 @@ async function testPageChangesHandlerInner(
     // execution 2aa14b0b completed 2.78s BEFORE its upstream was killed (tunnel
     // alive for 100% of the run, no marker, an honest evidence-strictness
     // verdict) and we still stamped it TunnelOfflineDuringRun. Worse, the probe
-    // independently returns a FALSE NETWORK_ERROR on healthy servers ~1 in 5
-    // runs (a DNS race, bug k6yq), so the false positive is reachable with
-    // nothing whatsoever wrong.
+    // independently returned a FALSE NETWORK_ERROR on healthy servers ~1 in 5
+    // runs (bug k6yq), so the false positive was reachable with nothing
+    // whatsoever wrong. (k6yq is now fixed: the cause was not the suspected DNS
+    // race but an HTTP/2 GOAWAY from the ngrok edge on a freshly created
+    // tunnel, which probeTunnelHealth now retries. The marker requirement
+    // stands on its own regardless — the probe never decides this.)
     //
     // Requiring the marker loses no coverage: a real mid-run death fires BOTH
     // arms (live-confirmed — re-probe NETWORK_ERROR *and* marker ERR_NGROK_3200),

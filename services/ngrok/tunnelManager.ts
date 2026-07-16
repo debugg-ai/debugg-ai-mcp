@@ -27,6 +27,7 @@ import {
   RegistryEntry,
   getDefaultRegistry,
 } from './tunnelRegistry.js';
+import { startAgentSession, AgentSessionStarter } from './ngrokAgentSession.js';
 
 let ngrokModule: any = null;
 
@@ -50,6 +51,7 @@ function resetNgrokModule(): void {
 }
 
 const logger = new Logger({ module: 'tunnelManager' });
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -100,6 +102,23 @@ class TunnelManager {
    * changing the public API or depending on jest fake timers.
    */
   public connectBackoffMs: number[] = [500, 1500];
+  /**
+   * Bead pqgj: how the ngrok agent gets started + how we learn its client
+   * session is live. Overridable so tests can drive a fake agent instead of
+   * spawning a real ngrok process.
+   */
+  public agentSessionStarter: AgentSessionStarter = startAgentSession;
+  /**
+   * Cap on waiting for "client session established". Measured live at ~293ms;
+   * this is a generous ceiling, not an expected wait. On expiry we tunnel
+   * anyway and let the retry ladder handle it — a slow session must not become
+   * a hang.
+   */
+  public agentSessionTimeoutMs = 5000;
+  /** Whether the ngrok agent's client session is established (bead pqgj). */
+  private agentSessionReady = false;
+  /** In-flight session bootstrap, so concurrent tunnels wait on one spawn. */
+  private agentSessionPromise: Promise<void> | null = null;
 
   constructor(private readonly reg: RegistryStore = getDefaultRegistry()) {
     // Bead `mdp`: sweep stale entries on startup so the registry doesn't grow
@@ -452,6 +471,12 @@ class TunnelManager {
         authtoken: authToken,
       };
 
+      // Bead pqgj: pre-warm the agent session so attempt 1 doesn't race the
+      // agent's ~293ms not-ready window (which poisons the tunnel name via
+      // ngrok's own name-reusing internal retry and surfaces as
+      // "invalid tunnel configuration").
+      await this.ensureAgentSession(authToken, trace);
+
       let lastError: unknown;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         trace.emit('connect.attempt.start', { attempt });
@@ -593,6 +618,62 @@ class TunnelManager {
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Bead pqgj: make sure the ngrok agent's client session is established before
+   * we ask it for a tunnel, so attempt 1 lands on a ready agent instead of the
+   * ~293ms not-ready window that made every single run fail its first connect.
+   *
+   * Never throws: if the agent can't be pre-warmed (ngrok internals moved, slow
+   * session, dead token) we fall through and let connectWithRetry's ladder do
+   * what it did before this fix. The ladder stays a genuine safety net.
+   */
+  private async ensureAgentSession(authtoken: string, trace?: TunnelTrace): Promise<void> {
+    if (this.agentSessionReady) return;
+
+    if (!this.agentSessionPromise) {
+      this.agentSessionPromise = (async () => {
+        let markEstablished!: () => void;
+        const established = new Promise<void>((resolve) => { markEstablished = resolve; });
+
+        await this.agentSessionStarter({
+          authtoken,
+          onStatusChange: (status: string) => {
+            if (status === 'connected') {
+              this.agentSessionReady = true;
+              markEstablished();
+            } else if (status === 'closed') {
+              this.agentSessionReady = false;
+            }
+          },
+          onTerminated: () => {
+            // Agent process died — next tunnel must re-warm.
+            this.agentSessionReady = false;
+            this.agentSessionPromise = null;
+          },
+        });
+
+        let capTimer: NodeJS.Timeout | undefined;
+        const cap = new Promise<void>((resolve) => {
+          capTimer = setTimeout(resolve, this.agentSessionTimeoutMs);
+        });
+        try {
+          await Promise.race([established, cap]);
+        } finally {
+          if (capTimer) clearTimeout(capTimer);
+        }
+      })().catch((err) => {
+        // Pre-warm unavailable — not fatal, the ladder covers it.
+        this.agentSessionPromise = null;
+        const msg = err instanceof Error ? err.message : String(err);
+        trace?.emit('agent.session.prewarm-failed', { message: msg.slice(0, 200) });
+        logger.debug(`ngrok agent pre-warm unavailable, relying on connect retry ladder: ${msg}`);
+      });
+    }
+
+    await this.agentSessionPromise;
+    trace?.emit('agent.session.ready', { ready: this.agentSessionReady });
+  }
 
   private async ensureInitialized(): Promise<void> {
     if (!this.initialized) {
