@@ -120,6 +120,74 @@ const DEAD_TUNNEL = {
   elapsedMs: 42,
 };
 
+// ── Bug 4bui fixtures ──────────────────────────────────────────────────────
+//
+// The probe DOES NOT answer the question we ask of it. It answers "is the
+// tunnel healthy NOW?"; we were using it to claim "the tunnel was dead DURING
+// THE RUN". This flake is the proof, observed live on a demonstrably healthy
+// server (~1 in 5 runs) while `curl 127.0.0.1:39117/` returned 200:
+//     [warn] Tunnel health probe failed for https://...ngrok.debugg.ai/: NETWORK_ERROR in 286ms
+// It is a DNS race in the probe itself (debugg_ai_mcp-k6yq) — the tunnel is
+// fine. A probe result is therefore NOT evidence about the run window, and a
+// WRONG probe must not be able to move the verdict.
+const PROBE_FLAKE_NETWORK_ERROR = {
+  healthy: false,
+  code: 'NETWORK_ERROR',
+  detail: 'getaddrinfo ENOTFOUND 9aad79fd-c520-41b9-ad7a-fae900bd9859.ngrok.debugg.ai',
+  elapsedMs: 286,
+};
+
+/**
+ * Verbatim from live execution 2aa14b0b-3a30-48e2-a646-65357cf775e2 (prod).
+ * An honest evidence-strictness verdict — the backend is complaining that the
+ * agent CLAIMED a match rather than verifying the heading. Nothing to do with
+ * tunnels.
+ */
+const EVIDENCE_STRICTNESS_REASON =
+  "Evidence only shows a claimed text match for 'View Report'; it does not verify the " +
+  "heading 'QA Throwaway App' is present.";
+
+/**
+ * The exact shape of execution 2aa14b0b (fetched from prod, 2026-07-16):
+ *   completedAt 2026-07-16T00:46:42.971669Z, durationMs 22298
+ *   state.outcome 'unknown'  → the raw backend outcome is not even 'fail'
+ *   verdict.outcome 'fail'   → adaptVerdict relays this, satisfying the gate
+ *   ERR_NGROK anywhere in the record: NONE
+ *   actionTrace proves the remote browser reached the REAL app.
+ * The upstream was killed 2.78s AFTER completedAt, so the tunnel was alive for
+ * 100% of the run — yet we stamped it TunnelOfflineDuringRun.
+ */
+function makeHealthyRunGenuineFailExecution(overrides: Record<string, any> = {}) {
+  return {
+    uuid: 'exec-uuid-1',
+    status: 'completed',
+    startedAt: '2026-07-16T00:46:20.673000Z',
+    completedAt: '2026-07-16T00:46:42.971669Z',
+    durationMs: 22298,
+    // The raw backend outcome really was 'unknown' — weaker grounds still.
+    state: { outcome: 'unknown', success: false, stepsTaken: 1, error: '' },
+    verdict: { outcome: 'fail', reason: EVIDENCE_STRICTNESS_REASON },
+    budget: { maxSteps: 20, usedSteps: 1 },
+    evidence: {
+      actionTrace: [
+        {
+          step: 1,
+          actionType: 'done',
+          intent:
+            "The page visibly shows the heading 'QA Throwaway App' and the button 'View Report'. " +
+            "[assertion: text_visible('View Report') — matched in context: '…ble page used for MCP " +
+            "QA verification.  View Report Ready…']",
+          success: true,
+        },
+      ],
+    },
+    errorMessage: '',
+    errorInfo: null,
+    nodeExecutions: [],
+    ...overrides,
+  };
+}
+
 function makeExecution(overrides: Record<string, any> = {}) {
   return {
     uuid: 'exec-uuid-1',
@@ -169,9 +237,31 @@ beforeEach(() => {
 });
 
 describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug z15n)', () => {
-  test('backend fail + tunnel re-probe now UNHEALTHY → reclassified as infrastructure, backend reason preserved', async () => {
+  test('real mid-run death: BOTH arms fire (run recorded the marker + re-probe still UNHEALTHY) → reclassified as infrastructure, backend reason preserved', async () => {
     setup({ isLocalhost: true });
-    mockPoll.mockResolvedValue(makeExecution());
+    // FIXTURE CORRECTED (bug 4bui): this case's original fixture recorded no
+    // ERR_NGROK_* marker on the run, which does not describe a real mid-run
+    // death — it stipulated a tunnel dead enough to serve ERR_NGROK_3200 to our
+    // probe whose own run somehow never saw an interstitial. Live QA (z15n)
+    // settled what a genuine mid-run death actually looks like: BOTH arms fire
+    // together — re-probe unhealthy AND marker ERR_NGROK_3200 in the trace. The
+    // marker is now what authorizes reclassification, so the fixture carries it.
+    // Every assertion below is unchanged.
+    mockPoll.mockResolvedValue(
+      makeExecution({
+        evidence: {
+          actionTrace: [
+            { step: 6, action: 'navigate', intent: 'Re-navigate to the graphs page', success: true },
+            {
+              step: 7,
+              action: 'observe',
+              intent: 'Page shows ERR_NGROK_3200: the endpoint is offline',
+              success: false,
+            },
+          ],
+        },
+      }),
+    );
     // 1st call = pre-flight (passes, as it did for a8f07747); 2nd = post-run re-probe.
     mockProbeTunnelHealth.mockResolvedValueOnce(HEALTHY).mockResolvedValueOnce(DEAD_TUNNEL);
 
@@ -260,7 +350,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
     expect(result.isError).toBeUndefined();
   });
 
-  test('backend fail + ERR_NGROK_* marker in the run evidence → reclassified even if the tunnel recovered', async () => {
+  test('backend fail + ERR_NGROK_* marker in the run evidence → reclassified even if the tunnel recovered (marker is the authority)', async () => {
     setup({ isLocalhost: true });
     mockPoll.mockResolvedValue(
       makeExecution({
@@ -289,5 +379,117 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
     expect(payload.detail.ngrokErrorCode).toBe('ERR_NGROK_3200');
     expect(payload.backendVerdict).toEqual({ outcome: 'fail', reason: BACKEND_FAIL_REASON });
     expect(result.isError).toBe(true);
+  });
+});
+
+/**
+ * REGRESSION debugg_ai_mcp-4bui — the re-probe arm launders a genuine UI 'fail'
+ * into an infrastructure excuse.
+ *
+ * The re-probe answers "is the tunnel healthy NOW?". We were using that answer
+ * to assert "the tunnel was dead DURING THE RUN". Those are different
+ * questions, and the gap between them is where a real UI failure gets buried.
+ *
+ * WHY THE ORIGINAL SUITE MISSED THIS: it mocks probeTunnelHealth, and a mocked
+ * probe is stipulated to be CORRECT. Every existing case reads "the probe says
+ * unhealthy, therefore the tunnel is unhealthy" — which is exactly the
+ * assumption under test. These tests deliberately encode a probe that is WRONG:
+ * it reports unhealthy for a tunnel that demonstrably served the entire run.
+ *
+ * The fix: REQUIRE the ERR_NGROK_* marker. The marker is positive evidence that
+ * the remote browser actually hit OUR error page DURING the run — which is the
+ * claim we are making. The probe is evidence about now, and is demoted to
+ * corroboration. Per epic 56kd, only positive evidence justifies overriding the
+ * backend's verdict.
+ */
+describe('testPageChangesHandler — the re-probe alone must never launder a genuine fail (bug 4bui)', () => {
+  test('2aa14b0b: healthy run, genuine evidence-strictness fail, NO marker, probe flakes NETWORK_ERROR → relayed VERBATIM', async () => {
+    setup({ isLocalhost: true });
+    mockPoll.mockResolvedValue(makeHealthyRunGenuineFailExecution());
+    // Pre-flight passed (the tunnel was up, and stayed up for the whole run).
+    // The post-run probe is simply WRONG here — it is the k6yq DNS flake. The
+    // real 2aa14b0b probed after its upstream was killed 2.78s post-completion;
+    // either way the probe describes a moment the run had already ended.
+    mockProbeTunnelHealth
+      .mockResolvedValueOnce(HEALTHY)
+      .mockResolvedValueOnce(PROBE_FLAKE_NETWORK_ERROR);
+
+    const result = await testPageChangesHandler(localhostInput, ctx);
+    const payload = JSON.parse(result.content[0].text!);
+
+    // The backend's honest verdict must survive completely untouched.
+    expect(payload.outcome).toBe('fail');
+    expect(payload.success).toBe(false);
+    expect(payload.failureCategory).toBe('fail');
+    expect(payload.reason).toBe(EVIDENCE_STRICTNESS_REASON);
+
+    // No laundering: none of the infrastructure apparatus may appear.
+    expect(payload.error).toBeUndefined();
+    expect(payload.backendVerdict).toBeUndefined();
+    expect(result.isError).toBeUndefined();
+
+    // The run's own evidence is relayed, so the caller can see the browser
+    // reached the real app.
+    expect(payload.actionTrace[0].intent).toContain("text_visible('View Report') — matched");
+  });
+
+  test('probe sees ERR_NGROK NOW but the run recorded none → the probe\'s ngrok code is not run evidence, relayed VERBATIM', async () => {
+    setup({ isLocalhost: true });
+    mockPoll.mockResolvedValue(makeHealthyRunGenuineFailExecution());
+    // This is 2aa14b0b's literal kill sequence: the tunnel died AFTER the run
+    // completed, so a probe now genuinely sees ngrok's interstitial. That is a
+    // true statement about NOW and says nothing about the run window. The
+    // browser never saw this page — the run's trace proves it reached the app.
+    mockProbeTunnelHealth.mockResolvedValueOnce(HEALTHY).mockResolvedValueOnce(DEAD_TUNNEL);
+
+    const result = await testPageChangesHandler(localhostInput, ctx);
+    const payload = JSON.parse(result.content[0].text!);
+
+    expect(payload.outcome).toBe('fail');
+    expect(payload.failureCategory).toBe('fail');
+    expect(payload.reason).toBe(EVIDENCE_STRICTNESS_REASON);
+    expect(payload.error).toBeUndefined();
+    expect(payload.backendVerdict).toBeUndefined();
+    expect(result.isError).toBeUndefined();
+  });
+
+  test('a WRONG probe cannot move the verdict: flaky and healthy probes yield an identical payload', async () => {
+    // The property, stated directly: with no marker, the probe's answer is not
+    // an input to the verdict. A suite that only ever mocks a CORRECT probe
+    // cannot express this.
+    const run = async (postRunProbe: unknown) => {
+      jest.clearAllMocks();
+      setup({ isLocalhost: true });
+      mockPoll.mockResolvedValue(makeHealthyRunGenuineFailExecution());
+      mockProbeTunnelHealth
+        .mockResolvedValueOnce(HEALTHY)
+        .mockResolvedValueOnce(postRunProbe as any);
+      const result = await testPageChangesHandler(localhostInput, ctx);
+      return JSON.parse(result.content[0].text!);
+    };
+
+    const withFlake = await run(PROBE_FLAKE_NETWORK_ERROR);
+    const withHealthy = await run(HEALTHY);
+
+    expect(withFlake).toEqual(withHealthy);
+    expect(withFlake.outcome).toBe('fail');
+    expect(withFlake.reason).toBe(EVIDENCE_STRICTNESS_REASON);
+  });
+
+  test('probe TIMEOUT + no marker → relayed VERBATIM (an unanswered probe is not evidence of a mid-run death)', async () => {
+    setup({ isLocalhost: true });
+    mockPoll.mockResolvedValue(makeHealthyRunGenuineFailExecution());
+    mockProbeTunnelHealth
+      .mockResolvedValueOnce(HEALTHY)
+      .mockResolvedValueOnce({ healthy: false, code: 'TIMEOUT', detail: 'timed out after 5000ms', elapsedMs: 5000 });
+
+    const result = await testPageChangesHandler(localhostInput, ctx);
+    const payload = JSON.parse(result.content[0].text!);
+
+    expect(payload.outcome).toBe('fail');
+    expect(payload.reason).toBe(EVIDENCE_STRICTNESS_REASON);
+    expect(payload.error).toBeUndefined();
+    expect(payload.backendVerdict).toBeUndefined();
+    expect(result.isError).toBeUndefined();
   });
 });
