@@ -28,6 +28,17 @@ jest.unstable_mockModule('ngrok', () => ({
   },
 }));
 
+// Bead pqgj: the manager now pre-warms the ngrok agent's client session before
+// tunnelling. The real starter deep-requires ngrok's internals and SPAWNS AN
+// ACTUAL AGENT PROCESS — which a unit suite must never do (it also reaches past
+// the 'ngrok' mock above). Stub it with a faithful stand-in: agent started,
+// session established immediately. Assertions below are unchanged.
+const mockStartAgentSession = jest.fn(async (opts: any) => { opts.onStatusChange('connected'); });
+
+jest.unstable_mockModule('../../services/ngrok/ngrokAgentSession.js', () => ({
+  startAgentSession: mockStartAgentSession,
+}));
+
 // ── Import module under test (after mocks) ────────────────────────────────────
 
 let TunnelManagerClass: typeof import('../../services/ngrok/tunnelManager.js').default;

@@ -222,3 +222,144 @@ describe('probeTunnelHealth', () => {
     expect(r.elapsedMs).toBeGreaterThanOrEqual(0);
   });
 });
+
+// ─ Bead k6yq: transient-vs-broken ────────────────────────────────────────────
+/**
+ * probeTunnelHealth returned a FALSE NETWORK_ERROR on a demonstrably healthy
+ * server, producing a spurious 'TunnelTrafficBlocked'.
+ *
+ * The bead hypothesised a DNS race from the ~286ms timing. MEASURED LIVE (14
+ * fresh tunnels against a throwaway server serving 200), that is NOT what
+ * happens — DNS resolves fine in 1ms. The real failure:
+ *
+ *   FAIL UND_ERR_SOCKET (HTTP/2: "GOAWAY" frame received with code 0) in 90ms
+ *        dns={"ok":true,"address":"2600:1f1c:d8:5f01:...","ms":1}
+ *        retry={"ok":true,"status":200,"ms":138}
+ *
+ * The ngrok edge sends an HTTP/2 GOAWAY with code 0 (NO_ERROR) on a freshly
+ * created tunnel — a graceful "reconnect on a new connection" signal. undici
+ * surfaces it as UND_ERR_SOCKET behind an opaque "fetch failed", and the probe
+ * called a healthy tunnel blocked. A retry 250ms later returns 200.
+ *
+ * These fakes encode a network layer that is genuinely TRANSIENTLY WRONG (the
+ * real, measured misbehaviour). They do not stipulate the probe correct — the
+ * probe's own classification is what is under test.
+ */
+
+/** The exact undici shape: an opaque "fetch failed" with the truth in .cause. */
+function fetchFailed(cause: { code: string; message?: string; syscall?: string }): TypeError {
+  const err = new TypeError('fetch failed');
+  (err as any).cause = Object.assign(new Error(cause.message ?? cause.code), cause);
+  return err;
+}
+
+/** Fails the first `failCount` calls with `err`, then serves `status`. */
+function mockFetchFlaky(err: Error, failCount: number, status = 200, body = '<html>OK</html>') {
+  let calls = 0;
+  const fn = (async () => {
+    calls++;
+    if (calls <= failCount) throw err;
+    return new Response(body, { status });
+  }) as typeof fetch;
+  return { fn, calls: () => calls };
+}
+
+const GOAWAY = () => fetchFailed({ code: 'UND_ERR_SOCKET', message: 'HTTP/2: "GOAWAY" frame received with code 0' });
+const DNS_MISS = () => fetchFailed({ code: 'ENOTFOUND', syscall: 'getaddrinfo', message: 'getaddrinfo ENOTFOUND x.ngrok.debugg.ai' });
+const REFUSED = () => fetchFailed({ code: 'ECONNREFUSED', syscall: 'connect', message: 'connect ECONNREFUSED 1.2.3.4:443' });
+
+const noSleep = async () => { /* keep retry tests instant */ };
+
+describe('probeTunnelHealth — bead k6yq: transient churn vs real fault', () => {
+  test('GOAWAY on first attempt then 200 → healthy (the measured live failure)', async () => {
+    const flaky = mockFetchFlaky(GOAWAY(), 1);
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(true);
+    expect(r.status).toBe(200);
+    expect(flaky.calls()).toBe(2);
+  });
+
+  test('DNS miss on first attempt then resolves → healthy (bead acceptance criterion 1)', async () => {
+    const flaky = mockFetchFlaky(DNS_MISS(), 1);
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(true);
+    expect(flaky.calls()).toBe(2);
+  });
+
+  test('two transient failures then 200 → healthy (default ladder tolerates a slow edge)', async () => {
+    const flaky = mockFetchFlaky(GOAWAY(), 2);
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(true);
+    expect(flaky.calls()).toBe(3);
+  });
+
+  // ── Do NOT paper over real faults ──────────────────────────────────────────
+
+  test('ECONNREFUSED → unhealthy, and NOT retried (resolves but refused is a real fault)', async () => {
+    const flaky = mockFetchFlaky(REFUSED(), 99);
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(false);
+    expect(r.code).toBe('NETWORK_ERROR');
+    expect(r.detail).toContain('ECONNREFUSED');
+    expect(flaky.calls()).toBe(1);
+  });
+
+  test('502 + ERR_NGROK_8012 → unhealthy NGROK_ERROR on a SINGLE fetch (no retry laundering)', async () => {
+    const flaky = mockFetchFlaky(new Error('unused'), 0, 502, '<html>ERR_NGROK_8012 failed to dial</html>');
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(false);
+    expect(r.code).toBe('NGROK_ERROR');
+    expect(r.ngrokErrorCode).toBe('ERR_NGROK_8012');
+    expect(flaky.calls()).toBe(1);
+  });
+
+  test('502 without marker → unhealthy BAD_GATEWAY on a SINGLE fetch', async () => {
+    const flaky = mockFetchFlaky(new Error('unused'), 0, 502, 'bare 502');
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(false);
+    expect(r.code).toBe('BAD_GATEWAY');
+    expect(flaky.calls()).toBe(1);
+  });
+
+  test('PERSISTENT transient error → still unhealthy after the ladder (a dead edge is not healthy)', async () => {
+    const flaky = mockFetchFlaky(GOAWAY(), 99);
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(false);
+    expect(r.code).toBe('NETWORK_ERROR');
+    expect(flaky.calls()).toBe(3);
+  });
+
+  test('PERSISTENT DNS failure → still unhealthy (host that never resolves is not healthy)', async () => {
+    const flaky = mockFetchFlaky(DNS_MISS(), 99);
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.healthy).toBe(false);
+    expect(r.code).toBe('NETWORK_ERROR');
+  });
+
+  test('surfaces the underlying cause code — "fetch failed" alone is undiagnosable', async () => {
+    const flaky = mockFetchFlaky(GOAWAY(), 99);
+    const r = await probeTunnelHealth('http://example.test', { fetchFn: flaky.fn, sleepFn: noSleep });
+
+    expect(r.detail).toContain('UND_ERR_SOCKET');
+  });
+
+  test('timeout is NOT retried — a hanging tunnel must not cost 3x the timeout', async () => {
+    const abortErr = new Error('aborted');
+    abortErr.name = 'AbortError';
+    const flaky = mockFetchFlaky(abortErr, 99);
+    const r = await probeTunnelHealth('http://example.test', {
+      fetchFn: flaky.fn, timeoutMs: 50, sleepFn: noSleep,
+    });
+
+    expect(r.code).toBe('TIMEOUT');
+    expect(flaky.calls()).toBe(1);
+  });
+});

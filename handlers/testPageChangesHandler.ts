@@ -28,7 +28,8 @@ import {
 } from '../utils/tunnelContext.js';
 import { detectRepoName } from '../utils/gitContext.js';
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
-import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
+import { probeLocalPort, probeTunnelHealth, extractNgrokErrorCode } from '../utils/localReachability.js';
+import type { TunnelHealthProbeResult } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
 import {
   getCachedTemplateUuid,
@@ -51,6 +52,26 @@ function getMaxTransientRetries(): number {
   const n = parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 0) return 1;
   return Math.min(n, 3);
+}
+
+// Bug z15n: scan run evidence for ngrok's interstitial marker. The marker is a
+// stable, recognizable string the REMOTE BROWSER saw — positive evidence that it
+// hit our tunnel's error page rather than the user's app. Non-string parts are
+// serialized (the action trace is the usual carrier); a part we can't serialize
+// is simply skipped — it is not evidence either way.
+function findNgrokErrorMarker(parts: unknown[]): string | undefined {
+  for (const part of parts) {
+    if (part === undefined || part === null || part === '') continue;
+    let text: string;
+    try {
+      text = typeof part === 'string' ? part : JSON.stringify(part) ?? '';
+    } catch {
+      continue;
+    }
+    const code = extractNgrokErrorCode(text);
+    if (code) return code;
+  }
+  return undefined;
 }
 
 // Concurrency control — max 2 simultaneous browser checks.
@@ -126,10 +147,46 @@ async function testPageChangesHandlerInner(
   // dropped client kept polling for up to ~10 min, holding one of just
   // MAX_CONCURRENT=2 slots. Wiring to context.signal cancels the poll and frees
   // the slot immediately.
+  //
+  // Bead 5er7: aborting the poll frees our slot but does NOT stop the BACKEND
+  // execution — it runs on to its own contextData.timeoutSeconds (720), driving
+  // a real browser session and burning quota with nobody reading the result.
+  // cancelExecution() existed for exactly this and had zero callers. Cancel the
+  // in-flight execution best-effort on abort.
+  //
+  // Contract for the cancel path: NEVER throw and NEVER await. The client is
+  // already gone, so a failed cancel is not worth surfacing, and the abort path
+  // must not delay slot release. Strictly fire-and-forget, rejection swallowed.
+  let clientAborted = false;
+  let currentExecutionUuid = '';
+  const cancelCurrentExecution = () => {
+    // HELD OFF BY DEFAULT (bead 5er7 / sentinal-wmzdf). Cancelling the backend
+    // execution skips its browser teardown, so the BrowserSession row leaks
+    // ACTIVE and permanently burns one of the company's 50 concurrency slots —
+    // a net-negative trade vs. the pre-fix behaviour (poll aborts, backend runs
+    // to its own 720s budget, then teardown runs and the slot is returned:
+    // bounded and self-healing). Read at call time so the flag can be flipped
+    // to 'true' the moment the backend runs teardown on cancel (sentinal-wmzdf).
+    if (process.env.DEBUGGAI_CANCEL_ABANDONED_EXECUTIONS !== 'true') return;
+    const uuid = currentExecutionUuid;
+    if (!uuid) return;         // nothing queued yet — never POST cancel/<empty>/
+    currentExecutionUuid = ''; // cancel any given execution at most once
+    try {
+      client.workflows?.cancelExecution(uuid).then(
+        () => logger.info(`Cancelled abandoned execution ${uuid}`),
+        (err) => logger.warn(`Best-effort cancel of abandoned execution ${uuid} failed: ${err}`),
+      );
+    } catch (err) {
+      logger.warn(`Best-effort cancel of abandoned execution ${uuid} threw synchronously: ${err}`);
+    }
+  };
+
   const abortController = new AbortController();
   const onAbort = () => {
+    clientAborted = true;
     abortController.abort();
     progressDisabled = true; // client is gone — stop emitting
+    cancelCurrentExecution();
   };
   const requestSignal = context.signal;
   if (requestSignal) {
@@ -383,7 +440,17 @@ async function testPageChangesHandlerInner(
         Object.keys(env).length > 0 ? env : undefined,
       );
       executionUuid = executeResponse.executionUuid;
+      // Bead 5er7: this is now the execution an abort must cancel (a retry moves
+      // the target forward; the previous attempt already reached a terminal
+      // state, so there is nothing to cancel there).
+      currentExecutionUuid = executionUuid;
       logger.info(`Execution queued: ${executionUuid}${attempt > 1 ? ` (retry ${attempt - 1}/${MAX_RETRIES})` : ''}`);
+
+      // The abort can fire BEFORE anything is queued — while provisioning the
+      // tunnel or resolving the template — and there is no abort check between
+      // there and here. Without this, a client that dropped during setup still
+      // gets a ~12-minute browser run queued on its behalf and abandoned.
+      if (clientAborted) cancelCurrentExecution();
 
       // Closure state — reset PER ATTEMPT so progress numbers don't double-count
       // across retries.
@@ -463,6 +530,13 @@ async function testPageChangesHandlerInner(
 
       await progressCallback({ progress: execProgress, total: TOTAL_STEPS, message });
     }, abortController.signal);
+
+      // Bead 5er7: pollExecution returned, so the execution reached a terminal
+      // state — there is nothing left to cancel and a late abort (while we shape
+      // the response) must not POST a cancel for finished work. EXCEPTION: on a
+      // poll-deadline timeout the execution may still be running backend-side,
+      // so keep it cancellable.
+      if (!finalExecution.timedOut) currentExecutionUuid = '';
 
       // Decide retry vs exit: only retry on documented transient signatures
       // AND while we still have budget. Otherwise break and surface whatever
@@ -558,6 +632,72 @@ async function testPageChangesHandlerInner(
     // the legacy node-extracted trace while the backend contract deploys.
     const relayActionTrace = verdict.actionTrace ?? actionTrace;
 
+    // --- Post-hoc tunnel reclassification (bugs z15n, 4bui) ---
+    // The pre-flight probe above proves the tunnel was alive when we handed it to
+    // the remote browser — it can still die mid-run. When it does, the browser
+    // lands on ngrok's ERR_NGROK_* interstitial and the backend, which only sees
+    // "the page didn't contain what I was asked about", returns a normal 'fail'
+    // whose reason blames the USER'S page for OUR dead tunnel (execution
+    // a8f07747: 217s, 7 steps, failureCategory 'fail').
+    //
+    // THE MARKER IS REQUIRED (bug 4bui). Reclassifying overrides the backend's
+    // verdict, so it demands positive evidence of the claim we are actually
+    // making: that the remote browser hit OUR error page DURING THE RUN. Only
+    // the ERR_NGROK_* marker recorded BY the run is evidence of that.
+    //
+    // The re-probe is NOT such evidence and can no longer trigger this on its
+    // own. It answers a different question — "is the tunnel healthy NOW?" —
+    // and we were using its answer to assert something about the run window.
+    // That laundered a genuine UI failure into an infrastructure excuse:
+    // execution 2aa14b0b completed 2.78s BEFORE its upstream was killed (tunnel
+    // alive for 100% of the run, no marker, an honest evidence-strictness
+    // verdict) and we still stamped it TunnelOfflineDuringRun. Worse, the probe
+    // independently returned a FALSE NETWORK_ERROR on healthy servers ~1 in 5
+    // runs (bug k6yq), so the false positive was reachable with nothing
+    // whatsoever wrong. (k6yq is now fixed: the cause was not the suspected DNS
+    // race but an HTTP/2 GOAWAY from the ngrok edge on a freshly created
+    // tunnel, which probeTunnelHealth now retries. The marker requirement
+    // stands on its own regardless — the probe never decides this.)
+    //
+    // Requiring the marker loses no coverage: a real mid-run death fires BOTH
+    // arms (live-confirmed — re-probe NETWORK_ERROR *and* marker ERR_NGROK_3200),
+    // so the marker alone still catches it. The probe is kept purely as
+    // CORROBORATION in `detail` — it tells the caller whether the tunnel is
+    // still down now or has since recovered. Per epic 56kd ("relay honestly,
+    // invent nothing"), asserting an infrastructure fault we did not observe
+    // during the run is the relay inventing a cause.
+    let tunnelFault: { probe?: TunnelHealthProbeResult; ngrokErrorCode?: string } | undefined;
+    if (verdict.outcome === 'fail' && ctx.isLocalhost && ctx.tunnelId && ctx.targetUrl) {
+      const marker = findNgrokErrorMarker([
+        verdict.reason,
+        finalExecution.state?.error,
+        finalExecution.errorMessage,
+        relayActionTrace,
+      ]);
+      // probeTunnelHealth never throws by contract; guard anyway — a probe we
+      // couldn't run is NOT evidence of a fault. Corroboration only: its result
+      // never decides whether we reclassify, only what we report alongside it.
+      const probe = await probeTunnelHealth(ctx.targetUrl).catch(() => undefined);
+      if (marker) {
+        tunnelFault = { probe, ngrokErrorCode: marker };
+        logger.warn(
+          `Reclassifying backend 'fail' as an infrastructure fault for ${executionUuid}: ` +
+          `the run recorded ${marker} (re-probe now: ` +
+          `${probe ? (probe.healthy ? 'healthy — tunnel has since recovered' : probe.code) : 'unavailable'})`,
+        );
+      } else if (probe && !probe.healthy) {
+        // Deliberately NOT reclassifying. The tunnel looks unhealthy now, but
+        // the run recorded no ngrok interstitial, so we have no evidence the
+        // browser ever saw one — the tunnel most likely died after the run (or
+        // the probe flaked). Relay the backend's verdict and log the tension.
+        logger.info(
+          `Post-run tunnel re-probe for ${executionUuid} was unhealthy (${probe.code}) but the run ` +
+          'recorded no ERR_NGROK_* marker, so the browser reached the app during the run. Relaying ' +
+          "the backend's verdict verbatim rather than blaming the tunnel.",
+        );
+      }
+    }
+
     const responsePayload: Record<string, any> = {
       outcome: verdict.outcome,
       success: verdict.success,
@@ -574,6 +714,45 @@ async function testPageChangesHandlerInner(
     // timeout); OMITTED on success. No inference, no 'assertion-mismatch'.
     if (verdict.failureCategory) responsePayload.failureCategory = verdict.failureCategory;
     if (verdict.reason) responsePayload.reason = verdict.reason;
+
+    // Bug z15n: OUR tunnel died mid-run, so this 'fail' describes our error page,
+    // not the user's app. Relay it as a distinct, retryable infrastructure class
+    // so an automated caller doesn't record a UI regression that never happened.
+    // The backend's original verdict is preserved verbatim, never swallowed.
+    //
+    // Bug 4bui: the stated cause leads with the MARKER, because the marker is the
+    // evidence that justified getting here — the run itself recorded ngrok's
+    // interstitial. The probe only corroborates (and may legitimately say the
+    // tunnel has recovered by now), so it rides in `detail`, never as the cause.
+    if (tunnelFault) {
+      const { probe, ngrokErrorCode } = tunnelFault;
+      responsePayload.backendVerdict = { outcome: verdict.outcome, reason: verdict.reason };
+      responsePayload.outcome = 'error';
+      responsePayload.success = false;
+      responsePayload.failureCategory = 'infrastructure';
+      responsePayload.error = 'TunnelOfflineDuringRun';
+      responsePayload.message =
+        'During this run the remote browser landed on our tunnel\'s ngrok error page instead of your ' +
+        'app, so the check evaluated our error page rather than your UI. This is an infrastructure ' +
+        'fault on our side, not a failed check — retry it. The backend\'s original verdict is ' +
+        'preserved under `backendVerdict`.';
+      responsePayload.reason =
+        `The run recorded ngrok's ${ngrokErrorCode} interstitial, so the remote browser reached ` +
+        'our tunnel error page instead of your app.' +
+        (probe
+          ? probe.healthy
+            ? ' (Our re-probe after the run found the tunnel reachable again, so it has since recovered.)'
+            : ` (Our re-probe after the run also failed: ${probe.code}` +
+              `${probe.status ? ` (HTTP ${probe.status})` : ''}.)`
+          : '');
+      responsePayload.detail = {
+        ngrokErrorCode,
+        probeCode: probe?.code,
+        probeStatus: probe?.status,
+        probeHealthy: probe?.healthy,
+        probeElapsedMs: probe?.elapsedMs,
+      };
+    }
 
     if (Array.isArray(relayActionTrace) && relayActionTrace.length > 0) responsePayload.actionTrace = relayActionTrace;
     if (evaluation) responsePayload.evaluation = evaluation;
@@ -688,7 +867,10 @@ async function testPageChangesHandlerInner(
       }
     }
 
-    return { content };
+    // Bug z15n: an infrastructure fault is an error, not a check result — same
+    // posture as the LocalServerUnreachable / TunnelTrafficBlocked pre-checks.
+    // The evidence (screenshot, trace, artifacts) still rides along in `content`.
+    return tunnelFault ? { content, isError: true } : { content };
 
   } catch (error) {
     const duration = Date.now() - startTime;

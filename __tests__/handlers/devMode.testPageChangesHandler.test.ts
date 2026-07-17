@@ -46,6 +46,9 @@ const mockTouchTunnelById = jest.fn();
 jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeLocalPort: mockProbeLocalPort,
   probeTunnelHealth: mockProbeTunnelHealth,
+  // Bug z15n: the handler imports this to spot ngrok's interstitial marker in
+  // run evidence. Pure regex helper — mirror the real implementation.
+  extractNgrokErrorCode: (body: string) => body.match(/ERR_NGROK_\d+/)?.[0],
 }));
 
 jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({

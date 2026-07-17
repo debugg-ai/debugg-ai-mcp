@@ -513,6 +513,10 @@ const mockProbeTunnelHealth = jest.fn<(...args: any[]) => Promise<any>>()
 jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeLocalPort: mockProbeLocalPort,
   probeTunnelHealth: mockProbeTunnelHealth,
+  // Bug z15n: the handler imports this to spot ngrok's interstitial marker in
+  // run evidence. It's a pure regex helper, so the double mirrors the real
+  // implementation rather than stubbing it out.
+  extractNgrokErrorCode: (body: string) => body.match(/ERR_NGROK_\d+/)?.[0],
 }));
 
 // tunnelManager.stopTunnel is called on bead-1om health-probe failure.
