@@ -166,9 +166,19 @@ export async function triggerCrawlHandler(
             };
             logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
             if (ctx.tunnelId) {
-              tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
-                logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
-              );
+              const deadPort = extractLocalhostPort(ctx.originalUrl);
+              if (health.ngrokErrorCode && typeof deadPort === 'number') {
+                // Tunnel-level dead (ERR_NGROK_*): evict the SHARED registry entry so
+                // the next call re-provisions instead of re-borrowing the corpse — plain
+                // stopTunnel leaves a borrowed entry to re-poison (bead k34o).
+                tunnelManager.markTunnelDead(deadPort, ctx.tunnelId).catch((err) =>
+                  logger.warn(`Failed to evict dead tunnel ${ctx.tunnelId}: ${err}`),
+                );
+              } else {
+                tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
+                  logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
+                );
+              }
             }
             keyId = undefined;
             return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };

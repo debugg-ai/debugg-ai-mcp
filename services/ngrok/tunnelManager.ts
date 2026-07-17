@@ -199,6 +199,41 @@ class TunnelManager {
     return existing;
   }
 
+  /**
+   * Evict a tunnel that a health probe PROVED dead (e.g. ERR_NGROK_3200) so no
+   * session borrows the corpse again (bead k34o).
+   *
+   * OWNED: delegate to stopTunnel — it already removes the registry entry,
+   * disconnects, revokes the key, and resets the agent. (Self-heals after one
+   * failure, which already worked.)
+   *
+   * BORROWED (the actual gap): stopTunnel only drops our local ref and leaves the
+   * SHARED registry entry, so every other session keeps re-borrowing the dead
+   * tunnel for up to the 30-min freshness TTL. Here we also evict the shared
+   * entry — guarded by tunnelId so a replacement another session just provisioned
+   * for the same port is never removed. Best-effort, never throws.
+   */
+  async markTunnelDead(port: number, tunnelId: string): Promise<void> {
+    const local = this.activeTunnels.get(tunnelId);
+    if (local?.isOwned) {
+      await this.stopTunnel(tunnelId).catch(() => { /* dead already; best-effort */ });
+      return;
+    }
+    // Borrowed or no longer local — drop any local ref, then evict the shared entry.
+    if (local?.autoShutoffTimer) clearTimeout(local.autoShutoffTimer);
+    this.activeTunnels.delete(tunnelId);
+    try {
+      const registry = this.reg.read();
+      if (registry[String(port)]?.tunnelId === tunnelId) {
+        delete registry[String(port)];
+        this.reg.write(registry);
+        logger.info(`Evicted dead borrowed tunnel ${tunnelId} for port ${port} from shared registry`);
+      }
+    } catch {
+      // best-effort — a failed eviction just means the next call re-probes and re-evicts
+    }
+  }
+
   touchTunnel(tunnelId: string): void {
     const tunnelInfo = this.activeTunnels.get(tunnelId);
     if (!tunnelInfo) return;

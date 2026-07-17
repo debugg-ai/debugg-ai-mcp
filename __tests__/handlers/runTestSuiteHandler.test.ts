@@ -47,7 +47,7 @@ jest.unstable_mockModule('../../services/tunnels.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
-  tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any) },
+  tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
 }));
 
 let runTestSuiteHandler: typeof import('../../handlers/runTestSuiteHandler.js').runTestSuiteHandler;

@@ -501,6 +501,52 @@ describe('cross-process tunnel sharing', () => {
     expect(tmA.getActiveTunnels()).toHaveLength(1);
   });
 
+  // ── Bead k34o: a borrower that PROVES a tunnel dead (ERR_NGROK_3200) must evict
+  //    the shared registry entry, or every subsequent call re-borrows the corpse. ──
+  describe('markTunnelDead — evict a confirmed-dead tunnel so it stops poisoning reuse', () => {
+    test('evicts the shared registry entry (unlike stopTunnel) so the next call re-provisions', async () => {
+      const reg = createInMemoryRegistry(() => true);
+      mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+
+      const tmA = new TunnelManagerClass(reg);
+      await tmA.processUrl('http://localhost:3000', 'auth-a', 't1');
+      const tmB = new TunnelManagerClass(reg);
+      await tmB.processUrl('http://localhost:3000', 'auth-b', 't2');
+      expect(tmB.getTunnelForPort(3000)?.tunnelId).toBe('t1'); // borrowed t1
+
+      // B's health probe came back ERR_NGROK_3200 — t1 is dead. Evict it.
+      tmB.markTunnelDead(3000, 't1');
+
+      // Local ref dropped AND the shared registry entry is gone (the fix).
+      expect(tmB.getActiveTunnels()).toHaveLength(0);
+      expect(reg.read()['3000']).toBeUndefined();
+
+      // A subsequent call provisions FRESH instead of re-borrowing the corpse.
+      jest.clearAllMocks();
+      mockNgrokConnect.mockResolvedValueOnce('http://fresh.ngrok.debugg.ai' as any);
+      const next = await tmB.processUrl('http://localhost:3000', 'auth-c', 'fresh-t');
+      expect(next.tunnelId).toBe('fresh-t');
+      expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    });
+
+    test('guard: does NOT evict a replacement entry with a different tunnelId', () => {
+      const reg = createInMemoryRegistry(() => true);
+      reg.write({
+        '3000': {
+          tunnelId: 'replacement-t2', // a fresh tunnel already replaced the dead one
+          publicUrl: 'https://replacement-t2.ngrok.debugg.ai/',
+          tunnelUrl: 'http://replacement-t2.ngrok.debugg.ai',
+          port: 3000,
+          ownerPid: 99999,
+          lastAccessedAt: Date.now(),
+        },
+      });
+      const tm = new TunnelManagerClass(reg);
+      tm.markTunnelDead(3000, 'dead-t1'); // the OLD, already-replaced id
+      expect(reg.read()['3000']?.tunnelId).toBe('replacement-t2'); // preserved
+    });
+  });
+
   test('owner stopTunnel removes registry entry — second borrower sees no entry', async () => {
     const reg = createInMemoryRegistry(() => true);
     mockNgrokConnect

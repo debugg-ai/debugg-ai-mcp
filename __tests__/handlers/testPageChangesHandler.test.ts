@@ -519,10 +519,13 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   extractNgrokErrorCode: (body: string) => body.match(/ERR_NGROK_\d+/)?.[0],
 }));
 
-// tunnelManager.stopTunnel is called on bead-1om health-probe failure.
+// tunnelManager.stopTunnel / markTunnelDead are called on bead-1om health-probe failure.
+const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue();
+const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue();
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
   tunnelManager: {
-    stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(),
+    stopTunnel: mockStopTunnel,
+    markTunnelDead: mockMarkTunnelDead,
   },
 }));
 
@@ -848,10 +851,34 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(body.message).toContain('traffic isn\'t reaching');
       expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
 
+      // Bead k34o: a tunnel-level dead marker (ERR_NGROK_*) must EVICT the shared
+      // registry entry (markTunnelDead), not merely drop the local ref (stopTunnel) —
+      // otherwise the next call re-borrows the corpse.
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(Number), expect.any(String));
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+
       // Provision + ensureTunnel ran (got us to the health check), but execute didn't
       expect(mockProvision).toHaveBeenCalled();
       expect(mockEnsureTunnel).toHaveBeenCalled();
       expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('health fails WITHOUT an ngrok marker (dev-server side) → stopTunnel, NOT eviction', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeTunnelHealth.mockResolvedValueOnce({
+        healthy: false,
+        code: 'NETWORK_ERROR',
+        // no ngrokErrorCode — the tunnel is fine; the local server hiccuped.
+        detail: 'connection reset',
+        elapsedMs: 90,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      // Not a proven-dead tunnel → do NOT evict the shared registry; just drop our ref.
+      expect(mockStopTunnel).toHaveBeenCalled();
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
     });
 
     test('public URL path: probes NOT called (skip localhost-only checks)', async () => {
