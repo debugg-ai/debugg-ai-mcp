@@ -96,6 +96,7 @@ describe('findExistingTunnel', () => {
     const ctx = buildContext('http://localhost:3000');
     mockGetTunnelForPort.mockReturnValueOnce({
       tunnelId: 'existing-t1',
+      tunnelUrl: 'https://existing-t1.ngrok.debugg.ai',
       publicUrl: 'https://existing-t1.ngrok.debugg.ai/',
       port: 3000,
     });
@@ -108,6 +109,39 @@ describe('findExistingTunnel', () => {
     expect(result!.isLocalhost).toBe(true);
     expect(result!.originalUrl).toBe('http://localhost:3000');
     expect(mockTouchTunnel).toHaveBeenCalledWith('existing-t1');
+  });
+
+  // Bead zmc9: the cache is keyed by PORT but stores a path-bearing publicUrl from
+  // whichever call CREATED the tunnel. Reuse must retarget to the CURRENT caller's
+  // path (tunnel origin + this request's path), never replay the creator's path.
+  test('zmc9: reuse retargets to the CALLER path, not the creator path baked into publicUrl', () => {
+    const ctx = buildContext('http://localhost:3011/dashboard?tab=1#top');
+    mockGetTunnelForPort.mockReturnValueOnce({
+      tunnelId: 'abc123',
+      tunnelUrl: 'https://abc123.ngrok.debugg.ai',
+      // creator tunneled a DIFFERENT deep path; this must NOT leak to our caller:
+      publicUrl: 'https://abc123.ngrok.debugg.ai/projects/83fa71e2/graphs',
+      port: 3011,
+    });
+
+    const result = findExistingTunnel(ctx);
+
+    expect(result!.tunnelId).toBe('abc123');
+    expect(result!.targetUrl).toBe('https://abc123.ngrok.debugg.ai/dashboard?tab=1#top');
+  });
+
+  test('zmc9: a root-path caller does not inherit a cached deep path (the exact repro)', () => {
+    const ctx = buildContext('http://localhost:3011/');
+    mockGetTunnelForPort.mockReturnValueOnce({
+      tunnelId: 'abc123',
+      tunnelUrl: 'https://abc123.ngrok.debugg.ai',
+      publicUrl: 'https://abc123.ngrok.debugg.ai/projects/83fa71e2/graphs',
+      port: 3011,
+    });
+
+    const result = findExistingTunnel(ctx);
+
+    expect(result!.targetUrl).toBe('https://abc123.ngrok.debugg.ai/');
   });
 });
 

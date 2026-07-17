@@ -8,7 +8,7 @@
  */
 
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
-import { isLocalhostUrl, replaceTunnelUrls, extractLocalhostPort } from './urlParser.js';
+import { isLocalhostUrl, replaceTunnelUrls, extractLocalhostPort, retargetTunnelUrl } from './urlParser.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,13 @@ export function findExistingTunnel(ctx: TunnelContext): TunnelContext | null {
   const existing = tunnelManager.getTunnelForPort(port);
   if (!existing) return null;
   tunnelManager.touchTunnel(existing.tunnelId);
-  return { ...ctx, tunnelId: existing.tunnelId, targetUrl: existing.publicUrl };
+  // Bead zmc9: retarget to THIS caller's path — never replay existing.publicUrl,
+  // which carries the path of whichever call created the (port-keyed) tunnel.
+  return {
+    ...ctx,
+    tunnelId: existing.tunnelId,
+    targetUrl: retargetTunnelUrl(existing.tunnelUrl, ctx.originalUrl),
+  };
 }
 
 /**
