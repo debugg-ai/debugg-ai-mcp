@@ -151,6 +151,15 @@ const drainMicrotasks = () => new Promise((r) => setTimeout(r, 20));
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The cancel-on-abort path ships HELD OFF (bead 5er7 / sentinal-wmzdf): cancelling
+  // skips the backend browser teardown and leaks a concurrency slot. These tests
+  // exercise the MECHANISM, so they opt in explicitly. The default-OFF behaviour has
+  // its own test below.
+  process.env.DEBUGGAI_CANCEL_ABANDONED_EXECUTIONS = 'true';
+});
+
+afterEach(() => {
+  delete process.env.DEBUGGAI_CANCEL_ABANDONED_EXECUTIONS;
 });
 
 describe('testPageChangesHandler — abort cancels the backend execution (bug 5er7)', () => {
@@ -169,6 +178,25 @@ describe('testPageChangesHandler — abort cancels the backend execution (bug 5e
     expect(mockExecute).toHaveBeenCalledTimes(1);
     expect(mockCancelExecution).toHaveBeenCalledTimes(1);
     expect(mockCancelExecution).toHaveBeenCalledWith('exec-uuid-1');
+  });
+
+  test('DEFAULT (flag unset) → abort after queue does NOT cancel — 5er7 held off pending sentinal-wmzdf', async () => {
+    delete process.env.DEBUGGAI_CANCEL_ABANDONED_EXECUTIONS; // shipped default
+    setupPublicUrlPath();
+    const request = new AbortController();
+    mockPoll.mockImplementation(pollThatRejectsOnAbort(() => request.abort()));
+
+    await expect(
+      testPageChangesHandler(publicInput, ctxWith(request.signal)),
+    ).rejects.toThrow(/Polling cancelled/);
+
+    await drainMicrotasks();
+
+    // Poll still aborts (slot freed), but the backend execution is NOT cancelled:
+    // the pre-fix, bounded, self-healing behaviour until the backend runs teardown
+    // on cancel. Flipping the flag re-enables the mechanism (tested above).
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockCancelExecution).not.toHaveBeenCalled();
   });
 
   test('abort BEFORE anything is queued → no cancel is POSTed for an empty/undefined uuid', async () => {

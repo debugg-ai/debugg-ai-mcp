@@ -160,6 +160,14 @@ async function testPageChangesHandlerInner(
   let clientAborted = false;
   let currentExecutionUuid = '';
   const cancelCurrentExecution = () => {
+    // HELD OFF BY DEFAULT (bead 5er7 / sentinal-wmzdf). Cancelling the backend
+    // execution skips its browser teardown, so the BrowserSession row leaks
+    // ACTIVE and permanently burns one of the company's 50 concurrency slots —
+    // a net-negative trade vs. the pre-fix behaviour (poll aborts, backend runs
+    // to its own 720s budget, then teardown runs and the slot is returned:
+    // bounded and self-healing). Read at call time so the flag can be flipped
+    // to 'true' the moment the backend runs teardown on cancel (sentinal-wmzdf).
+    if (process.env.DEBUGGAI_CANCEL_ABANDONED_EXECUTIONS !== 'true') return;
     const uuid = currentExecutionUuid;
     if (!uuid) return;         // nothing queued yet — never POST cancel/<empty>/
     currentExecutionUuid = ''; // cancel any given execution at most once
