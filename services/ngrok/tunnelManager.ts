@@ -19,7 +19,7 @@
 
 import { Logger } from '../../utils/logger.js';
 import { Telemetry, TelemetryEvents } from '../../utils/telemetry.js';
-import { isLocalhostUrl, extractLocalhostPort, generateTunnelUrl } from '../../utils/urlParser.js';
+import { isLocalhostUrl, extractLocalhostPort, generateTunnelUrl, retargetTunnelUrl } from '../../utils/urlParser.js';
 import { v4 as uuidv4 } from 'uuid';
 import { FaultInjector, TunnelTrace, getFaultModeFromEnv } from './tunnelFaultInjection.js';
 import {
@@ -347,9 +347,11 @@ class TunnelManager {
     // 1. Check local in-process map (handles owned + borrowed with liveness check)
     const existing = this.getTunnelForPort(port);
     if (existing) {
-      logger.info(`Reusing existing tunnel for port ${port}: ${existing.publicUrl}`);
+      // Bead zmc9: retarget to THIS caller's path; publicUrl carries the creator's.
+      const url_ = retargetTunnelUrl(existing.tunnelUrl, url);
+      logger.info(`Reusing existing tunnel for port ${port}: ${url_}`);
       Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'reused' });
-      return { url: existing.publicUrl, tunnelId: existing.tunnelId, isLocalhost: true };
+      return { url: url_, tunnelId: existing.tunnelId, isLocalhost: true };
     }
 
     // 2. Deduplicate concurrent creation requests for the same port
@@ -365,7 +367,8 @@ class TunnelManager {
         );
       }
       const info = await pending;
-      return { url: info.publicUrl, tunnelId: info.tunnelId, isLocalhost: true };
+      // Bead zmc9: retarget to THIS caller's path, not the in-flight creator's.
+      return { url: retargetTunnelUrl(info.tunnelUrl, url), tunnelId: info.tunnelId, isLocalhost: true };
     }
 
     // 3. Check cross-process registry — another MCP instance may own a tunnel.
@@ -392,7 +395,9 @@ class TunnelManager {
       this.reg.write(registry);
       this.resetTunnelTimer(borrowed);
       Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'borrowed' });
-      return { url: regEntry.publicUrl, tunnelId: regEntry.tunnelId, isLocalhost: true };
+      // Bead zmc9: retarget to THIS caller's path; regEntry.publicUrl carries the
+      // owning PID's creating-call path — replaying it is the cross-session poison.
+      return { url: retargetTunnelUrl(regEntry.tunnelUrl, url), tunnelId: regEntry.tunnelId, isLocalhost: true };
     }
 
     // 4. Create a new tunnel (this process becomes the owner)

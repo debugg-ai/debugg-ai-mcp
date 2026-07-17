@@ -1,4 +1,4 @@
-import { replaceTunnelUrls, generateTunnelUrl, isLocalhostUrl, extractLocalhostPort, normalizeUrl } from '../../utils/urlParser.js';
+import { replaceTunnelUrls, generateTunnelUrl, retargetTunnelUrl, isLocalhostUrl, extractLocalhostPort, normalizeUrl } from '../../utils/urlParser.js';
 
 describe('replaceTunnelUrls', () => {
   const origin = 'http://localhost:4001';
@@ -139,6 +139,37 @@ describe('generateTunnelUrl / extractLocalhostPort', () => {
   test('generateTunnelUrl works for 0.0.0.0', () => {
     expect(generateTunnelUrl('http://0.0.0.0:3000/app', 'my-tunnel-id'))
       .toBe('https://my-tunnel-id.ngrok.debugg.ai/app');
+  });
+
+  // Bead zmc9: reuse composes the reused tunnel's ORIGIN with the CURRENT request's path.
+  describe('retargetTunnelUrl', () => {
+    const ORIGIN = 'https://abc123.ngrok.debugg.ai';
+
+    test('uses the caller path, discarding any path baked into publicUrl', () => {
+      // ORIGIN here is the path-free tunnelUrl; the creator path is irrelevant.
+      expect(retargetTunnelUrl(ORIGIN, 'http://localhost:3011/dashboard'))
+        .toBe('https://abc123.ngrok.debugg.ai/dashboard');
+    });
+
+    test('root-path caller gets the bare root (the exact zmc9 repro)', () => {
+      expect(retargetTunnelUrl(ORIGIN, 'http://localhost:3011/'))
+        .toBe('https://abc123.ngrok.debugg.ai/');
+    });
+
+    test('preserves search and hash', () => {
+      expect(retargetTunnelUrl(ORIGIN, 'http://localhost:3011/p?q=1&x=2#frag'))
+        .toBe('https://abc123.ngrok.debugg.ai/p?q=1&x=2#frag');
+    });
+
+    test('a stale origin that itself carries a path is stripped to origin + caller path', () => {
+      // Defensive: even if handed a path-bearing string, only its origin is used.
+      expect(retargetTunnelUrl('https://abc123.ngrok.debugg.ai/OLD/creator/path', 'http://localhost:3011/new'))
+        .toBe('https://abc123.ngrok.debugg.ai/new');
+    });
+
+    test('invalid tunnel origin falls back to the origin string, never a foreign path', () => {
+      expect(retargetTunnelUrl('not-a-url', 'http://localhost:3011/x')).toBe('not-a-url');
+    });
   });
 
   test('extractLocalhostPort extracts port', () => {

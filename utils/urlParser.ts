@@ -127,6 +127,28 @@ export function replaceTunnelUrls(value: unknown, localhostOrigin: string): unkn
 }
 
 /**
+ * Re-point a REUSED tunnel at the current caller's path (bead zmc9).
+ *
+ * A tunnel is origin-scoped: its `tunnelUrl` (scheme://host from ngrok) forwards
+ * every path. The path is request-scoped. On reuse we must compose the reused
+ * tunnel's ORIGIN with THIS request's path/search/hash — never replay the
+ * path-bearing `publicUrl` baked in by whichever call created the tunnel.
+ *
+ * @param tunnelOrigin the reused tunnel's path-free origin (TunnelInfo.tunnelUrl)
+ * @param requestedUrl the localhost URL the current caller asked for
+ */
+export function retargetTunnelUrl(tunnelOrigin: string, requestedUrl: string): string {
+  try {
+    const origin = new URL(tunnelOrigin);
+    const parsed = parseUrl(requestedUrl);
+    return `${origin.protocol}//${origin.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    // Never fabricate a path: fall back to the bare origin, not a foreign path.
+    return tunnelOrigin;
+  }
+}
+
+/**
  * Generate a tunneled URL for a localhost URL
  */
 export function generateTunnelUrl(originalUrl: string, tunnelId: string, tunnelDomain: string = 'ngrok.debugg.ai'): string {
