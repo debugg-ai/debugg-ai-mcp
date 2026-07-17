@@ -62,6 +62,7 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
   tunnelManager: {
     stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(),
+    markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(),
   },
 }));
 

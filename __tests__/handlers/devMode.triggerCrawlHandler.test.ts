@@ -61,7 +61,7 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
-  tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any) },
+  tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
 }));
 
 let triggerCrawlHandler: typeof import('../../handlers/triggerCrawlHandler.js').triggerCrawlHandler;

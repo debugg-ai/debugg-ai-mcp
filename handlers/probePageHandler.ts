@@ -182,9 +182,19 @@ export async function probePageHandler(
                   },
                 };
                 if (tunneled.tunnelId) {
-                  tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
-                    logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
-                  );
+                  const deadPort = extractLocalhostPort(tunneled.originalUrl);
+                  if (health.ngrokErrorCode && typeof deadPort === 'number') {
+                    // Tunnel-level dead (ERR_NGROK_*): evict the SHARED registry entry
+                    // so the next call re-provisions instead of re-borrowing the corpse
+                    // (bead k34o) — plain stopTunnel leaves a borrowed entry to re-poison.
+                    tunnelManager.markTunnelDead(deadPort, tunneled.tunnelId).catch((err) =>
+                      logger.warn(`Failed to evict dead tunnel ${tunneled.tunnelId}: ${err}`),
+                    );
+                  } else {
+                    tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
+                      logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
+                    );
+                  }
                 }
                 return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
               }

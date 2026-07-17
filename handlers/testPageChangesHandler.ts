@@ -292,12 +292,20 @@ async function testPageChangesHandlerInner(
             };
             logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
             // Tear down the broken tunnel so a subsequent call doesn't reuse it.
-            // stopTunnel handles both owned (ngrok disconnect + key revoke) and
-            // borrowed (just drops local ref) cases.
             if (ctx.tunnelId) {
-              tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
-                logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
-              );
+              const deadPort = extractLocalhostPort(ctx.originalUrl);
+              if (health.ngrokErrorCode && typeof deadPort === 'number') {
+                // Tunnel-level dead (ERR_NGROK_*): evict the SHARED registry entry
+                // so the next call re-provisions instead of re-borrowing the corpse.
+                // Plain stopTunnel leaves a borrowed entry to re-poison (bead k34o).
+                tunnelManager.markTunnelDead(deadPort, ctx.tunnelId).catch((err) =>
+                  logger.warn(`Failed to evict dead tunnel ${ctx.tunnelId}: ${err}`),
+                );
+              } else {
+                tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
+                  logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
+                );
+              }
             }
             // keyId is consumed by stopTunnel's revoke path; clear so the
             // outer finally block doesn't double-revoke.
