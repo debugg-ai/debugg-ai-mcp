@@ -532,6 +532,29 @@ export class ProjectAnalyzer {
   }
 
   /**
+   * Best-effort local git ref (branch + full commit sha) for a project dir.
+   *
+   * Reuses the existing `.git/HEAD` readers (getCurrentBranch /
+   * getCurrentCommitHash) — no new git parsing. NEVER throws and NEVER
+   * fabricates: a non-git dir (or any read failure) yields `{}` so a git-less
+   * crawl target still crawls (honest no-git). Not cached — a long-lived MCP
+   * process must re-read after the caller checks out a branch or commits.
+   */
+  async getGitRef(repoPath?: string): Promise<{ branch?: string; commitSha?: string }> {
+    const projectPath = repoPath || process.cwd();
+    try {
+      const [branch, commitSha] = await Promise.all([
+        this.getCurrentBranch(projectPath),
+        this.getCurrentCommitHash(projectPath),
+      ]);
+      return { branch, commitSha };
+    } catch (error) {
+      logger.debug('Could not determine local git ref', error);
+      return {};
+    }
+  }
+
+  /**
    * Get current git branch (simplified)
    */
   private async getCurrentBranch(projectPath: string): Promise<string | undefined> {

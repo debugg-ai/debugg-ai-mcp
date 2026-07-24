@@ -25,6 +25,10 @@ const mockResolveTargetUrl = jest.fn<(input: any) => string>();
 const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
 const mockTouchTunnelById = jest.fn<(id: string) => void>();
 
+// sentinal-lwtaw.13: the handler attaches the LOCAL git ref to contextData.
+// Mock the git read so the test is hermetic (doesn't depend on this checkout).
+const mockDetectLocalGitRef = jest.fn<() => Promise<{ branch?: string; commitSha?: string }>>();
+
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
     init: mockInit,
@@ -64,6 +68,11 @@ jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
     stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(),
     markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(),
   },
+}));
+
+jest.unstable_mockModule('../../utils/gitContext.js', () => ({
+  detectLocalGitRef: mockDetectLocalGitRef,
+  detectRepoName: jest.fn<() => string | null>().mockReturnValue(null),
 }));
 
 let triggerCrawlHandler: typeof import('../../handlers/triggerCrawlHandler.js').triggerCrawlHandler;
@@ -152,6 +161,8 @@ function setupHappyPath(options: { isLocalhost: boolean } = { isLocalhost: false
   mockExecute.mockResolvedValue(EXECUTE_RESPONSE);
   mockPoll.mockResolvedValue(COMPLETED_EXECUTION);
   mockRevokeKey.mockResolvedValue(undefined);
+  // Default: honest no-git (git-present cases override per-test).
+  mockDetectLocalGitRef.mockResolvedValue({});
 
   if (options.isLocalhost) {
     mockFindExistingTunnel.mockReturnValue(null);
@@ -305,6 +316,48 @@ describe('triggerCrawlHandler', () => {
     await triggerCrawlHandler({ url: 'https://example.com' }, defaultContext);
     const [, contextData] = mockExecute.mock.calls[0];
     expect((contextData as any).headless).toBe(true);
+  });
+
+  // ── Local git ref → git-backed Atlas version (sentinal-lwtaw.13, MCP side) ──
+  describe('local git ref threading (sentinal-lwtaw.13)', () => {
+    test('git repo: contextData carries commit_sha + branch under the exact backend keys', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockDetectLocalGitRef.mockResolvedValue({
+        branch: 'staging',
+        commitSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+      });
+
+      await triggerCrawlHandler(publicInput, defaultContext);
+
+      const [, contextData] = mockExecute.mock.calls[0];
+      // EXACT snake_case keys the PR-webhook path / backend reads.
+      expect((contextData as any).commit_sha).toBe('a1b2c3d4e5f60718293a4b5c6d7e8f9012345678');
+      expect((contextData as any).branch).toBe('staging');
+    });
+
+    test('non-git dir: neither commit_sha nor branch is set (honest no-git, no fabrication) and the crawl still runs', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockDetectLocalGitRef.mockResolvedValue({}); // not a git repo / read failed
+
+      const result = await triggerCrawlHandler(publicInput, defaultContext);
+
+      const [, contextData] = mockExecute.mock.calls[0];
+      expect(contextData).not.toHaveProperty('commit_sha');
+      expect(contextData).not.toHaveProperty('branch');
+      // Absent git context NEVER blocks the crawl — it still completes.
+      expect(JSON.parse(result.content[0].text!).executionId).toBe('crawl-exec-uuid-1');
+    });
+
+    test('partial ref (branch only, no commit): only the present key is attached', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockDetectLocalGitRef.mockResolvedValue({ branch: 'feature/x' }); // e.g. packed ref → no loose sha
+
+      await triggerCrawlHandler(publicInput, defaultContext);
+
+      const [, contextData] = mockExecute.mock.calls[0];
+      expect((contextData as any).branch).toBe('feature/x');
+      expect(contextData).not.toHaveProperty('commit_sha');
+    });
   });
 
   test('template not found: throws a clear error', async () => {
