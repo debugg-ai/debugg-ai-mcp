@@ -4,6 +4,10 @@
  */
 
 import { execSync } from 'child_process';
+import { ProjectAnalyzer } from './projectAnalyzer.js';
+import { Logger } from './logger.js';
+
+const logger = new Logger({ module: 'gitContext' });
 
 let cached: string | null | undefined; // undefined = not yet checked
 
@@ -27,6 +31,39 @@ export function detectRepoName(): string | null {
     cached = null;
   }
   return cached;
+}
+
+/**
+ * The LOCAL git ref of the caller's checkout — the branch + full commit sha the
+ * dev server being crawled is actually running. `commitSha` is the full 40-char
+ * hash; either field is absent when it can't be read.
+ */
+export interface LocalGitRef {
+  branch?: string;
+  commitSha?: string;
+}
+
+/**
+ * Detect the LOCAL git ref (branch + commit sha) from the current working
+ * directory — the repo whose dev server the caller is crawling.
+ *
+ * sentinal-lwtaw.13 (MCP side): the TRIGGER POINT owns the git fact. The
+ * environment says WHERE to crawl; the caller supplies the ref it's running so
+ * the backend can mint a git-backed Atlas version. Delegates to
+ * ProjectAnalyzer's existing `.git/HEAD` readers — no new git parsing.
+ *
+ * Best-effort by contract: returns `{}` when cwd isn't a git repo (or the read
+ * fails). NEVER throws and NEVER fabricates a branch/sha — a git-less target
+ * must still crawl (honest no-git). NOT cached (unlike detectRepoName): the
+ * branch/commit change under a long-lived MCP process, so each crawl re-reads.
+ */
+export async function detectLocalGitRef(): Promise<LocalGitRef> {
+  try {
+    return await new ProjectAnalyzer().getGitRef(process.cwd());
+  } catch (err) {
+    logger.debug('Could not determine local git ref', err);
+    return {};
+  }
 }
 
 /**

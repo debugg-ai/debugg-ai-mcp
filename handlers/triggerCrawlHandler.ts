@@ -34,6 +34,7 @@ import {
   touchTunnelById,
 } from '../utils/tunnelContext.js';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
+import { detectLocalGitRef } from '../utils/gitContext.js';
 import { getCrawlTemplateSlug } from '../services/workflows.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
@@ -213,6 +214,17 @@ export async function triggerCrawlHandler(
     if (input.projectUuid) contextData.projectId = input.projectUuid;
     contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
     if (typeof input.timeoutSeconds === 'number') contextData.timeoutSeconds = input.timeoutSeconds;
+
+    // sentinal-lwtaw.13 (MCP side): the TRIGGER POINT owns the git fact. Attach
+    // the LOCAL checkout's branch + commit so the backend mints a git-backed
+    // Atlas version for this crawl — SAME snake_case contextData keys the
+    // PR-webhook path reads (commit_sha, branch). Best-effort + non-fatal:
+    // detectLocalGitRef never throws and a non-git target attaches nothing
+    // (honest no-git) and still crawls. Keys are set ONLY when present so we
+    // never fabricate a ref.
+    const gitRef = await detectLocalGitRef();
+    if (gitRef.commitSha) contextData.commit_sha = gitRef.commitSha;
+    if (gitRef.branch) contextData.branch = gitRef.branch;
 
     const env: Record<string, any> = {};
     if (input.environmentId) env.environmentId = input.environmentId;
