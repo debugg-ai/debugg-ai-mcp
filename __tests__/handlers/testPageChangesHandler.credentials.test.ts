@@ -329,3 +329,60 @@ describe('the identity actually used is visible in the result', () => {
     expect(body).not.toHaveProperty('credentialWarning');
   });
 });
+
+// ── evaluation relay ────────────────────────────────────────────────────────
+// The backend derives `evaluation` from the same verdict as the headline
+// outcome so one payload cannot contradict itself (sentinal-sk5sl.1). The
+// handler used to rebuild it from raw node output, which reintroduced that
+// contradiction and turned "could not determine" into passed:false.
+
+describe('evaluation is relayed, not re-derived', () => {
+  function inconclusiveExecution(extra?: Record<string, any>) {
+    return {
+      ...completedExecution(),
+      state: { outcome: 'unknown', success: false, stepsTaken: 1, error: '' },
+      verdict: { outcome: 'inconclusive', reason: 'ran but produced no assertable verdict' },
+      evaluation: { passed: null, outcome: 'inconclusive', reason: 'ran but produced no assertable verdict' },
+      nodeExecutions: [
+        {
+          nodeId: 'sw-1',
+          nodeType: 'subworkflow.run',
+          status: 'completed',
+          // The raw node output the handler used to trust: bare booleans that
+          // disagree with the backend's considered verdict.
+          outputData: { success: false, outcome: 'unknown', actionHistory: [] },
+          executionOrder: 1,
+        },
+      ],
+      ...(extra ?? {}),
+    };
+  }
+
+  test('backend evaluation wins over the subworkflow node output', async () => {
+    setup(inconclusiveExecution());
+    const result = await testPageChangesHandler(baseInput as any, ctx);
+    const body = payload(result);
+
+    expect(body.evaluation).toEqual({
+      passed: null,
+      outcome: 'inconclusive',
+      reason: 'ran but produced no assertable verdict',
+    });
+    // "could not determine" must not arrive as a failure.
+    expect(body.evaluation.passed).not.toBe(false);
+  });
+
+  test('headline outcome and evaluation.outcome cannot disagree', async () => {
+    setup(inconclusiveExecution());
+    const body = payload(await testPageChangesHandler(baseInput as any, ctx));
+    expect(body.evaluation.outcome).toBe(body.outcome);
+  });
+
+  test('falls back to node-derived evaluation for a pre-contract backend', async () => {
+    const exec = inconclusiveExecution();
+    delete (exec as any).evaluation;
+    setup(exec);
+    const body = payload(await testPageChangesHandler(baseInput as any, ctx));
+    expect(body.evaluation).toEqual({ passed: false, outcome: 'unknown', reason: undefined });
+  });
+});

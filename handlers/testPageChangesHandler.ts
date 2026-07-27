@@ -650,10 +650,23 @@ async function testPageChangesHandlerInner(
       });
     }
 
-    // Evaluation: brain.evaluate (old) → subworkflow.run outcome/success (new)
+    // Evaluation: RELAY the backend's block; derive one only for older backends.
+    //
+    // The backend computes `evaluation` from the SAME verdict as the headline
+    // outcome (sentinal-sk5sl.1) precisely so one payload cannot say
+    // outcome='inconclusive' at the top and evaluation.outcome='unknown'
+    // underneath. Rebuilding it here from raw subworkflow node output
+    // reintroduced that contradiction client-side, and worse: the node's
+    // `success` is a bare boolean, so "could not determine" arrived as
+    // passed:false. The backend deliberately sends passed:null for
+    // inconclusive — an undetermined run is not a failed one.
+    //
+    // Deriving from nodes stays ONLY as the pre-contract fallback.
     const evalNode = nodes.find(n => n.nodeType === 'brain.evaluate');
     let evaluation: Record<string, any> | undefined;
-    if (evalNode?.outputData) {
+    if (finalExecution.evaluation && typeof finalExecution.evaluation === 'object') {
+      evaluation = finalExecution.evaluation;
+    } else if (evalNode?.outputData) {
       evaluation = {
         passed: evalNode.outputData.passed,
         outcome: evalNode.outputData.outcome,

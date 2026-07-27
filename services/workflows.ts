@@ -119,6 +119,10 @@ export interface WorkflowExecution {
   // `outcome` string, neither of which the adapter reads. All optional until
   // the backend deploy lands; consumed via services/verdictAdapter.ts.
   verdict?: { outcome?: string; reason?: string } | null;
+  // Derived from the SAME verdict as the headline outcome (sentinal-sk5sl.1), so
+  // the two can never disagree within one payload. `passed` is null — not false —
+  // for an inconclusive run: "could not determine" is not "failed".
+  evaluation?: { passed?: boolean | null; outcome?: string; reason?: string } | null;
   budget?: { maxSteps?: number; usedSteps?: number } | null;
   evidence?: {
     screenshot?: string;
