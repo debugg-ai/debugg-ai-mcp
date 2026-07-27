@@ -50,6 +50,35 @@ export interface RelayVerdict {
   screenshot?: string;
   /** evidence.actionTrace, when present. */
   actionTrace?: any[];
+  /**
+   * evidence.logins — every login the run performed:
+   * `{ username, source, submitted, authenticated }`, never a password.
+   * `source` is where the credential came from: 'task' | 'explicit' |
+   * 'credential_id' | 'env' | 'env_default'.
+   */
+  logins?: LoginRecord[];
+  /**
+   * evidence.loginError — the run named an account it could not resolve and
+   * declined to substitute another. `{ reason, detail }`.
+   */
+  loginError?: { reason?: string; detail?: string };
+}
+
+/** One login the run performed. Passwords are never included. */
+export interface LoginRecord {
+  username?: string;
+  source?: string;
+  submitted?: boolean;
+  authenticated?: boolean;
+  reason?: string;
+}
+
+/** Credential sources that mean "the caller named this account for this run". */
+const CALLER_SPECIFIED_SOURCES = new Set(['task', 'explicit', 'credential_id']);
+
+/** True when this login used an environment default rather than a named account. */
+export function isEnvironmentDefault(login: LoginRecord): boolean {
+  return !!login.source && !CALLER_SPECIFIED_SOURCES.has(login.source);
 }
 
 export interface AdaptVerdictOptions {
@@ -109,6 +138,10 @@ export function adaptVerdict(
   if (typeof verdict?.reason === 'string' && verdict.reason) relay.reason = verdict.reason;
   if (typeof evidence?.screenshot === 'string' && evidence.screenshot) relay.screenshot = evidence.screenshot;
   if (Array.isArray(evidence?.actionTrace)) relay.actionTrace = evidence.actionTrace;
+  if (Array.isArray(evidence?.logins) && evidence.logins.length > 0) relay.logins = evidence.logins;
+  if (evidence?.loginError && typeof evidence.loginError === 'object') {
+    relay.loginError = evidence.loginError;
+  }
 
   return relay;
 }

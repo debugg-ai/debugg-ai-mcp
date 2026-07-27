@@ -16,7 +16,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { getEvalTemplateSlug } from '../services/workflows.js';
-import { adaptVerdict } from '../services/verdictAdapter.js';
+import { adaptVerdict, isEnvironmentDefault } from '../services/verdictAdapter.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
@@ -72,6 +72,27 @@ function findNgrokErrorMarker(parts: unknown[]): string | undefined {
     if (code) return code;
   }
   return undefined;
+}
+
+// Credentials ride in `env` and `contextData.auth` on the way out. Log which
+// accounts a run was given — that is the diagnostic that matters when a run
+// signs in as the wrong user — but never their passwords.
+function redactEnv(env: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = { ...env };
+  if (out.password) out.password = '[REDACTED]';
+  if (Array.isArray(out.taskCredentials)) {
+    out.taskCredentials = out.taskCredentials.map((c: Record<string, any>) => ({
+      username: c.username,
+      ...(c.label ? { label: c.label } : {}),
+      password: '[REDACTED]',
+    }));
+  }
+  return out;
+}
+
+function redactAuth(auth: Record<string, any> | undefined): Record<string, any> | undefined {
+  if (!auth) return undefined;
+  return auth.password ? { ...auth, password: '[REDACTED]' } : auth;
 }
 
 // Concurrency control — max 2 simultaneous browser checks.
@@ -387,6 +408,11 @@ async function testPageChangesHandlerInner(
       if (input.auth.precondition) auth.precondition = input.auth.precondition;
       if (input.auth.entryUrl) auth.entryUrl = input.auth.entryUrl;
       if (input.auth.deepUrl) auth.deepUrl = input.auth.deepUrl;
+      // WHICH account the precondition logs in as. Absent → the environment's
+      // default credential (the pre-existing behaviour, correct for a caller
+      // that named nobody).
+      if (input.auth.username) auth.username = input.auth.username;
+      if (input.auth.password) auth.password = input.auth.password;
       if (Object.keys(auth).length > 0) contextData.auth = auth;
     }
 
@@ -397,9 +423,30 @@ async function testPageChangesHandlerInner(
     if (input.credentialRole) env.credentialRole = input.credentialRole;
     if (input.username) env.username = input.username;
     if (input.password) env.password = input.password;
+    // Accounts for logins the agent hits mid-task. The backend keys these by
+    // username so the agent can sign in as the one the task names, instead of
+    // its only login affordance filling the environment's stored account.
+    if (input.loginCredentials && input.loginCredentials.length > 0) {
+      env.taskCredentials = input.loginCredentials.map(c => ({
+        username: c.username,
+        password: c.password,
+        ...(c.label ? { label: c.label } : {}),
+      }));
+    }
+    // Only send the opt-out when it's actually an opt-out — omitting it keeps
+    // the default (environment credentials remain available as a fallback).
+    if (input.useEnvironmentCredentials === false) {
+      env.useEnvironmentCredentials = false;
+    }
 
     // --- Execute ---
-    logger.info('Sending contextData', { contextData, env: Object.keys(env).length > 0 ? env : undefined });
+    // Log the SHAPE of env, never its secrets. It now carries per-account
+    // passwords (taskCredentials), and this log line is not run through the
+    // logger's shallow top-level redaction.
+    logger.info('Sending contextData', {
+      contextData: { ...contextData, auth: redactAuth(contextData.auth) },
+      env: Object.keys(env).length > 0 ? redactEnv(env) : undefined,
+    });
     if (progressCallback) {
       await progressCallback({ progress: 3, total: TOTAL_STEPS, message: 'Queuing workflow execution...' });
     }
@@ -722,6 +769,35 @@ async function testPageChangesHandlerInner(
     // timeout); OMITTED on success. No inference, no 'assertion-mismatch'.
     if (verdict.failureCategory) responsePayload.failureCategory = verdict.failureCategory;
     if (verdict.reason) responsePayload.reason = verdict.reason;
+
+    // --- Which identity did the run actually sign in as? ---
+    // A login as the wrong account and an app rejecting the right one produce
+    // the SAME symptom ("login failed") and used to be indistinguishable from
+    // the result, so an environment-default substitution read as an application
+    // bug. Relay the logins verbatim, and when the caller named an account but
+    // an environment default was used anyway, say so explicitly rather than
+    // leaving the caller to infer it from a failed check.
+    if (verdict.logins) responsePayload.logins = verdict.logins;
+    if (verdict.loginError) responsePayload.loginError = verdict.loginError;
+
+    const requestedIdentity = input.username
+      ?? input.auth?.username
+      ?? input.loginCredentials?.[0]?.username;
+    const substituted = (verdict.logins ?? []).filter(isEnvironmentDefault);
+    if (requestedIdentity && substituted.length > 0) {
+      responsePayload.credentialWarning = {
+        requested: requestedIdentity,
+        used: substituted.map(l => l.username).filter(Boolean),
+        message:
+          `This run signed in with an environment default credential even though ` +
+          `'${requestedIdentity}' was specified. Treat a login failure here as a ` +
+          `credential-resolution problem, not an application failure.`,
+      };
+      logger.warn(
+        `check_app_in_browser: requested identity '${requestedIdentity}' but the run used ` +
+        `environment-default credential(s): ${substituted.map(l => l.username).join(', ')}`,
+      );
+    }
 
     // Bug z15n: OUR tunnel died mid-run, so this 'fail' describes our error page,
     // not the user's app. Relay it as a distinct, retryable infrastructure class

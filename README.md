@@ -51,9 +51,37 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | `credentialRole` | string | Pick a credential by role (e.g. `admin`, `guest`) |
 | `username` | string | Username for login (ephemeral — not persisted) |
 | `password` | string | Password for login (ephemeral — not persisted) |
+| `loginCredentials` | array | Accounts for logins the agent hits **during** the task — `[{username, password, label?}]` |
+| `useEnvironmentCredentials` | boolean | Default `true`. `false` forbids auto-filling the environment's stored credentials |
+| `auth` | object | Auth precondition — `{precondition, entryUrl, deepUrl, environmentId, username, password}` |
 | `repoName` | string | Override auto-detected git repo name (e.g. `my-org/my-repo`) |
 
 One focused check per call. The agent has a ~25-step internal budget; split broader suites across multiple calls.
+
+##### Credentials: pass them as parameters, not prose
+
+Naming an account only in `description` does **not** make the agent use it — it falls back to the environment's stored credential, and the app's rejection of the wrong account comes back looking like an application failure. Anything you pass as a parameter beats the environment default for **every** login in the run, not just the first:
+
+- `username` / `password` (or `credentialId` / `credentialRole`) — the run's identity.
+- `auth.username` / `auth.password` — pins the precondition login when you also use `auth.precondition: "login"`.
+- `loginCredentials` — accounts for a login form the agent reaches **part-way through** the task. This is the one for flows like *set a password → get bounced to sign-in → log in as the account you just created*, where splitting into separate calls would lose browser state.
+
+Set `useEnvironmentCredentials: false` when a silent fallback to the default test user would invalidate the check. The call is rejected if you opt out without naming an account, since the run would have no way to authenticate.
+
+Results report the identity actually used, so a wrong one is visible rather than masquerading as a broken app:
+
+```json
+"logins": [
+  { "username": "qa+invitefix@example.com", "source": "task", "submitted": true, "authenticated": true }
+],
+"credentialWarning": {
+  "requested": "qa+invitefix@example.com",
+  "used": ["qatest123@example.com"],
+  "message": "This run signed in with an environment default credential even though '…' was specified. …"
+}
+```
+
+`source` is `task` | `explicit` | `credential_id` (an account you named) or `env` | `env_default` (the environment's stored account). `credentialWarning` appears only when you named an account and an environment default was used anyway. `loginError` appears when a named account could not be resolved and the run declined to substitute a different one.
 
 Every successful run returns a `browserSession` block alongside the screenshot — presigned S3 URLs for the captured **HAR** (full network trace) and **console log** (every JS console message). Use them to detect refetch loops, hydration errors, and other runtime issues that pass type-checks and unit tests:
 

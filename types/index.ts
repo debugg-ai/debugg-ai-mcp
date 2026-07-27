@@ -27,8 +27,32 @@ export const AuthPreconditionSchema = z.object({
     normalizeUrl,
     z.string().url('deepUrl must be a valid URL (the page to evaluate AFTER login).').optional(),
   ),
+  // WHICH account to authenticate as. Without these the environment's default
+  // credential is used — which is correct for a caller that named nobody, and
+  // wrong for one that did. Naming the account here makes it authoritative for
+  // the precondition login.
+  username: z.string().optional(),
+  password: z.string().optional(),
 }).strict();
 export type AuthPrecondition = z.infer<typeof AuthPreconditionSchema>;
+
+/**
+ * A single account the browser agent may sign in as DURING the task.
+ *
+ * The auth precondition covers the FIRST login. This covers every login after
+ * it: a flow that sets a password, gets bounced to a sign-in page, and must
+ * authenticate as the account it just provisioned. Without an explicit channel
+ * for those, the agent's only login affordance filled the environment's stored
+ * account, so "then sign in as <the new user>" was unachievable however the
+ * task was worded — and the app's correct rejection of the wrong account came
+ * back as an application failure.
+ */
+export const LoginCredentialSchema = z.object({
+  username: z.string().min(1, 'username is required for a login credential'),
+  password: z.string().min(1, 'password is required for a login credential'),
+  label: z.string().optional(),
+}).strict();
+export type LoginCredential = z.infer<typeof LoginCredentialSchema>;
 
 /**
  * Tool input validation schemas
@@ -46,9 +70,27 @@ export const TestPageChangesInputSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
   repoName: z.string().optional(),
+  // Accounts for logins the agent hits DURING the task, not just the first one.
+  loginCredentials: z.array(LoginCredentialSchema).max(
+    10, 'loginCredentials accepts at most 10 accounts per run.',
+  ).optional(),
+  // Opt out of the environment's stored credentials entirely: the agent signs
+  // in only as an account this call named, or not at all.
+  useEnvironmentCredentials: z.boolean().optional(),
   // Auth-precondition deep-link intent (bead 56kd.6) — "log in THEN go to X".
   auth: AuthPreconditionSchema.optional(),
-});
+}).refine(
+  (v) => !(v.useEnvironmentCredentials === false
+    && !v.username && !v.credentialId && !v.credentialRole
+    && !(v.loginCredentials && v.loginCredentials.length > 0)
+    && !v.auth?.username),
+  {
+    message:
+      'useEnvironmentCredentials:false leaves the run with no way to authenticate. '
+      + 'Pass username/password, credentialId, credentialRole, or loginCredentials alongside it.',
+    path: ['useEnvironmentCredentials'],
+  },
+);
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
 

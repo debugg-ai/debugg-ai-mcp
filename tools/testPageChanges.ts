@@ -14,7 +14,9 @@ const BASE_DESCRIPTION = `Give an AI agent eyes on a live website or app. The ag
 
 LOCALHOST SUPPORT: Pass any localhost URL (e.g. http://localhost:3000) and it Just Works. A secure tunnel is automatically created so the remote browser can reach your local dev server — no manual ngrok setup, no port forwarding, no config.
 
-SCOPE PER CALL: Keep each call to ONE focused check — a single page or a short interaction on a single screen (login, submit a form, verify a heading). For anything spanning multiple pages or long multi-step flows, split into SEPARATE calls — the remote browser agent has a ~25-step internal budget per call, and long single calls risk client-side timeouts. Example: instead of "log in, then go to settings, then update profile, then verify," make three calls: (1) log in & verify dashboard, (2) update settings, (3) verify profile change.`;
+SCOPE PER CALL: Keep each call to ONE focused check — a single page or a short interaction on a single screen (login, submit a form, verify a heading). For anything spanning multiple pages or long multi-step flows, split into SEPARATE calls — the remote browser agent has a ~25-step internal budget per call, and long single calls risk client-side timeouts. Example: instead of "log in, then go to settings, then update profile, then verify," make three calls: (1) log in & verify dashboard, (2) update settings, (3) verify profile change.
+
+CREDENTIALS: pass them as PARAMETERS, not only in the description. Naming an account in \`description\` alone does not make the agent use it — it falls back to the environment's stored credential. Use \`username\`/\`password\` (or \`credentialId\`) for the run's identity, \`auth.username\`/\`auth.password\` to pin the precondition login, and \`loginCredentials\` for accounts the agent must use at a login form it hits PART-WAY through the task (e.g. set a password → bounced to sign-in → log in as the account you just created). Anything you specify beats the environment's default for every login in the run; the result reports the identity actually used under \`logins\`.`;
 
 /**
  * Build the dynamic tool description including available environments/credentials.
@@ -85,11 +87,29 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
         },
         username: {
           type: "string",
-          description: "A real, existing account email for the target app. Do NOT invent or guess credentials — use one from the available credentials listed above, or ask the user. The browser agent will type this into the login form."
+          description: "A real, existing account email for the target app. Do NOT invent or guess credentials — use one from the available credentials listed above, or ask the user. The browser agent will type this into the login form. Takes precedence over the environment's default credential for EVERY login in the run."
         },
         password: {
           type: "string",
           description: "The real password for the username above. Do NOT guess or use placeholder passwords — use credentials from the list above or ask the user."
+        },
+        loginCredentials: {
+          type: "array",
+          description: "Accounts the agent may sign in as when it hits a login form DURING the task — not just the first login. Use this for flows that authenticate part-way through, e.g. set a password, get bounced to sign-in, then log in as the account you just provisioned. Stating credentials only in `description` is not enough: pass them here and the agent uses exactly these values. Overrides the environment's default credential.",
+          items: {
+            type: "object",
+            properties: {
+              username: { type: "string", description: "Account email/username to type into the login form." },
+              password: { type: "string", description: "That account's password." },
+              label: { type: "string", description: "Optional human label (e.g. 'newly invited user') to disambiguate in the task text." }
+            },
+            required: ["username", "password"],
+            additionalProperties: false
+          }
+        },
+        useEnvironmentCredentials: {
+          type: "boolean",
+          description: "Default true. Set false to forbid the agent from ever auto-filling the environment's stored credentials — it signs in only as an account this call named (username/password, credentialId, credentialRole, loginCredentials, or auth.username), or not at all. Use when a run must prove a SPECIFIC account's experience and a silent fallback to the default test user would invalidate it."
         },
         repoName: {
           type: "string",
@@ -97,11 +117,19 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
         },
         auth: {
           type: "object",
-          description: "Optional auth-precondition for a 'log in THEN deep-navigate' check. Set precondition:'login' to authenticate first (using the environment's credentials), then land on deepUrl. Use this instead of hoping the agent signs itself in at a login wall.",
+          description: "Optional auth-precondition for a 'log in THEN deep-navigate' check. Set precondition:'login' to authenticate first, then land on deepUrl. Use this instead of hoping the agent signs itself in at a login wall. Pass username/password here to pin WHICH account it authenticates as; omit them to use the environment's default credential.",
           properties: {
             environmentId: {
               type: "string",
               description: "UUID of the environment whose credentials to log in with. See available environments in the tool description above."
+            },
+            username: {
+              type: "string",
+              description: "Account to authenticate as for the precondition login. Overrides the environment's default credential."
+            },
+            password: {
+              type: "string",
+              description: "Password for auth.username."
             },
             precondition: {
               type: "string",

@@ -120,7 +120,17 @@ export interface WorkflowExecution {
   // the backend deploy lands; consumed via services/verdictAdapter.ts.
   verdict?: { outcome?: string; reason?: string } | null;
   budget?: { maxSteps?: number; usedSteps?: number } | null;
-  evidence?: { screenshot?: string; actionTrace?: any[] } | null;
+  evidence?: {
+    screenshot?: string;
+    actionTrace?: any[];
+    // Every login the run performed — {username, source, submitted,
+    // authenticated}, never a password. Lets a caller tell "the run used the
+    // wrong account" apart from "the app rejected the right one".
+    logins?: any[];
+    // Set when the run named an account it could not resolve and declined to
+    // substitute a different one: {reason, detail}.
+    loginError?: { reason?: string; detail?: string };
+  } | null;
   // Client-side marker set by pollExecution when the 10-min poll deadline is
   // hit — signals the handler to shape a partial 'timeout' result (bead 56kd.3)
   // instead of the service throwing and discarding evidence.
