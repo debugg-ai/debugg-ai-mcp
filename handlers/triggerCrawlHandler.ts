@@ -22,7 +22,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
-import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
 import {
@@ -166,21 +166,15 @@ export async function triggerCrawlHandler(
               },
             };
             logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
-            if (ctx.tunnelId) {
-              const deadPort = extractLocalhostPort(ctx.originalUrl);
-              if (health.ngrokErrorCode && typeof deadPort === 'number') {
-                // Tunnel-level dead (ERR_NGROK_*): evict the SHARED registry entry so
-                // the next call re-provisions instead of re-borrowing the corpse — plain
-                // stopTunnel leaves a borrowed entry to re-poison (bead k34o).
-                tunnelManager.markTunnelDead(deadPort, ctx.tunnelId).catch((err) =>
-                  logger.warn(`Failed to evict dead tunnel ${ctx.tunnelId}: ${err}`),
-                );
-              } else {
-                tunnelManager.stopTunnel(ctx.tunnelId).catch((err) =>
-                  logger.warn(`Failed to stop broken tunnel ${ctx.tunnelId}: ${err}`),
-                );
-              }
-            }
+            // Evict ONLY on a code proving the endpoint is gone; every other failure
+            // keeps the tunnel we are already paying for, because a teardown+
+            // re-provision costs two billed hours and this probe cannot tell a dead
+            // endpoint from a transient edge flake. See utils/tunnelDisposition.ts.
+            disposeUnhealthyTunnel({ health, tunnelId: ctx.tunnelId, originalUrl: ctx.originalUrl });
+            // Don't revoke the key on either branch: if we evicted, markTunnelDead's
+            // owned path already revokes it; if we kept the tunnel, the key is that
+            // live tunnel's own credential and revoking it would kill what we just
+            // decided to preserve.
             keyId = undefined;
             return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
           }

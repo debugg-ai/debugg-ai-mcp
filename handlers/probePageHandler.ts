@@ -26,7 +26,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
-import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
 import {
@@ -181,21 +181,12 @@ export async function probePageHandler(
                     elapsedMs: health.elapsedMs,
                   },
                 };
-                if (tunneled.tunnelId) {
-                  const deadPort = extractLocalhostPort(tunneled.originalUrl);
-                  if (health.ngrokErrorCode && typeof deadPort === 'number') {
-                    // Tunnel-level dead (ERR_NGROK_*): evict the SHARED registry entry
-                    // so the next call re-provisions instead of re-borrowing the corpse
-                    // (bead k34o) — plain stopTunnel leaves a borrowed entry to re-poison.
-                    tunnelManager.markTunnelDead(deadPort, tunneled.tunnelId).catch((err) =>
-                      logger.warn(`Failed to evict dead tunnel ${tunneled.tunnelId}: ${err}`),
-                    );
-                  } else {
-                    tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
-                      logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
-                    );
-                  }
-                }
+                // Evict ONLY on a code proving the endpoint is gone; every other
+                // failure keeps the tunnel we are already paying for, since a
+                // teardown+re-provision costs two billed hours and this probe
+                // cannot tell a dead endpoint from a transient edge flake. See
+                // utils/tunnelDisposition.ts for the allowlist and the evidence.
+                disposeUnhealthyTunnel({ health, tunnelId: tunneled.tunnelId, originalUrl: tunneled.originalUrl });
                 return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
               }
             }

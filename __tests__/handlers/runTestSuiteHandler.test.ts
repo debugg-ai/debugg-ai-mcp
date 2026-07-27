@@ -46,8 +46,13 @@ jest.unstable_mockModule('../../services/tunnels.js', () => ({
   TunnelProvisionError: class TunnelProvisionError extends Error {},
 }));
 
+// Named so tests can assert on what the handler did NOT do to the tunnel — this
+// handler used to tear one down on EVERY health-probe failure, at two billed
+// hours a time (see utils/tunnelDisposition.ts).
+const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any);
+const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
-  tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
+  tunnelManager: { stopTunnel: mockStopTunnel, markTunnelDead: mockMarkTunnelDead },
 }));
 
 let runTestSuiteHandler: typeof import('../../handlers/runTestSuiteHandler.js').runTestSuiteHandler;
@@ -196,6 +201,48 @@ describe('runTestSuiteHandler', () => {
       const body = JSON.parse(res.content[0].text!);
       expect(body.error).toBe('TunnelTrafficBlocked');
       expect(mockRunTestSuite).not.toHaveBeenCalled();
+      // ERR_NGROK_8012 = the tunnel is ALIVE and its upstream refused. This
+      // handler used to tear the tunnel down on EVERY health failure and never
+      // got bead k34o at all; it now shares the allowlist with the other three.
+      // A teardown plus its forced re-provision costs two billed hours.
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+    });
+
+    test('localhost targetUrl: NETWORK_ERROR health failure leaves the tunnel alone', async () => {
+      // The only shape a real probe failure takes on this edge (bead kmzb) — and
+      // indistinguishable from bead k6yq's transient GOAWAY flake, so it can
+      // never justify destroying a tunnel we are already paying for.
+      mockProbeTunnelHealth.mockResolvedValue({
+        healthy: false, code: 'NETWORK_ERROR',
+        detail: 'fetch failed (UND_ERR_SOCKET: HTTP/2 "GOAWAY" frame received with code 0)',
+        elapsedMs: 800,
+      });
+
+      const res = await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
+
+      expect(res.isError).toBe(true);
+      expect(JSON.parse(res.content[0].text!).error).toBe('TunnelTrafficBlocked');
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+      // The key is NOT revoked either: it authenticates the tunnel we just kept,
+      // and revoking a live tunnel's credential would kill what we preserved.
+      expect(mockRevokeNgrokKey).not.toHaveBeenCalled();
+    });
+
+    test('localhost targetUrl: ERR_NGROK_3200 evicts the proven-dead endpoint', async () => {
+      mockProbeTunnelHealth.mockResolvedValue({
+        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200',
+        status: 404, detail: 'endpoint offline', elapsedMs: 60,
+      });
+
+      const res = await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
+
+      expect(res.isError).toBe(true);
+      // markTunnelDead, not stopTunnel: only the former evicts the SHARED registry
+      // entry, which is what stops other sessions re-borrowing the corpse (k34o).
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(3011, expect.any(String));
+      expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 
     test('public targetUrl: no tunnel provisioned, URL passed through unchanged', async () => {

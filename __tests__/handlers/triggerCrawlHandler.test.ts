@@ -62,12 +62,13 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeTunnelHealth: mockProbeTunnelHealth,
 }));
 
-// tunnelManager.stopTunnel is called on health-probe failure — mock to no-op.
+// A failed health probe may evict the tunnel (only when the endpoint is PROVEN
+// gone — see utils/tunnelDisposition.ts). Named so tests can assert on what the
+// handler did NOT do: tearing a live tunnel down costs two billed hours.
+const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue();
+const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue();
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
-  tunnelManager: {
-    stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(),
-    markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(),
-  },
+  tunnelManager: { stopTunnel: mockStopTunnel, markTunnelDead: mockMarkTunnelDead },
 }));
 
 jest.unstable_mockModule('../../utils/gitContext.js', () => ({
@@ -489,6 +490,48 @@ describe('triggerCrawlHandler', () => {
       expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
       expect(mockProvision).toHaveBeenCalled();
       expect(mockExecute).not.toHaveBeenCalled();
+      // ERR_NGROK_8012 = the tunnel is ALIVE and its upstream refused. Keep it:
+      // a teardown plus the re-provision it forces costs two billed hours, and
+      // the next call reuses this tunnel for free once the dev server is back.
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+    });
+
+    test('health probe fails with NETWORK_ERROR → tunnel left completely alone', async () => {
+      setupHappyPath({ isLocalhost: true });
+      // What every real probe failure looks like on this edge (bead kmzb): undici
+      // gets an HTTP/2 GOAWAY instead of ngrok's interstitial, so no code at all.
+      // Indistinguishable from the transient flake of bead k6yq — so never a
+      // teardown trigger.
+      mockProbeTunnelHealth.mockResolvedValueOnce({
+        healthy: false, code: 'NETWORK_ERROR',
+        detail: 'fetch failed (UND_ERR_SOCKET: HTTP/2 "GOAWAY" frame received with code 0)',
+        elapsedMs: 800,
+      });
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text!).error).toBe('TunnelTrafficBlocked');
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+    });
+
+    test('health probe reports ERR_NGROK_3200 → endpoint proven gone, evicted', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeTunnelHealth.mockResolvedValueOnce({
+        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200',
+        status: 404, elapsedMs: 50,
+      });
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      // The one code that proves the endpoint no longer exists: evicting costs
+      // nothing (it is already gone) and leaving it lets every session re-borrow
+      // the corpse for the rest of the freshness window (bead k34o).
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(Number), expect.any(String));
+      expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 
     test('public URL path: neither probe runs', async () => {

@@ -3,7 +3,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
-import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
 import { buildContext, findExistingTunnel, ensureTunnel } from '../utils/tunnelContext.js';
@@ -105,11 +105,17 @@ export async function runTestSuiteHandler(
             if (tunneled.targetUrl) {
               const health = await probeTunnelHealth(tunneled.targetUrl);
               if (!health.healthy) {
-                if (tunneled.tunnelId) {
-                  tunnelManager.stopTunnel(tunneled.tunnelId).catch((err) =>
-                    logger.warn(`Failed to stop broken tunnel ${tunneled.tunnelId}: ${err}`),
-                  );
-                }
+                // Brought in line with the other three handlers, which this one never
+                // was (it evicted on EVERY failure and never got bead k34o's shared-
+                // registry eviction). Evict only on a code proving the endpoint is
+                // gone: a transient edge flake must not cost two billed hours.
+                // See utils/tunnelDisposition.ts.
+                disposeUnhealthyTunnel({ health, tunnelId: tunneled.tunnelId, originalUrl: ctx.originalUrl });
+                // Record the tunnel so the finally block's orphaned-key revoke can't
+                // fire: the tunnel we just kept is authenticated with that key, and
+                // revoking a live tunnel's credential would kill what we preserved.
+                // (On the eviction branch markTunnelDead already revokes it.)
+                tunnelId = tunneled.tunnelId;
                 return errorResp(
                   'TunnelTrafficBlocked',
                   `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,

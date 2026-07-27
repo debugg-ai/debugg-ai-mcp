@@ -54,6 +54,15 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeTunnelHealth: mockProbeTunnelHealth,
 }));
 
+// A failed health probe may evict the tunnel (only when the endpoint is PROVEN
+// gone — see utils/tunnelDisposition.ts). Mocked so the suite never touches a
+// real tunnel, and named so tests can assert on what the handler did NOT do.
+const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any);
+const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
+jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+  tunnelManager: { stopTunnel: mockStopTunnel, markTunnelDead: mockMarkTunnelDead },
+}));
+
 const { probePageHandler } = await import('../../handlers/probePageHandler.js');
 
 const defaultContext: ToolContext = {
@@ -317,6 +326,68 @@ describe('probePageHandler — localhost pre-flight', () => {
     expect(result.isError).toBe(true);
     const body = JSON.parse(result.content[0].text!);
     expect(body.error).toBe('LocalServerUnreachable');
+  });
+
+  // ── Tunnel disposition on a failed health probe (utils/tunnelDisposition.ts) ──
+  // ngrok bills a 1-hour MINIMUM per tunnel, so a teardown plus the re-provision
+  // it forces costs two billed hours. Only a code proving the endpoint is gone
+  // may evict; everything else keeps the tunnel for the next call.
+  describe('unhealthy tunnel disposition', () => {
+    // setupHappyPath re-arms probeTunnelHealth as healthy for the localhost path,
+    // so the failing verdict has to be installed after it.
+    function localhostProbe(health: Record<string, unknown>) {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeLocalPort.mockResolvedValue({ reachable: true, code: 'OK', elapsedMs: 5 });
+      mockProbeTunnelHealth.mockResolvedValue(health);
+      mockBuildContext.mockReturnValue({
+        originalUrl: 'http://localhost:3011',
+        targetUrl: 'http://localhost:3011',
+        isLocalhost: true,
+      });
+      mockResolveTargetUrl.mockReturnValue('http://localhost:3011');
+      mockFindExistingTunnel.mockReturnValue(null);
+      mockProvision.mockResolvedValue({ tunnelKey: 'key', tunnelId: 't-live', keyId: 'kid' });
+      mockEnsureTunnel.mockResolvedValue({
+        originalUrl: 'http://localhost:3011',
+        targetUrl: 'https://t-live.ngrok.debugg.ai/',
+        tunnelId: 't-live',
+        isLocalhost: true,
+      });
+      return probePageHandler({ targets: [{ url: 'http://localhost:3011' }] } as any, defaultContext);
+    }
+
+    test('ERR_NGROK_8012 → tunnel kept (8012 means the tunnel is ALIVE, the upstream refused)', async () => {
+      const result = await localhostProbe({
+        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_8012', status: 502, elapsedMs: 60,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text!).error).toBe('TunnelTrafficBlocked');
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+    });
+
+    test('NETWORK_ERROR → tunnel kept (bead kmzb: the only shape a real failure takes here)', async () => {
+      const result = await localhostProbe({
+        healthy: false, code: 'NETWORK_ERROR',
+        detail: 'fetch failed (UND_ERR_SOCKET: HTTP/2 "GOAWAY" frame received with code 0)',
+        elapsedMs: 800,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+    });
+
+    test('ERR_NGROK_3200 → evicted, because the endpoint is proven gone', async () => {
+      const result = await localhostProbe({
+        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200', status: 404, elapsedMs: 55,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(3011, 't-live');
+      expect(mockStopTunnel).not.toHaveBeenCalled();
+    });
   });
 });
 

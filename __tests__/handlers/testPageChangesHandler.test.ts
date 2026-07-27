@@ -851,10 +851,14 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(body.message).toContain('traffic isn\'t reaching');
       expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
 
-      // Bead k34o: a tunnel-level dead marker (ERR_NGROK_*) must EVICT the shared
-      // registry entry (markTunnelDead), not merely drop the local ref (stopTunnel) —
-      // otherwise the next call re-borrows the corpse.
-      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(Number), expect.any(String));
+      // ERR_NGROK_8012 means the TUNNEL IS ALIVE and its upstream refused — the
+      // tunnel is what served us this error. Evicting on it orphans a live,
+      // billing tunnel and makes the next call provision a replacement: two
+      // billed hours (1-hour minimum down, another up) spent on a dev server
+      // that is the actual problem. This assertion used to be the opposite way
+      // round; see utils/tunnelDisposition.ts for the allowlist that replaced
+      // "any ERR_NGROK_* means dead".
+      expect(mockMarkTunnelDead).not.toHaveBeenCalled();
       expect(mockStopTunnel).not.toHaveBeenCalled();
 
       // Provision + ensureTunnel ran (got us to the health check), but execute didn't
@@ -863,12 +867,14 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockExecute).not.toHaveBeenCalled();
     });
 
-    test('health fails WITHOUT an ngrok marker (dev-server side) → stopTunnel, NOT eviction', async () => {
+    test('health fails WITHOUT an ngrok marker → tunnel is left completely alone', async () => {
       setupHappyPath({ isLocalhost: true });
       mockProbeTunnelHealth.mockResolvedValueOnce({
         healthy: false,
         code: 'NETWORK_ERROR',
-        // no ngrokErrorCode — the tunnel is fine; the local server hiccuped.
+        // no ngrokErrorCode — and per bead kmzb the probe cannot produce one at
+        // all against this edge (undici gets an HTTP/2 GOAWAY instead of the
+        // interstitial), so this is what EVERY real probe failure looks like.
         detail: 'connection reset',
         elapsedMs: 90,
       });
@@ -876,9 +882,34 @@ describe('testPageChangesHandler — full handler flow', () => {
       const result = await testPageChangesHandler(localhostInput, defaultContext);
 
       expect(result.isError).toBe(true);
-      // Not a proven-dead tunnel → do NOT evict the shared registry; just drop our ref.
-      expect(mockStopTunnel).toHaveBeenCalled();
+      // Nothing proves the endpoint is gone — and a transient edge flake is
+      // indistinguishable from a real death through this probe (bead k6yq). So
+      // neither the tunnel nor its shared registry entry is touched: the user
+      // fixes their dev server and the next call reuses this tunnel for free.
+      expect(mockStopTunnel).not.toHaveBeenCalled();
       expect(mockMarkTunnelDead).not.toHaveBeenCalled();
+    });
+
+    test('health fails with ERR_NGROK_3200 → endpoint proven gone, evicted from the shared registry', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeTunnelHealth.mockResolvedValueOnce({
+        healthy: false,
+        status: 404,
+        code: 'NGROK_ERROR',
+        ngrokErrorCode: 'ERR_NGROK_3200',
+        detail: 'ngrok returned ERR_NGROK_3200',
+        elapsedMs: 55,
+      });
+
+      const result = await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      // The one allowlisted code: the endpoint no longer exists, so eviction
+      // costs nothing and NOT evicting lets every other session re-borrow the
+      // corpse for the rest of the freshness window (bead k34o). markTunnelDead
+      // rather than stopTunnel, because only it clears the SHARED entry.
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(Number), expect.any(String));
+      expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 
     test('public URL path: probes NOT called (skip localhost-only checks)', async () => {
