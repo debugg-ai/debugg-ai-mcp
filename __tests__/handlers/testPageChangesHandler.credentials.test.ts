@@ -386,3 +386,31 @@ describe('evaluation is relayed, not re-derived', () => {
     expect(body.evaluation).toEqual({ passed: false, outcome: 'unknown', reason: undefined });
   });
 });
+
+// ── evidence.report relay ───────────────────────────────────────────────────
+// For a "navigate and describe what you see" run the ANSWER is the deliverable.
+// It previously reached callers only incidentally via actionTrace[0].intent —
+// which the verify-gate rewrites when it contradicts the page, so on exactly the
+// runs where the two diverge the caller got the gate's verdict, not its answer.
+
+describe('evidence.report is relayed', () => {
+  const ANSWER = 'The Products page lists 6 items; the username typed was standard_user.';
+
+  test('the report reaches the caller as a first-class field', async () => {
+    setup(completedExecution({ report: ANSWER }));
+    const body = payload(await testPageChangesHandler(baseInput as any, ctx));
+    expect(body.report).toBe(ANSWER);
+  });
+
+  test('absent on a run that produced none, rather than null or empty', async () => {
+    setup(completedExecution({ report: null }));
+    const body = payload(await testPageChangesHandler(baseInput as any, ctx));
+    expect(body).not.toHaveProperty('report');
+  });
+
+  test('a pre-contract backend simply omits it', async () => {
+    setup(completedExecution());
+    const body = payload(await testPageChangesHandler(baseInput as any, ctx));
+    expect(body).not.toHaveProperty('report');
+  });
+});

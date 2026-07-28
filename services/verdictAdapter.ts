@@ -62,6 +62,16 @@ export interface RelayVerdict {
    * declined to substitute another. `{ reason, detail }`.
    */
   loginError?: { reason?: string; detail?: string };
+  /**
+   * evidence.report — the agent's own answer, for a run whose deliverable IS the
+   * answer ("navigate and describe what you see").
+   *
+   * Distinct from `actionTrace[0].intent`, which is the RECONCILED reason: the
+   * verify-gate rewrites it when the agent's claim contradicts page ground truth.
+   * So on exactly the runs where the two diverge, reading the trace hands the
+   * caller the gate's verdict instead of the answer it asked for.
+   */
+  report?: string;
 }
 
 /** One login the run performed. Passwords are never included. */
@@ -142,6 +152,7 @@ export function adaptVerdict(
   if (evidence?.loginError && typeof evidence.loginError === 'object') {
     relay.loginError = evidence.loginError;
   }
+  if (typeof evidence?.report === 'string' && evidence.report) relay.report = evidence.report;
 
   return relay;
 }

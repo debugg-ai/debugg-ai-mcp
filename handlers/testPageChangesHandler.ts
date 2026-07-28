@@ -782,6 +782,10 @@ async function testPageChangesHandlerInner(
     // bug. Relay the logins verbatim, and when the caller named an account but
     // an environment default was used anyway, say so explicitly rather than
     // leaving the caller to infer it from a failed check.
+    // For "navigate and describe what you see", the answer IS the deliverable —
+    // and it reached callers only incidentally, buried in actionTrace[0].intent,
+    // which the verify-gate rewrites when it disagrees with the page. Surface it.
+    if (verdict.report) responsePayload.report = verdict.report;
     if (verdict.logins) responsePayload.logins = verdict.logins;
     if (verdict.loginError) responsePayload.loginError = verdict.loginError;
 

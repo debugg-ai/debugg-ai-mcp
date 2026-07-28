@@ -134,6 +134,10 @@ export interface WorkflowExecution {
     // Set when the run named an account it could not resolve and declined to
     // substitute a different one: {reason, detail}.
     loginError?: { reason?: string; detail?: string };
+    // The agent's own answer, when the run's deliverable IS the answer. Null on
+    // runs that produced none. NOT the same as actionTrace[0].intent, which the
+    // verify-gate rewrites when it contradicts the page.
+    report?: string | null;
   } | null;
   // Client-side marker set by pollExecution when the 10-min poll deadline is
   // hit — signals the handler to shape a partial 'timeout' result (bead 56kd.3)
