@@ -9,12 +9,13 @@
  * ngrok error bodies / status codes / timeouts / network errors.
  */
 
-import { describe, test, expect, afterEach } from '@jest/globals';
+import { jest, describe, test, expect, afterEach } from '@jest/globals';
 import { createServer, type Server } from 'node:net';
 import {
   probeLocalPort,
   probeTunnelHealth,
   extractNgrokErrorCode,
+  http1Fetch,
 } from '../../utils/localReachability.js';
 
 // ─ probeLocalPort ────────────────────────────────────────────────────────────
@@ -361,5 +362,157 @@ describe('probeTunnelHealth — bead k6yq: transient churn vs real fault', () =>
 
     expect(r.code).toBe('TIMEOUT');
     expect(flaky.calls()).toBe(1);
+  });
+});
+
+// ─ Bead kmzb: the probe speaks HTTP/1.1, and that is what makes ─────────────
+//   an ngrok error code observable at all.
+//
+// Measured against the real edge on 2026-07-27 (Node v26), creating no tunnel:
+// it selects h2 when offered, then answers a GET for an unrouted hostname with
+// BOTH a 404 + ERR_NGROK_3200 body AND a GOAWAY on the same connection. undici
+// loses the response to the GOAWAY and raises UND_ERR_SOCKET, 3/3; node:https
+// over HTTP/1.1 reads the 404 cleanly, 3/3. So `ngrokErrorCode` had never once
+// been populated in production, which left tunnelDisposition's ENDPOINT_GONE
+// allowlist unreachable and every probe failure indistinguishable from a flake.
+describe('bead kmzb: HTTP/1.1 probe transport', () => {
+  test('http1Fetch is the default transport — NOT the global fetch', async () => {
+    const realFetch = globalThis.fetch;
+    const fetchSpy = jest.fn(async () => new Response('should never be called'));
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      // Unresolvable host: this fails at DNS either way. What matters is WHICH
+      // transport tried, because only one of them can see an ngrok error page.
+      await probeTunnelHealth('http://kmzb-not-a-real-host.invalid/', {
+        timeoutMs: 1000, maxAttempts: 1,
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test('http1Fetch is a real fetch-shaped GET over a local HTTP/1.1 server', async () => {
+    const { createServer } = await import('node:http');
+    const server = createServer((req, res) => {
+      res.writeHead(418, { 'content-type': 'text/plain', 'x-http-version': req.httpVersion });
+      res.end('ERR_NGROK_3200 marker body');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      const res = await http1Fetch(`http://127.0.0.1:${port}/some/path?q=1`);
+      expect(res.status).toBe(418);
+      expect(res.headers.get('x-http-version')).toBe('1.1');
+      expect(await res.text()).toContain('ERR_NGROK_3200');
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  test('http1Fetch surfaces an ngrok marker through probeTunnelHealth end to end', async () => {
+    const { createServer } = await import('node:http');
+    const server = createServer((_req, res) => {
+      res.writeHead(404, { 'content-type': 'text/html' });
+      res.end('<html><body>ERR_NGROK_3200</body></html>');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      const r = await probeTunnelHealth(`http://127.0.0.1:${port}/`, { sleepFn: noSleep });
+      // The whole point of the bead: the code reaches the caller, so
+      // tunnelDisposition's allowlist can finally act on proof.
+      expect(r.ngrokErrorCode).toBe('ERR_NGROK_3200');
+      expect(r.code).toBe('NGROK_ERROR');
+      expect(r.healthy).toBe(false);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  test('http1Fetch reports a bodyless status without constructing an illegal Response', async () => {
+    const { createServer } = await import('node:http');
+    const server = createServer((_req, res) => { res.writeHead(204); res.end(); });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      const r = await probeTunnelHealth(`http://127.0.0.1:${port}/`, { sleepFn: noSleep });
+      expect(r.healthy).toBe(true);
+      expect(r.status).toBe(204);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  test('http1Fetch honours an abort signal as a fetch-shaped AbortError', async () => {
+    const { createServer } = await import('node:http');
+    const server = createServer(() => { /* never respond */ });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    try {
+      const r = await probeTunnelHealth(`http://127.0.0.1:${port}/`, {
+        timeoutMs: 60, sleepFn: noSleep,
+      });
+      // Must land on TIMEOUT, not be misread as a retryable network error.
+      expect(r.code).toBe('TIMEOUT');
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  test('a refused connection is a plain ECONNREFUSED, not an undici alias', async () => {
+    const r = await probeTunnelHealth('http://127.0.0.1:1/', { sleepFn: noSleep, maxAttempts: 1 });
+    expect(r.healthy).toBe(false);
+    expect(r.code).toBe('NETWORK_ERROR');
+    expect(r.detail).toContain('ECONNREFUSED');
+  });
+});
+
+// ─ Bead kmzb follow-on: confirm ENDPOINT-GONE before authorising a teardown ──
+describe('ERR_NGROK_3200 is confirmed across the retry ladder', () => {
+  function ngrokPage(code: string, status = 404): Response {
+    return new Response(`<html>${code}</html>`, { status });
+  }
+
+  test('a transient 3200 during an agent reconnect does NOT stick', async () => {
+    // ngrok drops and re-announces the same hostname; for a moment the edge
+    // genuinely does not route it. Acting on one sample would kill a live
+    // tunnel — two billed hours — for a blip that resolves in milliseconds.
+    let call = 0;
+    const fn = jest.fn(async () => (++call === 1 ? ngrokPage('ERR_NGROK_3200') : new Response('ok', { status: 200 })));
+    const r = await probeTunnelHealth('https://t.ngrok.debugg.ai', {
+      fetchFn: fn as unknown as typeof fetch, sleepFn: noSleep,
+    });
+
+    expect(r.healthy).toBe(true);
+    expect(r.ngrokErrorCode).toBeUndefined();
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  test('a persistent 3200 is still reported as gone — self-healing is intact', async () => {
+    const fn = jest.fn(async () => ngrokPage('ERR_NGROK_3200'));
+    const r = await probeTunnelHealth('https://t.ngrok.debugg.ai', {
+      fetchFn: fn as unknown as typeof fetch, sleepFn: noSleep,
+    });
+
+    expect(r.ngrokErrorCode).toBe('ERR_NGROK_3200');
+    expect(r.healthy).toBe(false);
+    expect(fn).toHaveBeenCalledTimes(3);
+    // And the detail no longer blames the user's dev server for a gone endpoint.
+    expect(r.detail).toContain('no longer routes');
+  });
+
+  test('ERR_NGROK_8012 is NOT retried — the tunnel is alive and answering', async () => {
+    // 8012 is the agent reporting that OUR dev server refused it. Retrying
+    // would just spend the ladder on a fact that will not change in 500ms.
+    const fn = jest.fn(async () => ngrokPage('ERR_NGROK_8012', 502));
+    const r = await probeTunnelHealth('https://t.ngrok.debugg.ai', {
+      fetchFn: fn as unknown as typeof fetch, sleepFn: noSleep,
+    });
+
+    expect(r.ngrokErrorCode).toBe('ERR_NGROK_8012');
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(r.detail).toContain('could not reach dev server');
   });
 });

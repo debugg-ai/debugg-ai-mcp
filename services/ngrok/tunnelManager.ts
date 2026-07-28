@@ -25,9 +25,11 @@ import { FaultInjector, TunnelTrace, getFaultModeFromEnv } from './tunnelFaultIn
 import {
   RegistryStore,
   RegistryEntry,
+  RegistryData,
   getDefaultRegistry,
 } from './tunnelRegistry.js';
 import { startAgentSession, AgentSessionStarter } from './ngrokAgentSession.js';
+import { getDefaultInspector, TunnelInspector } from './ngrokAgentInspector.js';
 
 let ngrokModule: any = null;
 
@@ -84,18 +86,51 @@ class TunnelManager {
   private activeTunnels = new Map<string, TunnelInfo>();
   private pendingTunnels = new Map<number, Promise<TunnelInfo>>();
   private initialized = false;
-  private readonly TUNNEL_TIMEOUT_MS = 55 * 60 * 1000;
+  /**
+   * Idle window before an owned tunnel auto-shuts-off. THE constant of this
+   * class: every other lifetime below is derived from it, because they are all
+   * answering the same question — "could this tunnel still be alive?" — and
+   * when they answered it differently they cost real money (bead y7x6).
+   *
+   * Public so timer tests can run in milliseconds instead of 55 minutes,
+   * matching the `connectBackoffMs` / `agentSessionStarter` precedent.
+   */
+  public idleTimeoutMs = 55 * 60 * 1000;
   /**
    * Bead `3th`: registry-entry freshness window. An entry not touched within
    * this many ms is treated as stale even if its owner PID is alive — defends
    * against PID-reuse (OS reassigns dead-owner's PID to a different process).
+   *
+   * Bead `y7x6`: this was a hard-coded 30 minutes while tunnels lived for 55,
+   * so between T+30 and T+55 an entry was judged unusable while the tunnel it
+   * named was alive and billing. The next request provisioned a duplicate and
+   * OVERWROTE the entry, orphaning the original: a systematic double-bill on a
+   * 25-minute-wide window. Deriving it from the idle timeout is the fix, and
+   * it is the derivation — not the number — that matters, because it makes the
+   * two impossible to drift apart again.
+   *
+   * No guard band is subtracted. A band would just re-open a narrower version
+   * of the same window, and the T+55 boundary is already handled: a borrower
+   * writes `lastAccessedAt` before the owner's timer fires, and the owner then
+   * extends rather than shutting down.
    */
-  private readonly REGISTRY_FRESHNESS_TTL_MS = 30 * 60 * 1000;
+  private get registryFreshnessTtlMs(): number {
+    return this.idleTimeoutMs;
+  }
   /**
    * Bead `mdp`: prune-on-startup eviction window. Entries older than this OR
    * with dead owner PID get swept out when TunnelManager initializes.
+   *
+   * Also derived, for the same reason: an entry older than the idle timeout
+   * names a tunnel that has already auto-shut-off, and one that has NOT is
+   * recovered by re-adoption (bead lc62) rather than by keeping a longer
+   * threshold here. Pruning something `isEntryUsable` already rejects costs
+   * nothing; the danger was never prune's window, it was that nothing put a
+   * live tunnel back.
    */
-  private readonly REGISTRY_PRUNE_THRESHOLD_MS = 60 * 60 * 1000;
+  private get registryPruneThresholdMs(): number {
+    return this.idleTimeoutMs;
+  }
   /**
    * Backoff schedule (ms) between ngrok.connect() retry attempts. Bead ixh.
    * Exposed on the class so tests can override with short delays without
@@ -115,17 +150,31 @@ class TunnelManager {
    * a hang.
    */
   public agentSessionTimeoutMs = 5000;
+  /**
+   * Bead lc62: where we learn which tunnels are actually alive on this machine.
+   * Overridable so tests drive a fake agent API instead of loopback HTTP.
+   */
+  public tunnelInspector: TunnelInspector = getDefaultInspector();
   /** Whether the ngrok agent's client session is established (bead pqgj). */
   private agentSessionReady = false;
   /** In-flight session bootstrap, so concurrent tunnels wait on one spawn. */
   private agentSessionPromise: Promise<void> | null = null;
+  /** Memoized one-shot reconcile against the local ngrok agents (bead lc62). */
+  private reconcilePromise: Promise<void> | null = null;
 
   constructor(private readonly reg: RegistryStore = getDefaultRegistry()) {
     // Bead `mdp`: sweep stale entries on startup so the registry doesn't grow
     // unboundedly across MCP processes that exited without stopAllTunnels
     // (SIGKILL / crash). Best-effort — no-op registries don't actually prune.
+    //
+    // Bead lc62: this sweep deletes map keys, which cannot stop a tunnel, so a
+    // pruned-but-live tunnel becomes an invisible billing line. Making prune
+    // tear tunnels down would be far worse — two billed hours for every idle
+    // gap, on exactly the days-long sessions this design exists to serve — so
+    // recovery is handled the other way round, by reconcileWithLocalAgents()
+    // putting live tunnels BACK. Prune stays cheap, synchronous, and harmless.
     try {
-      const result = this.reg.prune({ staleAfterMs: this.REGISTRY_PRUNE_THRESHOLD_MS });
+      const result = this.reg.prune({ staleAfterMs: this.registryPruneThresholdMs });
       if (result.pruned > 0) {
         logger.info(`Pruned ${result.pruned} stale registry entries on startup (${result.remaining} remaining)`);
       }
@@ -141,7 +190,7 @@ class TunnelManager {
   private isEntryUsable(entry: RegistryEntry, nowMs: number = Date.now()): boolean {
     return (
       this.reg.isPidAlive(entry.ownerPid) &&
-      (nowMs - entry.lastAccessedAt) <= this.REGISTRY_FRESHNESS_TTL_MS
+      (nowMs - entry.lastAccessedAt) <= this.registryFreshnessTtlMs
     );
   }
 
@@ -181,7 +230,7 @@ class TunnelManager {
 
     if (!existing.isOwned) {
       // Verify the owning process is still alive AND the entry is fresh
-      // (lastAccessedAt within REGISTRY_FRESHNESS_TTL_MS — defends against
+      // (lastAccessedAt within registryFreshnessTtlMs — defends against
       // PID-reuse per bead 3th).
       const entry = this.reg.read()[String(port)];
       if (!entry || !this.isEntryUsable(entry)) {
@@ -234,24 +283,62 @@ class TunnelManager {
     }
   }
 
+  /**
+   * Mark a tunnel as in-use: refresh the shared registry entry so the owner
+   * does not auto-shut-off underneath us, and reset the local idle timer.
+   *
+   * Bead lc62 — two changes here, both about the registry telling the truth:
+   *
+   * 1. The refresh is now scoped to OUR tunnelId. It used to refresh whatever
+   *    entry held our port, so using tunnel A kept tunnel B's entry alive after
+   *    B had replaced A on that port.
+   * 2. If we OWN the tunnel and the entry has gone missing, we put it back.
+   *    Nothing did this before: prune (or a registry the process could not see,
+   *    bead fcbm) deleted the entry, and since the in-process reuse path never
+   *    wrote to the registry, the tunnel stayed live, stayed billing, and
+   *    stayed permanently invisible to every other MCP on the machine. One file
+   *    write makes that self-heal, and it cannot churn a tunnel because it only
+   *    ever ADDS the entry for a tunnel this process is holding open.
+   *
+   * A foreign entry — same port, different tunnelId — is left completely alone.
+   * That is another process's live tunnel; overwriting it would displace it.
+   */
   touchTunnel(tunnelId: string): void {
     const tunnelInfo = this.activeTunnels.get(tunnelId);
     if (!tunnelInfo) return;
 
-    // Refresh the shared registry entry so the owning process won't auto-shutoff
-    // while we're actively using the tunnel (even if we're borrowing it).
     try {
       const registry = this.reg.read();
-      const entry = registry[String(tunnelInfo.port)];
-      if (entry) {
+      const key = String(tunnelInfo.port);
+      const entry = registry[key];
+      if (entry?.tunnelId === tunnelInfo.tunnelId) {
         entry.lastAccessedAt = Date.now();
         this.reg.write(registry);
+      } else if (!entry && tunnelInfo.isOwned) {
+        registry[key] = this.registryEntryFor(tunnelInfo);
+        this.reg.write(registry);
+        logger.info(
+          `Re-registered owned tunnel ${tunnelInfo.tunnelId} for port ${tunnelInfo.port} — ` +
+          'its registry entry had gone missing while the tunnel was still live (bead lc62).',
+        );
       }
     } catch {
       // best-effort
     }
 
     this.resetTunnelTimer(tunnelInfo);
+  }
+
+  /** The shared-registry view of a tunnel this process owns. */
+  private registryEntryFor(tunnelInfo: TunnelInfo): RegistryEntry {
+    return {
+      tunnelId: tunnelInfo.tunnelId,
+      publicUrl: tunnelInfo.publicUrl,
+      tunnelUrl: tunnelInfo.tunnelUrl,
+      port: tunnelInfo.port,
+      ownerPid: process.pid,
+      lastAccessedAt: Date.now(),
+    };
   }
 
   touchTunnelByUrl(url: string): void {
@@ -297,11 +384,19 @@ class TunnelManager {
       return;
     }
 
-    // Owned — remove from shared registry, then disconnect + revoke
+    // Owned — remove from shared registry, then disconnect + revoke.
+    // Guarded by tunnelId (bead lc62, same reasoning as the auto-shutoff check
+    // and markTunnelDead): if a replacement already holds this port's entry,
+    // deleting it would strand ITS live tunnel and buy the next caller a
+    // duplicate. Only ever remove the entry that names the tunnel we are
+    // actually stopping.
     try {
       const registry = this.reg.read();
-      delete registry[String(tunnelInfo.port)];
-      this.reg.write(registry);
+      const key = String(tunnelInfo.port);
+      if (registry[key]?.tunnelId === tunnelInfo.tunnelId) {
+        delete registry[key];
+        this.reg.write(registry);
+      }
     } catch {
       // best-effort
     }
@@ -356,7 +451,7 @@ class TunnelManager {
       tunnel,
       age: now - tunnel.createdAt,
       timeSinceLastAccess: now - tunnel.lastAccessedAt,
-      timeUntilAutoShutoff: Math.max(0, tunnel.lastAccessedAt + this.TUNNEL_TIMEOUT_MS - now),
+      timeUntilAutoShutoff: Math.max(0, tunnel.lastAccessedAt + this.idleTimeoutMs - now),
     };
   }
 
@@ -384,6 +479,12 @@ class TunnelManager {
     if (existing) {
       // Bead zmc9: retarget to THIS caller's path; publicUrl carries the creator's.
       const url_ = retargetTunnelUrl(existing.tunnelUrl, url);
+      // Bead lc62: reuse used to return straight from the in-process map without
+      // touching the registry at all, so a tunnel could be in constant use and
+      // still look abandoned to every other MCP — and its own idle timer kept
+      // counting down. touchTunnel refreshes (or restores) the shared entry and
+      // resets that timer, which is what "this tunnel is in use" should mean.
+      this.touchTunnel(existing.tunnelId);
       logger.info(`Reusing existing tunnel for port ${port}: ${url_}`);
       Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'reused' });
       return { url: url_, tunnelId: existing.tunnelId, isLocalhost: true };
@@ -408,35 +509,21 @@ class TunnelManager {
 
     // 3. Check cross-process registry — another MCP instance may own a tunnel.
     //    Borrow only if the entry is fresh (PID alive AND touched within
-    //    REGISTRY_FRESHNESS_TTL_MS — defends against PID-reuse, bead 3th).
+    //    registryFreshnessTtlMs — defends against PID-reuse, bead 3th).
     const registry = this.reg.read();
     const regEntry = registry[String(port)];
     if (regEntry && this.isEntryUsable(regEntry)) {
-      logger.info(`Borrowing tunnel from PID ${regEntry.ownerPid} for port ${port}: ${regEntry.publicUrl}`);
-      const now = Date.now();
-      const borrowed: TunnelInfo = {
-        tunnelId: regEntry.tunnelId,
-        originalUrl: url,
-        tunnelUrl: regEntry.tunnelUrl,
-        publicUrl: regEntry.publicUrl,
-        port,
-        createdAt: now,
-        lastAccessedAt: now,
-        isOwned: false,
-      };
-      this.activeTunnels.set(regEntry.tunnelId, borrowed);
-      // Touch registry so the owner knows not to auto-shutoff
-      regEntry.lastAccessedAt = now;
-      this.reg.write(registry);
-      this.resetTunnelTimer(borrowed);
-      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'borrowed' });
+      const borrowed = this.borrowRegistryEntry(regEntry, url, registry);
       // Bead zmc9: retarget to THIS caller's path; regEntry.publicUrl carries the
       // owning PID's creating-call path — replaying it is the cross-session poison.
-      return { url: retargetTunnelUrl(regEntry.tunnelUrl, url), tunnelId: regEntry.tunnelId, isLocalhost: true };
+      return { url: retargetTunnelUrl(borrowed.tunnelUrl, url), tunnelId: borrowed.tunnelId, isLocalhost: true };
     }
 
-    // 4. Create a new tunnel (this process becomes the owner)
-    const creationPromise = this.createTunnel(url, port, tunnelId, authToken, keyId, revokeKey);
+    // 4. Nothing to reuse. Publish the pending promise SYNCHRONOUSLY — every
+    //    check above is synchronous precisely so a second caller arriving in
+    //    this same tick joins us rather than buying a second hour — and do the
+    //    slow work (agent reconcile, then connect) inside it.
+    const creationPromise = this.adoptOrCreateTunnel(url, port, tunnelId, authToken, keyId, revokeKey);
     this.pendingTunnels.set(port, creationPromise);
 
     let tunnelInfo: TunnelInfo;
@@ -446,7 +533,135 @@ class TunnelManager {
       this.pendingTunnels.delete(port);
     }
 
-    return { url: tunnelInfo.publicUrl, tunnelId: tunnelInfo.tunnelId, isLocalhost: true };
+    // A tunnel we just created carries this caller's path in publicUrl; an
+    // ADOPTED one carries someone else's, so retarget (bead zmc9).
+    const resolvedUrl = tunnelInfo.isOwned
+      ? tunnelInfo.publicUrl
+      : retargetTunnelUrl(tunnelInfo.tunnelUrl, url);
+    return { url: resolvedUrl, tunnelId: tunnelInfo.tunnelId, isLocalhost: true };
+  }
+
+  /**
+   * Take a live registry entry into this process as a BORROWED tunnel, and
+   * stamp it as touched so its owner does not auto-shut-off underneath us.
+   */
+  private borrowRegistryEntry(entry: RegistryEntry, url: string, registry: RegistryData): TunnelInfo {
+    logger.info(`Borrowing tunnel from PID ${entry.ownerPid} for port ${entry.port}: ${entry.publicUrl}`);
+    const now = Date.now();
+    const borrowed: TunnelInfo = {
+      tunnelId: entry.tunnelId,
+      originalUrl: url,
+      tunnelUrl: entry.tunnelUrl,
+      publicUrl: entry.publicUrl,
+      port: entry.port,
+      createdAt: now,
+      lastAccessedAt: now,
+      isOwned: false,
+    };
+    this.activeTunnels.set(entry.tunnelId, borrowed);
+    entry.lastAccessedAt = now;
+    try {
+      this.reg.write(registry);
+    } catch {
+      // best-effort
+    }
+    this.resetTunnelTimer(borrowed);
+    Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port: entry.port, how: 'borrowed' });
+    return borrowed;
+  }
+
+  /**
+   * Last stop before spending a billed hour (bead lc62).
+   *
+   * The registry says there is nothing to reuse for this port. Before believing
+   * it, ask the local ngrok agents what is ACTUALLY running: a tunnel whose
+   * owner was SIGKILLed, or whose entry got pruned or written to a registry
+   * this process could not see, is still open and still billing, and the
+   * registry is simply wrong about it. Re-adopting one costs a loopback GET;
+   * not adopting it costs an hour for the replacement plus the remaining hour
+   * of the orphan nobody is using.
+   *
+   * Reaping orphans is deliberately NOT done here. Once they can be re-adopted
+   * an orphan pointing at a live port is an asset, and killing it only
+   * guarantees we buy that hour again later.
+   */
+  private async adoptOrCreateTunnel(
+    url: string,
+    port: number,
+    tunnelId: string,
+    authToken: string,
+    keyId?: string,
+    revokeKey?: () => Promise<void>,
+  ): Promise<TunnelInfo> {
+    await this.reconcileWithLocalAgents();
+
+    const registry = this.reg.read();
+    const entry = registry[String(port)];
+    if (entry && this.isEntryUsable(entry)) {
+      logger.info(`Adopted live tunnel ${entry.tunnelId} for port ${port} instead of provisioning a new one`);
+      return this.borrowRegistryEntry(entry, url, registry);
+    }
+
+    return this.createTunnel(url, port, tunnelId, authToken, keyId, revokeKey);
+  }
+
+  /**
+   * Reconcile the shared registry against the tunnels the local ngrok agents
+   * report (bead lc62). Runs at most once per process, lazily — on the first
+   * request that would otherwise provision — so importing this module never
+   * touches the network and a process that only ever borrows never pays for it.
+   *
+   * ADD-ONLY, and that is the whole safety argument. This can create an entry
+   * or refresh an unusable one; it can never delete or invalidate anything. So
+   * an agent that is down, a scan that misses the right port, or a parse that
+   * fails all degrade to "learned nothing" and leave behaviour exactly as it is
+   * today. Nothing this function can get wrong is able to cost a re-provision.
+   *
+   * A usable entry is never disturbed, even by a live tunnel claiming the same
+   * port: that entry is somebody's working tunnel and displacing it would
+   * strand a paid-for session.
+   */
+  private reconcileWithLocalAgents(): Promise<void> {
+    if (!this.reconcilePromise) {
+      this.reconcilePromise = (async () => {
+        const live = await this.tunnelInspector.listLiveTunnels();
+        if (live.length === 0) return;
+
+        const registry = this.reg.read();
+        const adopted: string[] = [];
+        for (const tunnel of live) {
+          const key = String(tunnel.port);
+          const entry = registry[key];
+          // Somebody's working entry — never touch it, even to "correct" it.
+          if (entry && this.isEntryUsable(entry)) continue;
+          registry[key] = {
+            tunnelId: tunnel.tunnelId,
+            publicUrl: tunnel.publicUrl,
+            tunnelUrl: tunnel.publicUrl,
+            port: tunnel.port,
+            // We are not the ngrok owner and never claim to be — TunnelInfo for
+            // this entry is always built with isOwned:false. ownerPid is the
+            // registry's liveness proxy, and pointing it at a live process is
+            // what makes the entry borrowable at all.
+            ownerPid: process.pid,
+            lastAccessedAt: Date.now(),
+          };
+          adopted.push(`${tunnel.tunnelId}→${tunnel.port}`);
+        }
+        if (adopted.length > 0) {
+          this.reg.write(registry);
+          logger.info(
+            `Re-adopted ${adopted.length} live ngrok tunnel(s) the registry had lost: ${adopted.join(', ')}. ` +
+            'Each one saves provisioning a duplicate for a port that is already served.',
+          );
+        }
+      })().catch((err) => {
+        // An inspector failure must never block tunnelling — it only ever had
+        // the power to save us money, never to authorise anything.
+        logger.debug(`ngrok agent reconcile unavailable (non-fatal): ${err}`);
+      });
+    }
+    return this.reconcilePromise;
   }
 
   private findTunnelByPort(port: number): TunnelInfo | undefined {
@@ -733,10 +948,23 @@ class TunnelManager {
     tunnelInfo.autoShutoffTimer = setTimeout(async () => {
       // For owned tunnels: if another process recently touched the registry entry,
       // reset the timer rather than disconnecting — that process is still using it.
+      //
+      // Bead lc62: the entry has to be OURS. This lookup is keyed by port, and
+      // the check used to stop at the timestamp, so once a replacement tunnel
+      // took over the port the displaced tunnel read the replacement's activity
+      // as its own and extended itself — forever, since every extension found
+      // the entry fresh again. That is what turned a 55-minute mistake into a
+      // multi-day one: an orphan nobody could reach, billing indefinitely.
+      // Comparing tunnelId makes an orphan simply time out, 55 idle minutes
+      // after the last time anyone actually used IT.
       if (tunnelInfo.isOwned) {
         try {
           const entry = this.reg.read()[String(tunnelInfo.port)];
-          if (entry && Date.now() - entry.lastAccessedAt < this.TUNNEL_TIMEOUT_MS) {
+          if (
+            entry &&
+            entry.tunnelId === tunnelInfo.tunnelId &&
+            Date.now() - entry.lastAccessedAt < this.idleTimeoutMs
+          ) {
             logger.info(`Tunnel ${tunnelInfo.tunnelId} accessed by another process — extending lifetime`);
             this.resetTunnelTimer(tunnelInfo);
             return;
@@ -750,7 +978,7 @@ class TunnelManager {
       await this.stopTunnel(tunnelInfo.tunnelId).catch((err) =>
         logger.error(`Failed to auto-shutdown tunnel ${tunnelInfo.tunnelId}:`, err)
       );
-    }, this.TUNNEL_TIMEOUT_MS);
+    }, this.idleTimeoutMs);
   }
 }
 

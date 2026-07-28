@@ -15,6 +15,9 @@
  */
 
 import { createConnection } from 'node:net';
+import { request as httpRequest, type IncomingMessage, type RequestOptions } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { Readable } from 'node:stream';
 
 // ─ Local port probe ──────────────────────────────────────────────────────────
 
@@ -103,7 +106,7 @@ export interface TunnelHealthProbeOptions {
   /** Request timeout in ms. Default 5000 — tunnels can take a couple seconds
    *  to warm up, but if we can't reach the server in 5s something is wrong. */
   timeoutMs?: number;
-  /** Injectable fetch for tests. Defaults to global fetch. */
+  /** Injectable fetch for tests. Defaults to `http1Fetch` — see bead kmzb. */
   fetchFn?: typeof fetch;
   /**
    * Bead k6yq: attempts allowed for TRANSIENT connection-level failures only
@@ -138,9 +141,142 @@ const TRANSIENT_CAUSE_CODES = new Set([
   'EAI_AGAIN',              // DNS: temporary resolver failure
   'ECONNRESET',             // edge dropped the connection mid-handshake
   'EPIPE',
-  'UND_ERR_SOCKET',         // undici socket error — this is the GOAWAY case
+  // undici codes. Since bead kmzb the default probe transport is node:https,
+  // which reports the OS codes above instead — these stay for an injected
+  // fetchFn, and as the record of what the HTTP/2 path used to produce.
+  'UND_ERR_SOCKET',
   'UND_ERR_CONNECT_TIMEOUT',
 ]);
+
+/**
+ * ngrok codes meaning "the edge does not route this hostname".
+ *
+ * Kept here deliberately separate from tunnelDisposition's ENDPOINT_GONE
+ * allowlist even though they currently hold the same code: that list decides
+ * whether a verdict may DESTROY a tunnel, this one decides whether a verdict is
+ * worth double-checking first. A code could reasonably be on one and not the
+ * other, and coupling them would make this module depend on policy it has no
+ * business knowing.
+ */
+const ENDPOINT_NOT_FOUND_CODES = new Set(['ERR_NGROK_3200']);
+
+// ─ HTTP/1.1 probe transport (bead kmzb) ──────────────────────────────────────
+
+/**
+ * `fetch`-shaped GET that speaks HTTP/1.1, because the global fetch cannot.
+ *
+ * Measured against the ngrok edge on 2026-07-27, Node v26:
+ *
+ *   ALPN offer [h2, http/1.1] → edge selects h2
+ *   raw HTTP/2 GET of a hostname ngrok no longer routes
+ *       → 404 with ERR_NGROK_3200 in the body, AND a GOAWAY (code 0, NO_ERROR)
+ *         on the same connection
+ *   undici (global fetch) over that h2 connection
+ *       → TypeError: fetch failed / UND_ERR_SOCKET, 3/3 — the response is lost
+ *         to the concurrent GOAWAY and never surfaces
+ *   node:https (HTTP/1.1)
+ *       → 404 + ERR_NGROK_3200, 3/3
+ *
+ * So the edge was answering us the whole time and undici was dropping the
+ * answer. That is why `ngrokErrorCode` had never once been populated in
+ * production, which in turn made tunnelDisposition's ENDPOINT_GONE allowlist
+ * unreachable: every probe failure looked like a transient network error, and
+ * a genuinely dead endpoint could never be told apart from a flake. Speaking
+ * HTTP/1.1 makes the distinction observable again and re-activates that
+ * allowlist — so ERR_NGROK_3200 can once more evict a tunnel that is provably
+ * gone, while everything short of proof still keeps the tunnel we are paying
+ * for. It also removes the h2 GOAWAY that bead k6yq's retry ladder existed to
+ * paper over, leaving the ladder as a genuine safety net rather than a
+ * load-bearing workaround.
+ *
+ * Node's fetch offers no way to disable h2, hence a transport rather than an
+ * option. `http.ClientRequest` — which `https.request` returns — implements
+ * HTTP/1.x only, so this cannot regress into h2 no matter what a future Node
+ * negotiates by default. The seam is deliberately `typeof fetch` so every
+ * caller and test that injects `fetchFn` is unaffected.
+ */
+export const http1Fetch: typeof fetch = async (input, init) => {
+  const url = new URL(typeof input === 'string' ? input : (input as Request).url ?? String(input));
+  const isPlainHttp = url.protocol === 'http:';
+  const signal = init?.signal ?? undefined;
+
+  const options: RequestOptions = {
+    protocol: url.protocol,
+    host: url.hostname,
+    port: url.port || (isPlainHttp ? 80 : 443),
+    path: `${url.pathname}${url.search}`,
+    method: (init?.method ?? 'GET').toUpperCase(),
+    headers: (init?.headers as Record<string, string>) ?? {},
+    // One-shot probe — do not leave a pooled keep-alive socket behind.
+    agent: false,
+  };
+
+  return new Promise<Response>((resolve, reject) => {
+    let settled = false;
+    const fail = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
+    const onResponse = (res: IncomingMessage) => {
+      if (settled) return;
+      settled = true;
+      const status = res.statusCode ?? 0;
+      // Response rejects a body on these statuses; they have none anyway.
+      const bodyless = status === 101 || status === 204 || status === 205 || status === 304;
+      if (bodyless) res.resume();
+      resolve(
+        new Response(bodyless ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>), {
+          status,
+          headers: headersFrom(res.headers),
+        }),
+      );
+    };
+
+    const req = isPlainHttp
+      ? httpRequest(options, onResponse)
+      : httpsRequest(options, onResponse);
+
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy();
+        return fail(abortError());
+      }
+      signal.addEventListener('abort', () => {
+        req.destroy();
+        fail(abortError());
+      }, { once: true });
+    }
+
+    req.on('error', fail);
+    req.end();
+  });
+};
+
+/** Matches what an aborted fetch throws, so probeOnce's TIMEOUT arm still fires. */
+function abortError(): Error {
+  const err = new Error('The operation was aborted.');
+  err.name = 'AbortError';
+  return err;
+}
+
+/** node:http header bag → Headers, skipping the pseudo/array oddities. */
+function headersFrom(raw: NodeJS.Dict<string | string[]>): Headers {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(raw)) {
+    if (value === undefined) continue;
+    for (const v of Array.isArray(value) ? value : [value]) {
+      try {
+        headers.append(key, v);
+      } catch {
+        // A header Headers refuses (invalid name from a hostile server) is not
+        // worth failing a health probe over.
+      }
+    }
+  }
+  return headers;
+}
 
 /** undici hides the real error behind `TypeError: fetch failed` — dig it out. */
 function errorCodeOf(err: any): string | undefined {
@@ -190,7 +326,8 @@ async function probeOnce(
   started: number,
 ): Promise<{ result: TunnelHealthProbeResult; retryable: boolean }> {
   const timeoutMs = opts.timeoutMs ?? 5000;
-  const fetchImpl = opts.fetchFn ?? fetch;
+  // Bead kmzb: HTTP/1.1, not the global fetch — see http1Fetch.
+  const fetchImpl = opts.fetchFn ?? http1Fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -209,18 +346,31 @@ async function probeOnce(
     const bodyText = await readCapped(res, 4096);
     const ngrokErr = extractNgrokErrorCode(bodyText);
 
-    // 502/504 + ngrok error marker → ngrok couldn't reach our server.
-    // A RESPONSE is proof the edge is up: never retried, so bead 4bui's
+    // An ngrok error page. A RESPONSE is proof the edge is up, so these are
+    // returned as-is rather than retried into a false pass, and bead 4bui's
     // marker-driven reclassification keeps seeing the real verdict.
+    //
+    // One exception, and it exists only because bead kmzb made these codes
+    // reachable at all: ENDPOINT_NOT_FOUND is the single verdict that
+    // AUTHORISES A TEARDOWN (tunnelDisposition's allowlist), and the ngrok
+    // agent passes through a short window where it is briefly true — while a
+    // dropped session reconnects and re-announces the same hostname. Acting on
+    // one sample would kill a tunnel that was about to come back, at a cost of
+    // two billed hours. So this code alone is confirmed across the retry
+    // ladder: a reconnect resolves inside it, a genuinely deleted endpoint
+    // answers the same way every time and is still reported as gone.
     if (ngrokErr) {
+      const notFound = ENDPOINT_NOT_FOUND_CODES.has(ngrokErr);
       return {
-        retryable: false,
+        retryable: notFound,
         result: {
           healthy: false,
           status: res.status,
           code: 'NGROK_ERROR',
           ngrokErrorCode: ngrokErr,
-          detail: `ngrok returned ${ngrokErr} — tunnel established but traffic could not reach dev server`,
+          detail: notFound
+            ? `ngrok returned ${ngrokErr} — the edge no longer routes this tunnel hostname`
+            : `ngrok returned ${ngrokErr} — tunnel established but traffic could not reach dev server`,
           elapsedMs: Date.now() - started,
         },
       };

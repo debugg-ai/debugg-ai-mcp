@@ -6,32 +6,49 @@
  *   - DEBUGG_TUNNEL_FAULT_MODE env var explicitly set
  *
  * Modes (comma-separated, parseable by parseFaultMode):
- *   fail-connect-N:<count>     — fail the first <count> ngrok.connect() attempts
+ *   fail-connect-N:<count>      — fail the first <count> ngrok.connect() attempts
  *   empty-url-N:<count>         — return empty URL from first <count> connect() attempts
  *   delay-connect:<ms>          — sleep <ms> before each connect() call
+ *   inspector-unreachable:1     — the local ngrok agent inspector observes nothing
+ *                                 (bead lc62: proves reconciliation is add-only, i.e.
+ *                                 a blind inspector cannot cost a re-provision)
+ *   inspector-adopt:<port>      — the inspector reports one synthetic live tunnel on
+ *                                 <port>, exercising re-adoption end to end without
+ *                                 provisioning a real, billable tunnel
  *
  * Examples:
  *   DEBUGG_TUNNEL_FAULT_MODE=fail-connect-N:2
  *   DEBUGG_TUNNEL_FAULT_MODE=delay-connect:2000,fail-connect-N:1
+ *   DEBUGG_TUNNEL_FAULT_MODE=inspector-adopt:3000
  */
 
 export type FaultMode = {
   failConnectN?: number;
   emptyUrlN?: number;
   delayConnectMs?: number;
+  /** Force the ngrok agent inspector to observe nothing at all. */
+  inspectorUnreachable?: boolean;
+  /** Force the inspector to report a synthetic live tunnel on this local port. */
+  inspectorAdoptPort?: number;
 };
 
 export function parseFaultMode(raw: string | undefined): FaultMode | null {
   if (!raw) return null;
   const mode: FaultMode = {};
   for (const token of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
-    const m = token.match(/^(fail-connect-N|empty-url-N|delay-connect):(\d+)$/);
+    const m = token.match(
+      /^(fail-connect-N|empty-url-N|delay-connect|inspector-unreachable|inspector-adopt):(\d+)$/,
+    );
     if (!m) continue;
     const [, name, valStr] = m;
     const val = parseInt(valStr, 10);
     if (name === 'fail-connect-N') mode.failConnectN = val;
     else if (name === 'empty-url-N') mode.emptyUrlN = val;
     else if (name === 'delay-connect') mode.delayConnectMs = val;
+    // Value-less switch, but kept in the `name:<digits>` grammar so one regex
+    // covers every mode. Any non-zero value turns it on.
+    else if (name === 'inspector-unreachable') mode.inspectorUnreachable = val !== 0;
+    else if (name === 'inspector-adopt') mode.inspectorAdoptPort = val;
   }
   return Object.keys(mode).length > 0 ? mode : null;
 }

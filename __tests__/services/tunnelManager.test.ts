@@ -361,7 +361,15 @@ describe('cross-process tunnel sharing', () => {
     // isPidAlive returns true (Z is running), but no one is touching the
     // registry entry — so it's older than the freshness TTL and we reject.
     const reg = createInMemoryRegistry(() => true); // PID "alive"
-    const veryOld = Date.now() - (31 * 60 * 1000); // 31 min ago — past 30 min TTL
+    const tm = new TunnelManagerClass(reg);
+
+    // Bead y7x6 widened the freshness TTL from a hard-coded 30 min to the
+    // tunnel's own idle timeout. Expressing "stale" relative to that constant
+    // instead of hard-coding 31 min keeps this test testing PID-reuse rather
+    // than silently becoming a test of a number nobody updates. Written AFTER
+    // construction so the startup prune doesn't sweep it before the borrow
+    // check gets to reject it.
+    const staleBy = tm.idleTimeoutMs + 60_000;
     reg.write({
       '3000': {
         tunnelId: 'reused-pid-t1',
@@ -369,13 +377,12 @@ describe('cross-process tunnel sharing', () => {
         tunnelUrl: 'http://reused-pid-t1.ngrok.debugg.ai',
         port: 3000,
         ownerPid: 99999,
-        lastAccessedAt: veryOld,
+        lastAccessedAt: Date.now() - staleBy,
       },
     });
 
     mockNgrokConnect.mockResolvedValueOnce('http://fresh-t.ngrok.debugg.ai' as any);
 
-    const tm = new TunnelManagerClass(reg);
     const result = await tm.processUrl('http://localhost:3000', 'auth-b', 'fresh-t');
 
     // Despite alive PID, stale entry was NOT borrowed — fresh tunnel created
@@ -959,5 +966,443 @@ describe('bead 7qh: concurrent joiner revokes its own redundant key', () => {
 
     expect(revokeB).toHaveBeenCalledTimes(1);
     expect(bResult.tunnelId).toBe('tunnelA');
+  });
+});
+
+// ── Bead y7x6: registry freshness must not expire before the tunnel does ─────
+//
+// The freshness TTL was a hard-coded 30 minutes while a tunnel idled for 55, so
+// for a 25-minute stretch the registry called an entry unusable while the
+// tunnel it named was alive and BILLING. The next request provisioned a
+// duplicate and overwrote the entry, orphaning the original — a systematic
+// double-bill, not a race.
+describe('bead y7x6: freshness TTL is derived from the idle timeout', () => {
+  /**
+   * The shipped idle window, read off the class so these cannot go stale.
+   * Resolved lazily — the class only exists after the mocked import in beforeAll.
+   */
+  const defaultIdleMs = () => new TunnelManagerClass(createInMemoryRegistry()).idleTimeoutMs;
+
+  /**
+   * Is an entry of this age still borrowed rather than duplicated? Asked
+   * behaviourally — through processUrl — because "did we spend another billed
+   * hour" is the only thing that actually matters here.
+   */
+  async function borrowsEntryAged(ageMs: number, idleTimeoutMs?: number): Promise<boolean> {
+    mockNgrokConnect.mockReset();
+    mockNgrokConnect.mockResolvedValue('http://replacement.ngrok.debugg.ai' as any);
+
+    const reg = createInMemoryRegistry(() => true);
+    const tm = new TunnelManagerClass(reg);
+    if (idleTimeoutMs !== undefined) tm.idleTimeoutMs = idleTimeoutMs;
+    // Written after construction so the startup prune isn't the thing under test.
+    reg.write({
+      '3000': {
+        tunnelId: 'aged-t1',
+        publicUrl: 'https://aged-t1.ngrok.debugg.ai/',
+        tunnelUrl: 'http://aged-t1.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 4242,
+        lastAccessedAt: Date.now() - ageMs,
+      },
+    });
+
+    const result = await tm.processUrl('http://localhost:3000', 'auth', 'replacement');
+    await tm.stopAllTunnels();
+    return result.tunnelId === 'aged-t1';
+  }
+
+  test('THE REGRESSION FENCE: an entry stays borrowable right up to the idle timeout', async () => {
+    // Any entry younger than the tunnel's own idle window names a tunnel that
+    // has not shut itself off yet. If these two constants ever diverge again,
+    // every request landing in the gap buys a second billed hour.
+    await expect(borrowsEntryAged(defaultIdleMs() - 1000)).resolves.toBe(true);
+  });
+
+  test('NO guard band is subtracted — a band is just a narrower dead zone', async () => {
+    await expect(borrowsEntryAged(defaultIdleMs() - 1)).resolves.toBe(true);
+  });
+
+  test('the whole old 30–55 minute dead zone is borrowable again', async () => {
+    for (const minutes of [30, 35, 45, 54]) {
+      await expect(borrowsEntryAged(minutes * 60 * 1000)).resolves.toBe(true);
+    }
+  });
+
+  test('past the idle timeout the entry is correctly rejected — that tunnel is gone', async () => {
+    await expect(borrowsEntryAged(defaultIdleMs() + 60_000)).resolves.toBe(false);
+  });
+
+  test('the TTL tracks idleTimeoutMs rather than a constant of its own', async () => {
+    // Shrink the idle window: an age that was fine at 55 minutes is now stale.
+    await expect(borrowsEntryAged(10 * 60 * 1000, 60_000)).resolves.toBe(false);
+    await expect(borrowsEntryAged(30_000, 60_000)).resolves.toBe(true);
+  });
+
+  test('borrowing in the old dead zone provisions nothing at all', async () => {
+    mockNgrokConnect.mockReset();
+    const reg = createInMemoryRegistry(() => true);
+    const tm = new TunnelManagerClass(reg);
+    reg.write({
+      '3000': {
+        tunnelId: 'alive-and-billing',
+        publicUrl: 'https://alive-and-billing.ngrok.debugg.ai/',
+        tunnelUrl: 'http://alive-and-billing.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 4242,
+        lastAccessedAt: Date.now() - 40 * 60 * 1000, // squarely in the old gap
+      },
+    });
+
+    const result = await tm.processUrl('http://localhost:3000', 'auth', 'would-be-duplicate');
+    await tm.stopAllTunnels();
+
+    expect(mockNgrokConnect).not.toHaveBeenCalled();
+    expect(result.tunnelId).toBe('alive-and-billing');
+  });
+});
+
+// ── Bead lc62: a live tunnel must never become undiscoverable ────────────────
+
+describe('bead lc62 fix 1: auto-shutoff extension is scoped to OUR tunnelId', () => {
+  /** Drives the 55-minute idle timer in milliseconds. */
+  function fastTimerTm(reg: ReturnType<typeof createInMemoryRegistry>) {
+    const tm = new TunnelManagerClass(reg);
+    tm.idleTimeoutMs = 25;
+    return tm;
+  }
+  const settle = (ms = 120) => new Promise((r) => setTimeout(r, ms));
+
+  function keepEntryHot(reg: ReturnType<typeof createInMemoryRegistry>) {
+    return setInterval(() => {
+      const r = reg.read();
+      if (r['3000']) { r['3000'].lastAccessedAt = Date.now(); reg.write(r); }
+    }, 5);
+  }
+
+  test('a DISPLACED tunnel reaps itself instead of living off its replacement', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://displaced.ngrok.debugg.ai' as any);
+    const tm = fastTimerTm(reg);
+    await tm.processUrl('http://localhost:3000', 'auth', 'displaced');
+    expect(tm.getActiveTunnels()).toHaveLength(1);
+
+    // Another session provisions a replacement for the same port and keeps it
+    // hot. Keyed only by port, the old tunnel used to read that as its own
+    // activity and extend forever — an orphan nobody could reach, billing
+    // indefinitely. That is what turns a 55-minute mistake into a multi-day one.
+    reg.write({
+      '3000': {
+        tunnelId: 'replacement',
+        publicUrl: 'https://replacement.ngrok.debugg.ai/',
+        tunnelUrl: 'http://replacement.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 4242,
+        lastAccessedAt: Date.now(),
+      },
+    });
+    const hot = keepEntryHot(reg);
+    try {
+      await settle();
+      expect(tm.getActiveTunnels()).toHaveLength(0);
+      expect(mockNgrokDisconnect).toHaveBeenCalledWith('http://displaced.ngrok.debugg.ai');
+    } finally {
+      clearInterval(hot);
+    }
+  });
+
+  test('the replacement entry survives the displaced tunnel shutting down', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://displaced.ngrok.debugg.ai' as any);
+    const tm = fastTimerTm(reg);
+    await tm.processUrl('http://localhost:3000', 'auth', 'displaced');
+
+    reg.write({
+      '3000': {
+        tunnelId: 'replacement',
+        publicUrl: 'https://replacement.ngrok.debugg.ai/',
+        tunnelUrl: 'http://replacement.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 4242,
+        lastAccessedAt: Date.now(),
+      },
+    });
+
+    await settle();
+    // stopTunnel must not delete an entry naming a DIFFERENT, live tunnel.
+    expect(reg.read()['3000']?.tunnelId).toBe('replacement');
+  });
+
+  test('OUR OWN entry, freshly touched, still extends the tunnel', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://mine.ngrok.debugg.ai' as any);
+    const tm = fastTimerTm(reg);
+    await tm.processUrl('http://localhost:3000', 'auth', 'mine');
+
+    const hot = keepEntryHot(reg);
+    try {
+      await settle();
+      // Cross-process keep-alive is the entire reason the extension exists;
+      // scoping it by tunnelId must not break it.
+      expect(tm.getActiveTunnels()).toHaveLength(1);
+    } finally {
+      clearInterval(hot);
+      await tm.stopAllTunnels();
+    }
+  });
+});
+
+describe('bead lc62 fix 2: an owned tunnel re-registers itself', () => {
+  test('touchTunnel restores an entry pruned out from under a live tunnel', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(reg);
+    await tm.processUrl('http://localhost:3000', 'auth', 't1');
+
+    reg.write({}); // another MCP's startup prune swept it; the tunnel is untouched
+    tm.touchTunnel('t1');
+
+    const restored = reg.read()['3000'];
+    expect(restored?.tunnelId).toBe('t1');
+    expect(restored?.ownerPid).toBe(process.pid);
+    expect(restored?.tunnelUrl).toBe('http://t1.ngrok.debugg.ai');
+    await tm.stopAllTunnels();
+  });
+
+  test('the reuse path re-registers too — in-process reuse used to be invisible', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(reg);
+    await tm.processUrl('http://localhost:3000', 'auth', 't1');
+
+    reg.write({});
+    const result = await tm.processUrl('http://localhost:3000/other', 'auth', 't2');
+
+    expect(result.tunnelId).toBe('t1');              // reused, not re-provisioned
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(reg.read()['3000']?.tunnelId).toBe('t1'); // and discoverable again
+    await tm.stopAllTunnels();
+  });
+
+  test('a BORROWED tunnel does not re-register — we are not its owner', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://t1.ngrok.debugg.ai' as any);
+    const tmA = new TunnelManagerClass(reg);
+    await tmA.processUrl('http://localhost:3000', 'auth-a', 't1');
+    const tmB = new TunnelManagerClass(reg);
+    await tmB.processUrl('http://localhost:3000', 'auth-b', 't2');
+
+    reg.write({}); // entry vanishes
+    tmB.touchTunnel('t1');
+
+    // B claiming ownerPid over someone else's tunnel is a lie the real owner
+    // then trips over when IT stops.
+    expect(reg.read()['3000']).toBeUndefined();
+    await tmA.stopAllTunnels();
+  });
+
+  test('a foreign entry on our port is left completely alone', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://mine.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(reg);
+    await tm.processUrl('http://localhost:3000', 'auth', 'mine');
+
+    const foreignStamp = Date.now() - 5000;
+    reg.write({
+      '3000': {
+        tunnelId: 'someone-elses',
+        publicUrl: 'https://someone-elses.ngrok.debugg.ai/',
+        tunnelUrl: 'http://someone-elses.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 4242,
+        lastAccessedAt: foreignStamp,
+      },
+    });
+
+    tm.touchTunnel('mine');
+
+    const after = reg.read()['3000'];
+    expect(after.tunnelId).toBe('someone-elses');    // not overwritten
+    expect(after.lastAccessedAt).toBe(foreignStamp); // and not even refreshed
+    await tm.stopAllTunnels();
+  });
+});
+
+describe('bead lc62 fix 3: re-adopt live tunnels from the local ngrok agent', () => {
+  function inspectorReturning(tunnels: Array<{ tunnelId: string; port: number }>) {
+    return {
+      listLiveTunnels: async () => tunnels.map((t) => ({
+        tunnelId: t.tunnelId,
+        publicUrl: `https://${t.tunnelId}.ngrok.debugg.ai`,
+        port: t.port,
+      })),
+    };
+  }
+
+  test('an orphan whose owner was SIGKILLed is adopted instead of duplicated', async () => {
+    // Owner died: no registry entry survives the dead-PID prune, but the ngrok
+    // agent it spawned outlived it and the tunnel is still open and billing.
+    const reg = createInMemoryRegistry(() => true);
+    const tm = new TunnelManagerClass(reg);
+    tm.tunnelInspector = inspectorReturning([{ tunnelId: 'orphan-t', port: 3000 }]);
+
+    const result = await tm.processUrl('http://localhost:3000/app', 'auth', 'would-be-new');
+
+    expect(mockNgrokConnect).not.toHaveBeenCalled();
+    expect(result.tunnelId).toBe('orphan-t');
+    // Bead zmc9: an adopted tunnel is retargeted at THIS caller's path.
+    expect(result.url).toBe('https://orphan-t.ngrok.debugg.ai/app');
+    expect(reg.read()['3000']?.tunnelId).toBe('orphan-t');
+    await tm.stopAllTunnels();
+  });
+
+  test('an adopted tunnel is BORROWED, never claimed as owned', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    const tm = new TunnelManagerClass(reg);
+    tm.tunnelInspector = inspectorReturning([{ tunnelId: 'orphan-t', port: 3000 }]);
+    await tm.processUrl('http://localhost:3000', 'auth', 'unused');
+
+    expect(tm.getTunnelInfo('orphan-t')?.isOwned).toBe(false);
+    // So stopping it must not try to disconnect a session we never created.
+    await tm.stopTunnel('orphan-t');
+    expect(mockNgrokDisconnect).not.toHaveBeenCalled();
+  });
+
+  test('THE SAFETY PROPERTY: an inspector that observes nothing changes nothing', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://fresh.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(reg);
+    tm.tunnelInspector = inspectorReturning([]);
+
+    const result = await tm.processUrl('http://localhost:3000', 'auth', 'fresh');
+
+    // Exactly today's behaviour: nothing known, so provision. A blind inspector
+    // can never be the reason we spend — or fail to spend — a billed hour.
+    expect(result.tunnelId).toBe('fresh');
+    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    await tm.stopAllTunnels();
+  });
+
+  test('an inspector that THROWS is absorbed and provisioning proceeds', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    mockNgrokConnect.mockResolvedValueOnce('http://fresh.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(reg);
+    tm.tunnelInspector = { listLiveTunnels: async () => { throw new Error('agent API moved'); } };
+
+    await expect(tm.processUrl('http://localhost:3000', 'auth', 'fresh'))
+      .resolves.toMatchObject({ tunnelId: 'fresh' });
+    await tm.stopAllTunnels();
+  });
+
+  test('reconciliation is ADD-ONLY — a usable entry is never displaced', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    const tm = new TunnelManagerClass(reg);
+    reg.write({
+      '3000': {
+        tunnelId: 'working-t',
+        publicUrl: 'https://working-t.ngrok.debugg.ai/',
+        tunnelUrl: 'http://working-t.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 4242,
+        lastAccessedAt: Date.now(),
+      },
+    });
+    tm.tunnelInspector = inspectorReturning([{ tunnelId: 'other-live-t', port: 3000 }]);
+
+    const result = await tm.processUrl('http://localhost:3000', 'auth', 'unused');
+
+    // The usable entry wins outright; nothing is deleted or rewritten.
+    expect(result.tunnelId).toBe('working-t');
+    expect(reg.read()['3000'].tunnelId).toBe('working-t');
+    await tm.stopAllTunnels();
+  });
+
+  test('an UNUSABLE entry IS replaced by a tunnel proven live', async () => {
+    const reg = createInMemoryRegistry((pid) => pid === process.pid); // 99999 is dead
+    const tm = new TunnelManagerClass(reg);
+    reg.write({
+      '3000': {
+        tunnelId: 'stale-t',
+        publicUrl: 'https://stale-t.ngrok.debugg.ai/',
+        tunnelUrl: 'http://stale-t.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 99999,
+        lastAccessedAt: Date.now(),
+      },
+    });
+    tm.tunnelInspector = inspectorReturning([{ tunnelId: 'actually-live', port: 3000 }]);
+
+    const result = await tm.processUrl('http://localhost:3000', 'auth', 'unused');
+    expect(mockNgrokConnect).not.toHaveBeenCalled();
+    expect(result.tunnelId).toBe('actually-live');
+    await tm.stopAllTunnels();
+  });
+
+  test('the agent scan runs at most once per process', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    let calls = 0;
+    mockNgrokConnect.mockResolvedValue('http://fresh.ngrok.debugg.ai' as any);
+    const tm = new TunnelManagerClass(reg);
+    tm.tunnelInspector = { listLiveTunnels: async () => { calls++; return []; } };
+
+    await tm.processUrl('http://localhost:3000', 'auth', 'fresh-a');
+    await tm.processUrl('http://localhost:4000', 'auth', 'fresh-b');
+
+    expect(calls).toBe(1);
+    await tm.stopAllTunnels();
+  });
+
+  test('a manager that only ever borrows never pays for a scan', async () => {
+    const reg = createInMemoryRegistry(() => true);
+    let calls = 0;
+    const tm = new TunnelManagerClass(reg);
+    tm.tunnelInspector = { listLiveTunnels: async () => { calls++; return []; } };
+    reg.write({
+      '3000': {
+        tunnelId: 'borrow-me',
+        publicUrl: 'https://borrow-me.ngrok.debugg.ai/',
+        tunnelUrl: 'http://borrow-me.ngrok.debugg.ai',
+        port: 3000,
+        ownerPid: 4242,
+        lastAccessedAt: Date.now(),
+      },
+    });
+
+    await tm.processUrl('http://localhost:3000', 'auth', 'unused');
+
+    // The scan only happens on the path that is about to spend money.
+    expect(calls).toBe(0);
+    await tm.stopAllTunnels();
+  });
+
+  test('borrowing never issues a request to a *.ngrok.debugg.ai host', async () => {
+    // The k6yq / z15n / kmzb failure class: probing the PUBLIC url for a reuse
+    // decision reads a live tunnel as dead and replaces it. Liveness evidence
+    // must come from loopback only.
+    const realFetch = globalThis.fetch;
+    const fetchSpy = jest.fn(async () => new Response('nope'));
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const reg = createInMemoryRegistry(() => true);
+      const tm = new TunnelManagerClass(reg);
+      reg.write({
+        '3000': {
+          tunnelId: 'borrow-me',
+          publicUrl: 'https://borrow-me.ngrok.debugg.ai/',
+          tunnelUrl: 'http://borrow-me.ngrok.debugg.ai',
+          port: 3000,
+          ownerPid: 4242,
+          lastAccessedAt: Date.now(),
+        },
+      });
+
+      const result = await tm.processUrl('http://localhost:3000', 'auth', 'unused');
+
+      expect(result.tunnelId).toBe('borrow-me');
+      expect(fetchSpy).not.toHaveBeenCalled();
+      await tm.stopAllTunnels();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
