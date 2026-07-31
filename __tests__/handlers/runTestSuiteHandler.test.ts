@@ -21,14 +21,20 @@ jest.unstable_mockModule('../../services/index.js', () => ({
 
 const mockProbeLocalPort = jest.fn<(...args: any[]) => Promise<any>>();
 const mockProbeTunnelHealth = jest.fn<(...args: any[]) => Promise<any>>();
-const mockFindExistingTunnel = jest.fn<(...args: any[]) => any>();
-const mockEnsureTunnel = jest.fn<(...args: any[]) => Promise<any>>();
+const mockSanitizeResponseUrls = jest.fn<(val: any, ctx: any) => any>().mockImplementation((v: any) => v);
 
 jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeLocalPort: mockProbeLocalPort,
   probeTunnelHealth: mockProbeTunnelHealth,
 }));
 
+// §2.3: run_test_suite is the ONE named exception that does NOT go through
+// findExistingTunnel/ensureTunnel/acquirePortRoute at all — it is
+// fire-and-forget (no poll loop, no bounded window to hold the shared
+// session lock over), so it gets its own DEDICATED tunnel via
+// tunnelManager.acquireDedicatedTunnel(), bypassing Caddy/PortLock entirely.
+// buildContext stays real-ish (just isLocalhost detection) since the
+// handler's own localhost branch logic depends on it.
 jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   buildContext: (url: string) => ({
     originalUrl: url,
@@ -36,10 +42,7 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
     targetUrl: url,
     tunnelId: undefined,
   }),
-  findExistingTunnel: mockFindExistingTunnel,
-  ensureTunnel: mockEnsureTunnel,
-  sanitizeResponseUrls: (v: any) => v,
-  touchTunnelById: jest.fn(),
+  sanitizeResponseUrls: mockSanitizeResponseUrls,
 }));
 
 jest.unstable_mockModule('../../services/tunnels.js', () => ({
@@ -51,8 +54,16 @@ jest.unstable_mockModule('../../services/tunnels.js', () => ({
 // hours a time (see utils/tunnelDisposition.ts).
 const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any);
 const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
+// §2.3's run_test_suite exception: acquireDedicatedTunnel dials ngrok
+// directly, bypassing Caddy/PortLock — always mints a FRESH tunnel, never
+// deduped/reused (unlike ensureSessionTunnel).
+const mockAcquireDedicatedTunnel = jest.fn<(...args: any[]) => Promise<any>>();
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
-  tunnelManager: { stopTunnel: mockStopTunnel, markTunnelDead: mockMarkTunnelDead },
+  tunnelManager: {
+    stopTunnel: mockStopTunnel,
+    markTunnelDead: mockMarkTunnelDead,
+    acquireDedicatedTunnel: mockAcquireDedicatedTunnel,
+  },
 }));
 
 let runTestSuiteHandler: typeof import('../../handlers/runTestSuiteHandler.js').runTestSuiteHandler;
@@ -73,11 +84,11 @@ describe('runTestSuiteHandler', () => {
     jest.clearAllMocks();
     mockInit.mockResolvedValue(undefined);
     mockRunTestSuite.mockResolvedValue(RUN_RESPONSE);
-    mockFindExistingTunnel.mockReturnValue(null);
+    mockSanitizeResponseUrls.mockImplementation((v: any) => v);
     mockProbeLocalPort.mockResolvedValue({ reachable: true, code: 'OK', elapsedMs: 5 });
     mockProbeTunnelHealth.mockResolvedValue({ healthy: true, elapsedMs: 10 });
     mockProvisionWithRetry.mockResolvedValue({ tunnelKey: 'key', tunnelId: 'tid', keyId: 'kid' });
-    mockEnsureTunnel.mockResolvedValue({ targetUrl: 'https://abc.ngrok.io', tunnelId: 'tid', isLocalhost: true, originalUrl: 'http://localhost:3011' });
+    mockAcquireDedicatedTunnel.mockResolvedValue({ url: 'https://abc.ngrok.io', tunnelId: 'tid' });
   });
 
   describe('uuid mode', () => {
@@ -151,34 +162,30 @@ describe('runTestSuiteHandler', () => {
     });
   });
 
-  describe('localhost tunnel', () => {
-    test('localhost targetUrl: provisions tunnel and substitutes URL', async () => {
+  describe('localhost tunnel — §2.3 dedicated-tunnel exception', () => {
+    test('localhost targetUrl: provisions a DEDICATED tunnel (bypasses Caddy/PortLock) and substitutes URL', async () => {
       await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
 
       expect(mockProbeLocalPort).toHaveBeenCalledWith(3011);
       expect(mockProvisionWithRetry).toHaveBeenCalled();
-      expect(mockEnsureTunnel).toHaveBeenCalled();
+      expect(mockAcquireDedicatedTunnel).toHaveBeenCalledWith(
+        'http://localhost:3011', 'key', 'kid', expect.any(Function),
+      );
       expect(mockRunTestSuite).toHaveBeenCalledWith(
         SUITE_UUID,
         expect.objectContaining({ targetUrl: 'https://abc.ngrok.io' }),
       );
     });
 
-    test('localhost targetUrl: reuses existing tunnel without re-provisioning', async () => {
-      mockFindExistingTunnel.mockReturnValue({
-        targetUrl: 'https://existing.ngrok.io',
-        tunnelId: 'existing-tid',
-        isLocalhost: true,
-        originalUrl: 'http://localhost:3011',
-      });
-
+    // §2.3: acquireDedicatedTunnel is NEVER deduped/reused — every call mints
+    // a fresh tunnel (unlike ensureSessionTunnel's per-session reuse). There
+    // is no "findExistingTunnel" fast path for this handler at all anymore.
+    test('localhost targetUrl: every call provisions its OWN fresh dedicated tunnel (no reuse)', async () => {
+      await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
       await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
 
-      expect(mockProvisionWithRetry).not.toHaveBeenCalled();
-      expect(mockRunTestSuite).toHaveBeenCalledWith(
-        SUITE_UUID,
-        expect.objectContaining({ targetUrl: 'https://existing.ngrok.io' }),
-      );
+      expect(mockProvisionWithRetry).toHaveBeenCalledTimes(2);
+      expect(mockAcquireDedicatedTunnel).toHaveBeenCalledTimes(2);
     });
 
     test('localhost targetUrl: LocalServerUnreachable when port not listening', async () => {
@@ -241,7 +248,8 @@ describe('runTestSuiteHandler', () => {
       expect(res.isError).toBe(true);
       // markTunnelDead, not stopTunnel: only the former evicts the SHARED registry
       // entry, which is what stops other sessions re-borrowing the corpse (k34o).
-      expect(mockMarkTunnelDead).toHaveBeenCalledWith(3011, expect.any(String));
+      // §2.3: markTunnelDead dropped its `port` parameter — no longer port-scoped.
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(String));
       expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 
@@ -250,6 +258,7 @@ describe('runTestSuiteHandler', () => {
 
       expect(mockProbeLocalPort).not.toHaveBeenCalled();
       expect(mockProvisionWithRetry).not.toHaveBeenCalled();
+      expect(mockAcquireDedicatedTunnel).not.toHaveBeenCalled();
       expect(mockRunTestSuite).toHaveBeenCalledWith(
         SUITE_UUID,
         expect.objectContaining({ targetUrl: 'https://staging.example.com' }),
@@ -262,6 +271,49 @@ describe('runTestSuiteHandler', () => {
       const body = JSON.parse(res.content[0].text!);
       expect(body.tunnelActive).toBe(true);
       expect(body.originalUrl).toBe('http://localhost:3011');
+    });
+  });
+
+  // Bead debugg_ai_mcp-6cfv.7: this handler previously had NO sanitize call at
+  // all — add a defensive pass, exercised here by asserting it actually runs
+  // against the response payload for a localhost target.
+  describe('defensive sanitizeResponseUrls call (bead debugg_ai_mcp-6cfv.7)', () => {
+    test('localhost target: sanitizeResponseUrls is called against the response payload', async () => {
+      await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
+
+      expect(mockSanitizeResponseUrls).toHaveBeenCalledWith(
+        expect.objectContaining({ suiteUuid: SUITE_UUID, tunnelActive: true }),
+        expect.objectContaining({ isLocalhost: true, tunnelId: 'tid' }),
+      );
+    });
+
+    test('a tunnel hostname leaking into the backend response is stripped before returning', async () => {
+      // Use a field name distinct from the handler's own fixed `note` field
+      // (which always overwrites whatever the backend sent under that key).
+      mockRunTestSuite.mockResolvedValue({ ...RUN_RESPONSE, statusUrl: 'https://abc.ngrok.io/status' });
+      mockSanitizeResponseUrls.mockImplementation((value: any) =>
+        JSON.parse(JSON.stringify(value).replace(/https:\/\/abc\.ngrok\.io/g, 'http://localhost:3011')),
+      );
+
+      const res = await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
+
+      const body = JSON.parse(res.content[0].text!);
+      expect(body.statusUrl).toBe('http://localhost:3011/status');
+    });
+
+    test('public target: sanitizeResponseUrls is NOT called (no tunnel ctx to scope it to)', async () => {
+      await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'https://staging.example.com' }, ctx);
+
+      // sanitizeResponseUrls itself no-ops for non-localhost ctx (§ tunnelContext.ts
+      // contract), but this handler doesn't even have a ctx to pass when there
+      // was never a localhost target — sanitizeCtx stays undefined.
+      expect(mockSanitizeResponseUrls).not.toHaveBeenCalled();
+    });
+
+    test('no targetUrl at all: sanitizeResponseUrls is NOT called', async () => {
+      await runTestSuiteHandler({ suiteUuid: SUITE_UUID }, ctx);
+
+      expect(mockSanitizeResponseUrls).not.toHaveBeenCalled();
     });
   });
 

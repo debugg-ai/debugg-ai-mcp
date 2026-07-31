@@ -1,35 +1,53 @@
 /**
  * Tunnel Management Service
  *
- * Manages per-port ngrok tunnels with two layers of reuse:
+ * ONE ngrok tunnel per SESSION KEY (§2.1 of
+ * docs/local-tunnel-multiplexer-architecture-2026-07-31.md) — not one per
+ * local port. A session's tunnel dials a local Caddy instance
+ * (services/caddy/caddyProxy.ts) that holds exactly one dynamic upstream,
+ * repointed via Caddy's admin API immediately before each tool dispatch
+ * under a per-session PortLock (services/caddy/portLock.ts) that serializes
+ * different-port calls but not same-port ones.
  *
- *   1. Within-process  — activeTunnels map, 55-min auto-shutoff timer.
- *   2. Cross-process   — file-backed RegistryStore so a second MCP instance
- *                        on the same machine borrows an existing tunnel instead
- *                        of provisioning a new one for the same port.
+ * This retires the entire cross-process "borrow another MCP's tunnel"
+ * mechanism the previous per-port design needed (registry-mediated adoption,
+ * PID-liveness/freshness checks, re-adoption from the local ngrok agent) —
+ * see §4's "Same-machine multi-process / multi-session sharing" decision:
+ * "No sharing, ever, at any granularity." Every tunnel this process holds is
+ * one it created; `services/ngrok/tunnelRegistry.ts` is now write-mostly
+ * observability, not a correctness dependency.
  *
- * Lifecycle:
- *   - Owned tunnels  (isOwned=true)  : this process created them; it disconnects
- *                                      and revokes the key on stop.
- *   - Borrowed tunnels (isOwned=false): another process owns them; on stop we
- *                                       only remove the local reference.
- *   - Auto-shutoff timer checks the shared registry before firing: if another
- *     process recently touched the entry the timer resets instead of stopping.
+ * Session identity (§2.1): stdio has exactly one session key for its whole
+ * process life. HTTP transport derives a distinct key per caller from the
+ * request-scoped bearer token (utils/requestContext.ts), because a bare
+ * module singleton serving many HTTP callers on one process must not let two
+ * different callers share one Caddy route — that would be a cross-tenant
+ * correctness bug, not just a cost one.
+ *
+ * A single, permanent, named exception: `run_test_suite` is fire-and-forget
+ * (no poll loop, no bounded window this process can hold a lock over), so it
+ * gets its own dedicated per-call tunnel via `acquireDedicatedTunnel()` that
+ * bypasses Caddy/PortLock entirely — see §2.3.
  */
 
 import { Logger } from '../../utils/logger.js';
 import { Telemetry, TelemetryEvents } from '../../utils/telemetry.js';
-import { isLocalhostUrl, extractLocalhostPort, generateTunnelUrl, retargetTunnelUrl } from '../../utils/urlParser.js';
+import { extractLocalhostPort, generateTunnelUrl } from '../../utils/urlParser.js';
+import { currentApiKey } from '../../utils/requestContext.js';
+import { createHash } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { FaultInjector, TunnelTrace, getFaultModeFromEnv } from './tunnelFaultInjection.js';
 import {
   RegistryStore,
-  RegistryEntry,
-  RegistryData,
   getDefaultRegistry,
 } from './tunnelRegistry.js';
 import { startAgentSession, AgentSessionStarter } from './ngrokAgentSession.js';
-import { getDefaultInspector, TunnelInspector } from './ngrokAgentInspector.js';
+import {
+  createCaddyProxy,
+  isDockerEnv,
+  type CaddyProxy,
+} from '../caddy/caddyProxy.js';
+import { PortLock } from '../caddy/portLock.js';
 
 let ngrokModule: any = null;
 
@@ -46,7 +64,7 @@ async function getNgrok() {
 
 /**
  * Reset the cached ngrok module so the next connect() bootstraps a fresh agent.
- * Called when the last owned tunnel is disconnected and the agent process may have died.
+ * Called when the last tunnel is disconnected and the agent process may have died.
  */
 function resetNgrokModule(): void {
   ngrokModule = null;
@@ -54,83 +72,110 @@ function resetNgrokModule(): void {
 
 const logger = new Logger({ module: 'tunnelManager' });
 
+// ── Session identity (§2.1) ────────────────────────────────────────────────────
+
+/**
+ * Derives this call's session key. stdio: `currentApiKey()` is always
+ * unset (nothing on the stdio path ever calls
+ * `utils/requestContext.ts`'s `runWithApiKey`), so every stdio call
+ * legitimately collapses onto the fixed `'stdio'` key — that IS "one
+ * process = one caller for its whole life" (§2.1), not a fallback failure.
+ *
+ * HTTP: every request MUST carry a bearer token by the time it reaches tunnel
+ * logic — `httpServer.ts` 401s on a missing token before ever calling
+ * `runWithApiKey` — so `currentApiKey()` returning undefined while
+ * `DEBUGGAI_MCP_TRANSPORT=http` is genuinely anomalous: it means two
+ * different HTTP callers could collapse onto the same session key and get
+ * routed into each other's local dev server. That specific case is logged
+ * loudly so it surfaces in practice.
+ *
+ * NOTE — this deliberately deviates from the architecture doc's §2.1
+ * pseudocode, which logs `logger.error` on EVERY `!apiKey` fallback with no
+ * way to tell "expected stdio call" apart from "HTTP call with isolation
+ * broken" (both read as `currentApiKey() === undefined`). Following the doc
+ * literally would fire an ERROR log on every single stdio tool call — a
+ * regression, not a safety net. `DEBUGGAI_MCP_TRANSPORT` (already read by
+ * index.ts to choose stdio vs HTTP at startup) is the signal that lets the
+ * two cases be told apart; using it here is a bug fix over the doc's literal
+ * text, not a simplification of its intent (§6's "no-API-key fallback"
+ * finding is still tracked — the loud log now actually only fires for the
+ * case it was meant to catch).
+ */
+export function getSessionKey(): string {
+  const apiKey = currentApiKey();
+  if (apiKey) {
+    return `http:${createHash('sha256').update(apiKey).digest('hex').slice(0, 16)}`;
+  }
+  const transportMode = (process.env.DEBUGGAI_MCP_TRANSPORT || 'stdio').toLowerCase();
+  if (transportMode === 'http') {
+    logger.error(
+      'getSessionKey(): HTTP transport reached tunnel logic with no API key in request context — ' +
+      'falling back to a shared key. This MUST NOT be reachable on an authenticated HTTP path; ' +
+      'if it fires, tunnel isolation between callers is broken.',
+    );
+  }
+  return 'stdio';
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface TunnelInfo {
   tunnelId: string;
-  originalUrl: string;
+  /** §2.1 — replaces `port` as the identity a tunnel is keyed by. */
+  sessionKey: string;
+  /** Bare origin returned by ngrok.connect() — unchanged meaning (bead zmc9);
+   *  per-caller path baking happens at the call site via retargetTunnelUrl. */
   tunnelUrl: string;
-  publicUrl: string;
-  port: number;
   createdAt: number;
   lastAccessedAt: number;
   autoShutoffTimer?: NodeJS.Timeout;
-  /** Whether THIS process created and owns the underlying ngrok session. */
-  isOwned: boolean;
-  /** Backend ngrok API key ID — revoked when this tunnel stops (owned only). */
+  /** Backend ngrok API key ID — revoked when this tunnel stops. */
   keyId?: string;
-  /** Callback to revoke the backend key on stop (owned only). */
+  /** Callback to revoke the backend key on stop. */
   revokeKey?: () => Promise<void>;
+  /** This session's own Caddy instance — never a process-wide singleton. */
+  caddy: CaddyProxy;
+  /** This session's own port-route lock (§2.4), bound to `caddy`. */
+  portLock: PortLock;
 }
 
-export interface TunnelResult {
-  url: string;
-  tunnelId?: string;
-  isLocalhost: boolean;
+/**
+ * Bookkeeping for the `run_test_suite` exception (§2.3): a tunnel that
+ * dials the local app DIRECTLY, bypassing Caddy/PortLock entirely. Kept
+ * separate from `TunnelInfo` rather than made an optional-Caddy variant of
+ * it, because nothing about it participates in the session-tunnel
+ * abstraction (no shared route to serialize, no `sessionKey` identity to
+ * dedup on — `acquireDedicatedTunnel` always mints a fresh one).
+ */
+interface DirectTunnelInfo {
+  tunnelId: string;
+  tunnelUrl: string;
+  createdAt: number;
+  lastAccessedAt: number;
+  autoShutoffTimer?: NodeJS.Timeout;
+  keyId?: string;
+  revokeKey?: () => Promise<void>;
 }
 
 // ── TunnelManager ─────────────────────────────────────────────────────────────
 
 class TunnelManager {
   private activeTunnels = new Map<string, TunnelInfo>();
-  private pendingTunnels = new Map<number, Promise<TunnelInfo>>();
+  private directTunnels = new Map<string, DirectTunnelInfo>();
+  /** sessionKey -> tunnelId, for the fast "already have a tunnel" path. */
+  private sessionTunnels = new Map<string, string>();
+  /** sessionKey -> in-flight creation, so concurrent first calls for a fresh
+   *  session key join one creation instead of each minting their own (§2.3's
+   *  cold-start TOCTOU fix — see ensureSessionTunnel()). */
+  private pendingSessionTunnels = new Map<string, Promise<TunnelInfo>>();
   private initialized = false;
+
   /**
-   * Idle window before an owned tunnel auto-shuts-off. THE constant of this
-   * class: every other lifetime below is derived from it, because they are all
-   * answering the same question — "could this tunnel still be alive?" — and
-   * when they answered it differently they cost real money (bead y7x6).
-   *
-   * Public so timer tests can run in milliseconds instead of 55 minutes,
-   * matching the `connectBackoffMs` / `agentSessionStarter` precedent.
+   * Idle window before a tunnel auto-shuts-off. Public so timer tests can run
+   * in milliseconds instead of 55 minutes, matching the `connectBackoffMs` /
+   * `agentSessionStarter` precedent.
    */
   public idleTimeoutMs = 55 * 60 * 1000;
-  /**
-   * Bead `3th`: registry-entry freshness window. An entry not touched within
-   * this many ms is treated as stale even if its owner PID is alive — defends
-   * against PID-reuse (OS reassigns dead-owner's PID to a different process).
-   *
-   * Bead `y7x6`: this was a hard-coded 30 minutes while tunnels lived for 55,
-   * so between T+30 and T+55 an entry was judged unusable while the tunnel it
-   * named was alive and billing. The next request provisioned a duplicate and
-   * OVERWROTE the entry, orphaning the original: a systematic double-bill on a
-   * 25-minute-wide window. Deriving it from the idle timeout is the fix, and
-   * it is the derivation — not the number — that matters, because it makes the
-   * two impossible to drift apart again.
-   *
-   * No guard band is subtracted. A band would just re-open a narrower version
-   * of the same window, and the T+55 boundary is already handled: a borrower
-   * writes `lastAccessedAt` before the owner's timer fires, and the owner then
-   * extends rather than shutting down.
-   */
-  private get registryFreshnessTtlMs(): number {
-    return this.idleTimeoutMs;
-  }
-  /**
-   * Bead `mdp`: prune-on-startup eviction window. Entries older than this OR
-   * with dead owner PID get swept out when TunnelManager initializes.
-   *
-   * Also derived, for the same reason: an entry older than the idle timeout
-   * names a tunnel that has already auto-shut-off, and one that has NOT is
-   * recovered by re-adoption (bead lc62) rather than by keeping a longer
-   * threshold here. Pruning something `isEntryUsable` already rejects costs
-   * nothing; the danger was never prune's window, it was that nothing put a
-   * live tunnel back.
-   */
-  private get registryPruneThresholdMs(): number {
-    return this.idleTimeoutMs;
-  }
   /**
    * Backoff schedule (ms) between ngrok.connect() retry attempts. Bead ixh.
    * Exposed on the class so tests can override with short delays without
@@ -151,30 +196,24 @@ class TunnelManager {
    */
   public agentSessionTimeoutMs = 5000;
   /**
-   * Bead lc62: where we learn which tunnels are actually alive on this machine.
-   * Overridable so tests drive a fake agent API instead of loopback HTTP.
+   * §2.2/§2.3: one fresh `CaddyProxy` instance PER SESSION KEY, never a
+   * process-wide singleton. Overridable so tests drive a fake proxy instead
+   * of spawning a real `caddy` process.
    */
-  public tunnelInspector: TunnelInspector = getDefaultInspector();
+  public caddyFactory: () => CaddyProxy = createCaddyProxy;
+
   /** Whether the ngrok agent's client session is established (bead pqgj). */
   private agentSessionReady = false;
   /** In-flight session bootstrap, so concurrent tunnels wait on one spawn. */
   private agentSessionPromise: Promise<void> | null = null;
-  /** Memoized one-shot reconcile against the local ngrok agents (bead lc62). */
-  private reconcilePromise: Promise<void> | null = null;
 
   constructor(private readonly reg: RegistryStore = getDefaultRegistry()) {
-    // Bead `mdp`: sweep stale entries on startup so the registry doesn't grow
-    // unboundedly across MCP processes that exited without stopAllTunnels
-    // (SIGKILL / crash). Best-effort — no-op registries don't actually prune.
-    //
-    // Bead lc62: this sweep deletes map keys, which cannot stop a tunnel, so a
-    // pruned-but-live tunnel becomes an invisible billing line. Making prune
-    // tear tunnels down would be far worse — two billed hours for every idle
-    // gap, on exactly the days-long sessions this design exists to serve — so
-    // recovery is handled the other way round, by reconcileWithLocalAgents()
-    // putting live tunnels BACK. Prune stays cheap, synchronous, and harmless.
+    // Bead `mdp`: sweep dead-owner entries on startup so the (now purely
+    // diagnostic — §4) registry doesn't grow unboundedly across MCP
+    // processes that exited without stopAllTunnels (SIGKILL / crash).
+    // Best-effort — no-op registries don't actually prune.
     try {
-      const result = this.reg.prune({ staleAfterMs: this.registryPruneThresholdMs });
+      const result = this.reg.prune();
       if (result.pruned > 0) {
         logger.info(`Pruned ${result.pruned} stale registry entries on startup (${result.remaining} remaining)`);
       }
@@ -183,162 +222,226 @@ class TunnelManager {
     }
   }
 
+  // ── Public API — session tunnels ───────────────────────────────────────────
+
   /**
-   * Bead `3th`: freshness check used at borrow sites. Returns true if the
-   * entry is BOTH owner-alive AND touched recently enough to trust.
+   * The single entry point for "get me the tunnel for my session," replacing
+   * `processUrl()`/`processPerPort()`. Idempotent per session key: the first
+   * caller creates, everyone else — concurrent or sequential — reuses.
+   *
+   * §2.3's cold-start TOCTOU fix: the read (`sessionTunnels.get`) and the
+   * eventual write (`sessionTunnels.set`) are separated by several `await`
+   * points (spawning Caddy, connecting ngrok). Two near-simultaneous first
+   * calls for the same fresh session key — exactly what an orchestrating
+   * agent produces (an initial navigate fired alongside an initial probe) —
+   * would otherwise both observe a miss and each mint their own tunnel,
+   * silently defeating "one tunnel per session" at the moment most likely to
+   * have concurrent calls. `pendingSessionTunnels` closes that window: the
+   * claim (steps 2-3 below) is entirely synchronous relative to each other,
+   * so whichever call runs its synchronous prefix first wins the map slot,
+   * and the other necessarily observes it on its own synchronous prefix.
    */
-  private isEntryUsable(entry: RegistryEntry, nowMs: number = Date.now()): boolean {
-    return (
-      this.reg.isPidAlive(entry.ownerPid) &&
-      (nowMs - entry.lastAccessedAt) <= this.registryFreshnessTtlMs
-    );
-  }
-
-  // ── Public API ──────────────────────────────────────────────────────────────
-
-  async processUrl(
-    url: string,
-    authToken?: string,
+  async ensureSessionTunnel(
+    sessionKey: string,
+    authToken: string,
     specificTunnelId?: string,
     keyId?: string,
     revokeKey?: () => Promise<void>,
-  ): Promise<TunnelResult> {
-    if (!isLocalhostUrl(url)) {
-      return { url, isLocalhost: false };
+  ): Promise<TunnelInfo> {
+    // 1. Fast path: a fully-created tunnel already exists for this session key.
+    const existingId = this.sessionTunnels.get(sessionKey);
+    if (existingId) {
+      const info = this.activeTunnels.get(existingId);
+      if (info) {
+        this.touchTunnel(info.tunnelId);
+        return info;
+      }
     }
+
+    // 2. A creation is already in flight for this session key — join it
+    //    rather than starting a second one.
+    const inFlight = this.pendingSessionTunnels.get(sessionKey);
+    if (inFlight) return inFlight;
+
+    // 3. First caller for this session key: claim the slot BEFORE any await.
+    const creation = this.createSessionTunnel(sessionKey, authToken, specificTunnelId, keyId, revokeKey)
+      .finally(() => { this.pendingSessionTunnels.delete(sessionKey); });
+    this.pendingSessionTunnels.set(sessionKey, creation);
+    return creation;
+  }
+
+  /** Cheap peek: an already-created session tunnel, or undefined. Never
+   *  provisions anything — used by callers that want to skip a backend key
+   *  provision step when reuse is possible (utils/tunnelContext.ts's
+   *  findExistingTunnel, mirroring the old getTunnelForPort's role). */
+  getSessionTunnelInfo(sessionKey: string): TunnelInfo | undefined {
+    const tunnelId = this.sessionTunnels.get(sessionKey);
+    return tunnelId ? this.activeTunnels.get(tunnelId) : undefined;
+  }
+
+  getTunnelInfo(tunnelId: string): TunnelInfo | undefined {
+    return this.activeTunnels.get(tunnelId);
+  }
+
+  getActiveTunnels(): TunnelInfo[] {
+    return Array.from(this.activeTunnels.values());
+  }
+
+  // ── Public API — the run_test_suite exception (§2.3) ───────────────────────
+
+  /**
+   * Used ONLY by runTestSuiteHandler.ts. Bypasses Caddy/PortLock entirely —
+   * dials ngrok straight at the app, exactly like today's per-port
+   * createTunnel(). Governed by the same idleTimeoutMs auto-shutoff as any
+   * other tunnel. This is a deliberate, scoped exception to "one tunnel per
+   * session" (§2.3) — not a smuggled-in legacy fallback — forced by
+   * run_test_suite's async execution model: it is fire-and-forget (no poll
+   * loop, no bounded window this process can hold a lock over), so holding
+   * the shared session lock for "the whole call" would give it no protection
+   * at all — the lock would release back to contention seconds after
+   * triggering a suite that goes on to use the port for possibly many more
+   * minutes.
+   *
+   * A session that calls both a Caddy-routed tool AND run_test_suite pays for
+   * 2 tunnels for that session — honest and bounded, flagged in §6.
+   */
+  async acquireDedicatedTunnel(
+    url: string,
+    authToken: string,
+    keyId?: string,
+    revokeKey?: () => Promise<void>,
+  ): Promise<{ url: string; tunnelId: string }> {
+    await this.ensureInitialized();
 
     const port = extractLocalhostPort(url);
     if (!port) {
-      throw new Error(`Could not extract port from localhost URL: ${url}`);
+      throw new Error(`acquireDedicatedTunnel: could not extract port from localhost URL: ${url}`);
     }
 
-    if (!authToken) {
-      throw new Error('Auth token required to create tunnel for localhost URL');
+    const tunnelId = uuidv4();
+    const tunnelDomain = `${tunnelId}.ngrok.debugg.ai`;
+    const isHttpsLocal = url.startsWith('https:');
+    const inDocker = isDockerEnv();
+    // NOTE: this intentionally does NOT reuse caddyProxy.ts's
+    // resolveDialAddress() — that function builds Caddy's JSON `dial` field,
+    // which is always a bare `host:port` (Caddy conveys TLS-ness via its
+    // separate `transport` field, never a URL scheme in `dial`). ngrok's
+    // own `connect({ addr })` option is a different consumer with a
+    // different format: it DOES need a `https://` scheme prefix for an
+    // HTTPS local target (see the original tunnelManager.ts:696-701, which
+    // this path preserves byte-for-byte since it dials the app directly,
+    // exactly like the pre-cutover per-port createTunnel()). Reusing
+    // resolveDialAddress() here would silently drop that scheme and break
+    // HTTPS dedicated tunnels.
+    const dockerHost = 'host.docker.internal';
+    let localAddr: string;
+    if (isHttpsLocal) {
+      localAddr = inDocker ? `https://${dockerHost}:${port}` : `https://localhost:${port}`;
+    } else {
+      localAddr = inDocker ? `${dockerHost}:${port}` : `127.0.0.1:${port}`;
     }
 
-    const tunnelId = specificTunnelId || uuidv4();
-    return this.processPerPort(url, port, authToken, tunnelId, keyId, revokeKey);
-  }
+    logger.info(
+      `Creating dedicated tunnel for localhost:${port} (domain: ${tunnelDomain}) — ` +
+      'run_test_suite exception, bypasses Caddy',
+    );
 
-  /**
-   * Return an active tunnel for the given local port, or undefined.
-   * For borrowed tunnels, evicts the entry if the owning process has died.
-   */
-  getTunnelForPort(port: number): TunnelInfo | undefined {
-    const existing = this.findTunnelByPort(port);
-    if (!existing) return undefined;
+    const faultMode = getFaultModeFromEnv();
+    const faults = new FaultInjector(faultMode);
+    const trace = new TunnelTrace();
+    trace.emit('acquireDedicatedTunnel.start', { port, tunnelId, hasFaultMode: !!faultMode });
 
-    if (!existing.isOwned) {
-      // Verify the owning process is still alive AND the entry is fresh
-      // (lastAccessedAt within registryFreshnessTtlMs — defends against
-      // PID-reuse per bead 3th).
-      const entry = this.reg.read()[String(port)];
-      if (!entry || !this.isEntryUsable(entry)) {
-        this.activeTunnels.delete(existing.tunnelId);
-        const reason = !entry
-          ? 'no registry entry'
-          : !this.reg.isPidAlive(entry.ownerPid)
-            ? `owner PID ${entry.ownerPid} dead`
-            : `entry stale (last accessed ${Math.round((Date.now() - entry.lastAccessedAt) / 1000)}s ago)`;
-        logger.info(`Evicted stale borrowed tunnel ${existing.tunnelId} (${reason})`);
-        return undefined;
+    try {
+      const tunnelUrl = await this.connectWithRetry(localAddr, tunnelDomain, authToken, trace, faults);
+      const now = Date.now();
+      const info: DirectTunnelInfo = {
+        tunnelId, tunnelUrl, createdAt: now, lastAccessedAt: now, keyId, revokeKey,
+      };
+      this.directTunnels.set(tunnelId, info);
+      this.writeRegistryEntry(tunnelId, `dedicated:${tunnelId}`, tunnelUrl, -1);
+      this.armIdleTimer(info);
+
+      trace.emit('acquireDedicatedTunnel.success', { tunnelId, tunnelUrl });
+      logger.info(`Dedicated tunnel created: ${tunnelUrl} -> localhost:${port}`);
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { tunnelId, how: 'created-dedicated' });
+      return { url: generateTunnelUrl(url, tunnelId), tunnelId };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      trace.emit('acquireDedicatedTunnel.fail', { message: msg.slice(0, 200) });
+      logger.warn(`Tunnel lifecycle trace (fail path):\n${trace.format()}`);
+      if (msg.includes('authtoken')) {
+        throw new Error(`Failed to create tunnel: invalid auth token. ${msg}`);
       }
+      throw new Error(`Failed to create tunnel: ${msg}`);
     }
+  }
 
-    return existing;
+  // ── Public API — lifecycle / teardown ──────────────────────────────────────
+
+  /**
+   * Evict a tunnel that a health probe PROVED dead (e.g. ERR_NGROK_3200) —
+   * simplifies to a plain delegate now that every tunnel is created (never
+   * borrowed) by this process: there is no shared-registry adoption record
+   * to also evict (bead k34o's second half retired along with borrowing,
+   * §4). Drops the `port` parameter — eviction is no longer port-scoped.
+   */
+  async markTunnelDead(tunnelId: string): Promise<void> {
+    await this.stopTunnel(tunnelId);
   }
 
   /**
-   * Evict a tunnel that a health probe PROVED dead (e.g. ERR_NGROK_3200) so no
-   * session borrows the corpse again (bead k34o).
-   *
-   * OWNED: delegate to stopTunnel — it already removes the registry entry,
-   * disconnects, revokes the key, and resets the agent. (Self-heals after one
-   * failure, which already worked.)
-   *
-   * BORROWED (the actual gap): stopTunnel only drops our local ref and leaves the
-   * SHARED registry entry, so every other session keeps re-borrowing the dead
-   * tunnel for up to the 30-min freshness TTL. Here we also evict the shared
-   * entry — guarded by tunnelId so a replacement another session just provisioned
-   * for the same port is never removed. Best-effort, never throws.
+   * `stopTunnel()`'s ordering is a load-bearing contract, not an
+   * implementation detail (§2.3): map removal is UNCONDITIONAL and happens
+   * before any cleanup I/O, so a downstream cleanup failure (ngrok
+   * disconnect, `caddy.stop()`, key revoke) can never leave a
+   * live-looking-but-actually-dead `TunnelInfo` behind for the next call to
+   * find — the exact failure mode the `onPortChanged`-triggered eviction
+   * path (see createSessionTunnel) exists to avoid re-creating. Because this
+   * never throws (failures are caught inside `Promise.allSettled`, not
+   * propagated), callers — including a queued lock waiter promoted against a
+   * Caddy instance mid-teardown — never need a defensive `.catch()` of their
+   * own.
    */
-  async markTunnelDead(port: number, tunnelId: string): Promise<void> {
-    const local = this.activeTunnels.get(tunnelId);
-    if (local?.isOwned) {
-      await this.stopTunnel(tunnelId).catch(() => { /* dead already; best-effort */ });
+  async stopTunnel(tunnelId: string): Promise<void> {
+    const info = this.activeTunnels.get(tunnelId);
+    if (info) {
+      await this.stopSessionTunnel(info);
       return;
     }
-    // Borrowed or no longer local — drop any local ref, then evict the shared entry.
-    if (local?.autoShutoffTimer) clearTimeout(local.autoShutoffTimer);
-    this.activeTunnels.delete(tunnelId);
-    try {
-      const registry = this.reg.read();
-      if (registry[String(port)]?.tunnelId === tunnelId) {
-        delete registry[String(port)];
-        this.reg.write(registry);
-        logger.info(`Evicted dead borrowed tunnel ${tunnelId} for port ${port} from shared registry`);
-      }
-    } catch {
-      // best-effort — a failed eviction just means the next call re-probes and re-evicts
+    const direct = this.directTunnels.get(tunnelId);
+    if (direct) {
+      await this.stopDirectTunnel(direct);
+      return;
     }
+    logger.warn(`Tunnel ${tunnelId} not found for cleanup`);
   }
 
-  /**
-   * Mark a tunnel as in-use: refresh the shared registry entry so the owner
-   * does not auto-shut-off underneath us, and reset the local idle timer.
-   *
-   * Bead lc62 — two changes here, both about the registry telling the truth:
-   *
-   * 1. The refresh is now scoped to OUR tunnelId. It used to refresh whatever
-   *    entry held our port, so using tunnel A kept tunnel B's entry alive after
-   *    B had replaced A on that port.
-   * 2. If we OWN the tunnel and the entry has gone missing, we put it back.
-   *    Nothing did this before: prune (or a registry the process could not see,
-   *    bead fcbm) deleted the entry, and since the in-process reuse path never
-   *    wrote to the registry, the tunnel stayed live, stayed billing, and
-   *    stayed permanently invisible to every other MCP on the machine. One file
-   *    write makes that self-heal, and it cannot churn a tunnel because it only
-   *    ever ADDS the entry for a tunnel this process is holding open.
-   *
-   * A foreign entry — same port, different tunnelId — is left completely alone.
-   * That is another process's live tunnel; overwriting it would displace it.
-   */
+  async stopAllTunnels(): Promise<void> {
+    const ids = [...this.activeTunnels.keys(), ...this.directTunnels.keys()];
+    await Promise.all(
+      ids.map((id) =>
+        this.stopTunnel(id).catch((err) =>
+          logger.error(`Failed to stop tunnel ${id}:`, err)
+        )
+      )
+    );
+    logger.info(`Stopped ${ids.length} tunnel(s)`);
+  }
+
+  /** Refresh a tunnel's idle timer (and its diagnostic registry row) —
+   *  called on every reuse so an in-use tunnel never auto-shuts-off. */
   touchTunnel(tunnelId: string): void {
-    const tunnelInfo = this.activeTunnels.get(tunnelId);
-    if (!tunnelInfo) return;
-
-    try {
-      const registry = this.reg.read();
-      const key = String(tunnelInfo.port);
-      const entry = registry[key];
-      if (entry?.tunnelId === tunnelInfo.tunnelId) {
-        entry.lastAccessedAt = Date.now();
-        this.reg.write(registry);
-      } else if (!entry && tunnelInfo.isOwned) {
-        registry[key] = this.registryEntryFor(tunnelInfo);
-        this.reg.write(registry);
-        logger.info(
-          `Re-registered owned tunnel ${tunnelInfo.tunnelId} for port ${tunnelInfo.port} — ` +
-          'its registry entry had gone missing while the tunnel was still live (bead lc62).',
-        );
-      }
-    } catch {
-      // best-effort
+    const info = this.activeTunnels.get(tunnelId);
+    if (info) {
+      this.touchRegistryEntry(tunnelId);
+      this.armIdleTimer(info);
+      return;
     }
-
-    this.resetTunnelTimer(tunnelInfo);
-  }
-
-  /** The shared-registry view of a tunnel this process owns. */
-  private registryEntryFor(tunnelInfo: TunnelInfo): RegistryEntry {
-    return {
-      tunnelId: tunnelInfo.tunnelId,
-      publicUrl: tunnelInfo.publicUrl,
-      tunnelUrl: tunnelInfo.tunnelUrl,
-      port: tunnelInfo.port,
-      ownerPid: process.pid,
-      lastAccessedAt: Date.now(),
-    };
+    const direct = this.directTunnels.get(tunnelId);
+    if (direct) {
+      this.touchRegistryEntry(tunnelId);
+      this.armIdleTimer(direct);
+    }
   }
 
   touchTunnelByUrl(url: string): void {
@@ -355,86 +458,6 @@ class TunnelManager {
   extractTunnelId(url: string): string | null {
     const match = url.match(/https?:\/\/([^.]+)\.ngrok\.debugg\.ai/);
     return match ? match[1] : null;
-  }
-
-  getTunnelInfo(tunnelId: string): TunnelInfo | undefined {
-    return this.activeTunnels.get(tunnelId);
-  }
-
-  getActiveTunnels(): TunnelInfo[] {
-    return Array.from(this.activeTunnels.values());
-  }
-
-  async stopTunnel(tunnelId: string): Promise<void> {
-    const tunnelInfo = this.activeTunnels.get(tunnelId);
-    if (!tunnelInfo) {
-      logger.warn(`Tunnel ${tunnelId} not found for cleanup`);
-      return;
-    }
-
-    if (tunnelInfo.autoShutoffTimer) {
-      clearTimeout(tunnelInfo.autoShutoffTimer);
-    }
-    this.activeTunnels.delete(tunnelId);
-
-    if (!tunnelInfo.isOwned) {
-      // Borrowed — just drop the local reference; owner manages the real tunnel
-      logger.info(`Released borrowed tunnel reference: ${tunnelInfo.publicUrl}`);
-      Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { port: tunnelInfo.port, reason: 'released', isOwned: false });
-      return;
-    }
-
-    // Owned — remove from shared registry, then disconnect + revoke.
-    // Guarded by tunnelId (bead lc62, same reasoning as the auto-shutoff check
-    // and markTunnelDead): if a replacement already holds this port's entry,
-    // deleting it would strand ITS live tunnel and buy the next caller a
-    // duplicate. Only ever remove the entry that names the tunnel we are
-    // actually stopping.
-    try {
-      const registry = this.reg.read();
-      const key = String(tunnelInfo.port);
-      if (registry[key]?.tunnelId === tunnelInfo.tunnelId) {
-        delete registry[key];
-        this.reg.write(registry);
-      }
-    } catch {
-      // best-effort
-    }
-
-    try {
-      const ngrok = await getNgrok();
-      await ngrok.disconnect(tunnelInfo.tunnelUrl);
-      logger.info(`Cleaned up tunnel: ${tunnelInfo.publicUrl}`);
-    } catch (error) {
-      logger.warn(`ngrok.disconnect failed for tunnel ${tunnelId} (already cleaned up):`, error);
-    }
-
-    // If no owned tunnels remain, the ngrok agent process may have exited.
-    // Reset module + init state so the next connect() bootstraps a fresh agent.
-    const hasOwnedTunnels = Array.from(this.activeTunnels.values()).some(t => t.isOwned);
-    if (!hasOwnedTunnels) {
-      logger.info('No owned tunnels remain — resetting ngrok module for fresh init on next request');
-      resetNgrokModule();
-      this.initialized = false;
-    }
-
-    if (tunnelInfo.revokeKey) {
-      tunnelInfo.revokeKey().catch((err) =>
-        logger.warn(`Failed to revoke key for tunnel ${tunnelId}:`, err)
-      );
-    }
-  }
-
-  async stopAllTunnels(): Promise<void> {
-    const ids = Array.from(this.activeTunnels.keys());
-    await Promise.all(
-      ids.map((id) =>
-        this.stopTunnel(id).catch((err) =>
-          logger.error(`Failed to stop tunnel ${id}:`, err)
-        )
-      )
-    );
-    logger.info(`Stopped ${ids.length} tunnel(s)`);
   }
 
   getTunnelStatus(tunnelId: string): {
@@ -464,411 +487,337 @@ class TunnelManager {
     return statuses;
   }
 
-  // ── Per-port tunnel ─────────────────────────────────────────────────────────
+  // ── Session tunnel creation ─────────────────────────────────────────────────
 
-  private async processPerPort(
-    url: string,
-    port: number,
+  private async createSessionTunnel(
+    sessionKey: string,
     authToken: string,
-    tunnelId: string,
-    keyId?: string,
-    revokeKey?: () => Promise<void>,
-  ): Promise<TunnelResult> {
-    // 1. Check local in-process map (handles owned + borrowed with liveness check)
-    const existing = this.getTunnelForPort(port);
-    if (existing) {
-      // Bead zmc9: retarget to THIS caller's path; publicUrl carries the creator's.
-      const url_ = retargetTunnelUrl(existing.tunnelUrl, url);
-      // Bead lc62: reuse used to return straight from the in-process map without
-      // touching the registry at all, so a tunnel could be in constant use and
-      // still look abandoned to every other MCP — and its own idle timer kept
-      // counting down. touchTunnel refreshes (or restores) the shared entry and
-      // resets that timer, which is what "this tunnel is in use" should mean.
-      this.touchTunnel(existing.tunnelId);
-      logger.info(`Reusing existing tunnel for port ${port}: ${url_}`);
-      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'reused' });
-      return { url: url_, tunnelId: existing.tunnelId, isLocalhost: true };
-    }
-
-    // 2. Deduplicate concurrent creation requests for the same port
-    const pending = this.pendingTunnels.get(port);
-    if (pending) {
-      // Bead 7qh Finding 2: our minted tunnelKey/keyId are now redundant — the
-      // in-flight call owns the tunnel for this port. Revoke our key up-front
-      // so it doesn't orphan on the backend. Failures are swallowed: we can't
-      // let cleanup break the join.
-      if (revokeKey) {
-        revokeKey().catch((err) =>
-          logger.warn(`Failed to revoke redundant key while joining pending tunnel for port ${port}:`, err),
-        );
-      }
-      const info = await pending;
-      // Bead zmc9: retarget to THIS caller's path, not the in-flight creator's.
-      return { url: retargetTunnelUrl(info.tunnelUrl, url), tunnelId: info.tunnelId, isLocalhost: true };
-    }
-
-    // 3. Check cross-process registry — another MCP instance may own a tunnel.
-    //    Borrow only if the entry is fresh (PID alive AND touched within
-    //    registryFreshnessTtlMs — defends against PID-reuse, bead 3th).
-    const registry = this.reg.read();
-    const regEntry = registry[String(port)];
-    if (regEntry && this.isEntryUsable(regEntry)) {
-      const borrowed = this.borrowRegistryEntry(regEntry, url, registry);
-      // Bead zmc9: retarget to THIS caller's path; regEntry.publicUrl carries the
-      // owning PID's creating-call path — replaying it is the cross-session poison.
-      return { url: retargetTunnelUrl(borrowed.tunnelUrl, url), tunnelId: borrowed.tunnelId, isLocalhost: true };
-    }
-
-    // 4. Nothing to reuse. Publish the pending promise SYNCHRONOUSLY — every
-    //    check above is synchronous precisely so a second caller arriving in
-    //    this same tick joins us rather than buying a second hour — and do the
-    //    slow work (agent reconcile, then connect) inside it.
-    const creationPromise = this.adoptOrCreateTunnel(url, port, tunnelId, authToken, keyId, revokeKey);
-    this.pendingTunnels.set(port, creationPromise);
-
-    let tunnelInfo: TunnelInfo;
-    try {
-      tunnelInfo = await creationPromise;
-    } finally {
-      this.pendingTunnels.delete(port);
-    }
-
-    // A tunnel we just created carries this caller's path in publicUrl; an
-    // ADOPTED one carries someone else's, so retarget (bead zmc9).
-    const resolvedUrl = tunnelInfo.isOwned
-      ? tunnelInfo.publicUrl
-      : retargetTunnelUrl(tunnelInfo.tunnelUrl, url);
-    return { url: resolvedUrl, tunnelId: tunnelInfo.tunnelId, isLocalhost: true };
-  }
-
-  /**
-   * Take a live registry entry into this process as a BORROWED tunnel, and
-   * stamp it as touched so its owner does not auto-shut-off underneath us.
-   */
-  private borrowRegistryEntry(entry: RegistryEntry, url: string, registry: RegistryData): TunnelInfo {
-    logger.info(`Borrowing tunnel from PID ${entry.ownerPid} for port ${entry.port}: ${entry.publicUrl}`);
-    const now = Date.now();
-    const borrowed: TunnelInfo = {
-      tunnelId: entry.tunnelId,
-      originalUrl: url,
-      tunnelUrl: entry.tunnelUrl,
-      publicUrl: entry.publicUrl,
-      port: entry.port,
-      createdAt: now,
-      lastAccessedAt: now,
-      isOwned: false,
-    };
-    this.activeTunnels.set(entry.tunnelId, borrowed);
-    entry.lastAccessedAt = now;
-    try {
-      this.reg.write(registry);
-    } catch {
-      // best-effort
-    }
-    this.resetTunnelTimer(borrowed);
-    Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port: entry.port, how: 'borrowed' });
-    return borrowed;
-  }
-
-  /**
-   * Last stop before spending a billed hour (bead lc62).
-   *
-   * The registry says there is nothing to reuse for this port. Before believing
-   * it, ask the local ngrok agents what is ACTUALLY running: a tunnel whose
-   * owner was SIGKILLed, or whose entry got pruned or written to a registry
-   * this process could not see, is still open and still billing, and the
-   * registry is simply wrong about it. Re-adopting one costs a loopback GET;
-   * not adopting it costs an hour for the replacement plus the remaining hour
-   * of the orphan nobody is using.
-   *
-   * Reaping orphans is deliberately NOT done here. Once they can be re-adopted
-   * an orphan pointing at a live port is an asset, and killing it only
-   * guarantees we buy that hour again later.
-   */
-  private async adoptOrCreateTunnel(
-    url: string,
-    port: number,
-    tunnelId: string,
-    authToken: string,
-    keyId?: string,
-    revokeKey?: () => Promise<void>,
-  ): Promise<TunnelInfo> {
-    await this.reconcileWithLocalAgents();
-
-    const registry = this.reg.read();
-    const entry = registry[String(port)];
-    if (entry && this.isEntryUsable(entry)) {
-      logger.info(`Adopted live tunnel ${entry.tunnelId} for port ${port} instead of provisioning a new one`);
-      return this.borrowRegistryEntry(entry, url, registry);
-    }
-
-    return this.createTunnel(url, port, tunnelId, authToken, keyId, revokeKey);
-  }
-
-  /**
-   * Reconcile the shared registry against the tunnels the local ngrok agents
-   * report (bead lc62). Runs at most once per process, lazily — on the first
-   * request that would otherwise provision — so importing this module never
-   * touches the network and a process that only ever borrows never pays for it.
-   *
-   * ADD-ONLY, and that is the whole safety argument. This can create an entry
-   * or refresh an unusable one; it can never delete or invalidate anything. So
-   * an agent that is down, a scan that misses the right port, or a parse that
-   * fails all degrade to "learned nothing" and leave behaviour exactly as it is
-   * today. Nothing this function can get wrong is able to cost a re-provision.
-   *
-   * A usable entry is never disturbed, even by a live tunnel claiming the same
-   * port: that entry is somebody's working tunnel and displacing it would
-   * strand a paid-for session.
-   */
-  private reconcileWithLocalAgents(): Promise<void> {
-    if (!this.reconcilePromise) {
-      this.reconcilePromise = (async () => {
-        const live = await this.tunnelInspector.listLiveTunnels();
-        if (live.length === 0) return;
-
-        const registry = this.reg.read();
-        const adopted: string[] = [];
-        for (const tunnel of live) {
-          const key = String(tunnel.port);
-          const entry = registry[key];
-          // Somebody's working entry — never touch it, even to "correct" it.
-          if (entry && this.isEntryUsable(entry)) continue;
-          registry[key] = {
-            tunnelId: tunnel.tunnelId,
-            publicUrl: tunnel.publicUrl,
-            tunnelUrl: tunnel.publicUrl,
-            port: tunnel.port,
-            // We are not the ngrok owner and never claim to be — TunnelInfo for
-            // this entry is always built with isOwned:false. ownerPid is the
-            // registry's liveness proxy, and pointing it at a live process is
-            // what makes the entry borrowable at all.
-            ownerPid: process.pid,
-            lastAccessedAt: Date.now(),
-          };
-          adopted.push(`${tunnel.tunnelId}→${tunnel.port}`);
-        }
-        if (adopted.length > 0) {
-          this.reg.write(registry);
-          logger.info(
-            `Re-adopted ${adopted.length} live ngrok tunnel(s) the registry had lost: ${adopted.join(', ')}. ` +
-            'Each one saves provisioning a duplicate for a port that is already served.',
-          );
-        }
-      })().catch((err) => {
-        // An inspector failure must never block tunnelling — it only ever had
-        // the power to save us money, never to authorise anything.
-        logger.debug(`ngrok agent reconcile unavailable (non-fatal): ${err}`);
-      });
-    }
-    return this.reconcilePromise;
-  }
-
-  private findTunnelByPort(port: number): TunnelInfo | undefined {
-    for (const tunnel of this.activeTunnels.values()) {
-      if (tunnel.port === port) return tunnel;
-    }
-    return undefined;
-  }
-
-  private async createTunnel(
-    originalUrl: string,
-    port: number,
-    tunnelId: string,
-    authToken: string,
+    specificTunnelId?: string,
     keyId?: string,
     revokeKey?: () => Promise<void>,
   ): Promise<TunnelInfo> {
     await this.ensureInitialized();
 
-    const tunnelDomain = `${tunnelId}.ngrok.debugg.ai`;
-    logger.info(`Creating tunnel for localhost:${port} (domain: ${tunnelDomain})`);
+    const tunnelId = specificTunnelId ?? uuidv4();
+    const tunnelDomain = `${tunnelId}.ngrok.debugg.ai`; // UNCHANGED scheme, minted ONCE per session now
+    const caddy = this.caddyFactory(); // NEW instance per session key — never a process-wide singleton
+    const { localOrigin, adminPort } = await caddy.ensureStarted();
 
-    const isHttpsLocal = originalUrl.startsWith('https:');
-    const inDocker = process.env.DOCKER_CONTAINER === 'true';
-    const dockerHost = 'host.docker.internal';
+    logger.info(`Creating session tunnel (domain: ${tunnelDomain}, session: ${sessionKey})`);
 
-    // Bead fhg: force IPv4 loopback when running against localhost. ngrok's
-    // default resolution of a bare port or "localhost" can pick IPv6 [::1]
-    // first on macOS/modern OSes, but most dev servers (Next.js, Vite) bind
-    // only to 127.0.0.1 — resulting in ngrok connect:refused + ERR_NGROK_8012
-    // on the browser side with no actionable error back to the MCP caller.
-    let localAddr: string;
-    if (isHttpsLocal) {
-      localAddr = inDocker ? `https://${dockerHost}:${port}` : `https://localhost:${port}`;
-    } else {
-      localAddr = inDocker ? `${dockerHost}:${port}` : `127.0.0.1:${port}`;
-    }
-
-    // Bead ixh: 3-attempt retry for ngrok.connect transient failures. Previously
-    // only retried ONCE (with agent reset), which is insufficient against real
-    // ngrok / network flakes (client-reported incident 2026-04-24).
-    // - Attempt 1: fresh connect
-    // - Attempt 2: after 500ms backoff, reset the ngrok agent module and retry
-    //   (existing "agent died" recovery path)
-    // - Attempt 3: after 1500ms backoff, retry with the already-reset agent
-    // Auth-token errors short-circuit at any attempt — no point looping.
     // Bead 42g: fault injection + trace. Only active when NODE_ENV !== 'production'
     // AND DEBUGG_TUNNEL_FAULT_MODE env var is set. Zero overhead when disabled.
     const faultMode = getFaultModeFromEnv();
     const faults = new FaultInjector(faultMode);
     const trace = new TunnelTrace();
-    trace.emit('createTunnel.start', { port, tunnelId, hasFaultMode: !!faultMode });
-
-    const connectWithRetry = async (): Promise<string> => {
-      const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-      const BACKOFF_MS = this.connectBackoffMs; // bead ixh: test-overridable
-      const MAX_ATTEMPTS = BACKOFF_MS.length + 1; // N sleeps between N+1 attempts
-      const connectOpts = {
-        proto: 'http' as const,
-        addr: localAddr,
-        hostname: tunnelDomain,
-        authtoken: authToken,
-      };
-
-      // Bead pqgj: pre-warm the agent session so attempt 1 doesn't race the
-      // agent's ~293ms not-ready window (which poisons the tunnel name via
-      // ngrok's own name-reusing internal retry and surfaces as
-      // "invalid tunnel configuration").
-      await this.ensureAgentSession(authToken, trace);
-
-      let lastError: unknown;
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        trace.emit('connect.attempt.start', { attempt });
-        // Optional fault-injected delay before each attempt.
-        const delayMs = faults.delayMsForAttempt();
-        if (delayMs > 0) {
-          trace.emit('connect.fault.delay', { attempt, delayMs });
-          await sleep(delayMs);
-        }
-        try {
-          const ngrok = await getNgrok();
-          // Fault-inject a synthetic failure BEFORE ngrok.connect runs so we
-          // can simulate connect-layer failures without hitting the real API.
-          if (faults.shouldFailConnect()) {
-            trace.emit('connect.fault.inject', { attempt, mode: 'fail-connect-N' });
-            throw new Error(`[fault-inject] synthetic connect failure (attempt ${attempt})`);
-          }
-          const url = faults.shouldReturnEmptyUrl() ? '' : await ngrok.connect(connectOpts);
-          if (!url) {
-            trace.emit('connect.attempt.empty-url', { attempt });
-            throw new Error(`ngrok.connect() returned empty URL (attempt ${attempt})`);
-          }
-          trace.emit('connect.attempt.success', { attempt });
-          if (attempt > 1) {
-            Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
-              attempt,
-              outcome: 'success',
-              stage: 'ngrok_connect',
-            });
-          }
-          return url;
-        } catch (err) {
-          lastError = err;
-          const msg = err instanceof Error ? err.message : String(err);
-          trace.emit('connect.attempt.fail', { attempt, message: msg.slice(0, 200) });
-
-          // Auth-class errors are non-retryable — retrying with the same token
-          // would loop. Let the outer catch classify the message.
-          if (/authtoken|unauthorized|\b401\b|\b403\b/i.test(msg)) {
-            trace.emit('connect.giving-up', { reason: 'auth-error' });
-            Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
-              attempt,
-              outcome: 'giving-up',
-              stage: 'ngrok_connect',
-              reason: 'auth-error',
-            });
-            throw err;
-          }
-
-          const isLastAttempt = attempt >= MAX_ATTEMPTS;
-          Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
-            attempt,
-            outcome: isLastAttempt ? 'giving-up' : 'will-retry',
-            stage: 'ngrok_connect',
-          });
-
-          if (isLastAttempt) {
-            trace.emit('connect.giving-up', { reason: 'max-attempts' });
-            throw err;
-          }
-
-          // Between attempt 1→2, do an agent-reset (covers the "agent died"
-          // failure mode that used to be the only retried case). Between 2→3,
-          // just wait — the reset already happened.
-          if (attempt === 1) {
-            logger.warn(`ngrok.connect() failed (attempt 1/${MAX_ATTEMPTS}), resetting agent: ${msg}`);
-            trace.emit('agent.reset');
-            resetNgrokModule();
-            this.initialized = false;
-            await this.ensureInitialized();
-          } else {
-            logger.warn(`ngrok.connect() failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
-          }
-          const backoffMs = BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
-          trace.emit('connect.backoff', { attempt, backoffMs });
-          await sleep(backoffMs);
-        }
-      }
-      // Unreachable (loop always returns or throws), but satisfy TS
-      throw lastError ?? new Error('connectWithRetry: exhausted attempts without error');
-    };
+    trace.emit('createSessionTunnel.start', { tunnelId, sessionKey, hasFaultMode: !!faultMode });
 
     try {
-      const tunnelUrl = await connectWithRetry();
+      // ngrok's own dial target is now always plain loopback HTTP to Caddy —
+      // no HTTPS/Docker complexity on this leg at all (Caddy runs in the same
+      // host/container as the MCP server). That matrix moved entirely into
+      // caddyProxy.setUpstream(), invoked per-dispatch, not per-tunnel-creation.
+      const tunnelUrl = await this.connectWithRetry(localOrigin, tunnelDomain, authToken, trace, faults);
 
-      const publicUrl = generateTunnelUrl(originalUrl, tunnelId);
       const now = Date.now();
+      const portLock = new PortLock((t) => caddy.setUpstream(t));
+      caddy.onPortChanged(() => {
+        // A crash-triggered respawn landed on a DIFFERENT local proxy port
+        // (sticky-port reclaim failed). The existing ngrok tunnel is now
+        // dialing a dead port — nothing Caddy-internal can fix this; the
+        // whole session tunnel must be torn down and recreated on the next
+        // call. stopTunnel() never throws (its unconditional-removal
+        // contract, above), so this needs no defensive .catch() of its own.
+        logger.error(`Caddy proxy port changed under session ${sessionKey} — evicting tunnel ${tunnelId}`);
+        Telemetry.capture(TelemetryEvents.TUNNEL_EVICTED_PORT_CHANGED, { tunnelId, sessionKey });
+        void this.stopTunnel(tunnelId);
+      });
 
-      const tunnelInfo: TunnelInfo = {
-        tunnelId,
-        originalUrl,
-        tunnelUrl,
-        publicUrl,
-        port,
-        createdAt: now,
-        lastAccessedAt: now,
-        isOwned: true,
-        keyId,
-        revokeKey,
+      const info: TunnelInfo = {
+        tunnelId, sessionKey, tunnelUrl, createdAt: now, lastAccessedAt: now,
+        keyId, revokeKey, caddy, portLock,
       };
+      this.activeTunnels.set(tunnelId, info);
+      this.sessionTunnels.set(sessionKey, tunnelId);
+      this.writeRegistryEntry(tunnelId, sessionKey, tunnelUrl, adminPort);
+      this.armIdleTimer(info);
 
-      this.activeTunnels.set(tunnelId, tunnelInfo);
-
-      // Register in shared cross-process registry
-      try {
-        const registry = this.reg.read();
-        registry[String(port)] = {
-          tunnelId,
-          publicUrl,
-          tunnelUrl,
-          port,
-          ownerPid: process.pid,
-          lastAccessedAt: now,
-        };
-        this.reg.write(registry);
-      } catch {
-        // best-effort
-      }
-
-      this.resetTunnelTimer(tunnelInfo);
-
-      trace.emit('createTunnel.success', { tunnelId, publicUrl });
-      logger.info(`Tunnel created: ${publicUrl} → localhost:${port}`);
-      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { port, how: 'created' });
-      return tunnelInfo;
-
+      trace.emit('createSessionTunnel.success', { tunnelId, tunnelUrl });
+      logger.info(`Session tunnel created: ${tunnelUrl} (session ${sessionKey})`);
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { tunnelId, how: 'created' });
+      return info;
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      trace.emit('createTunnel.fail', { message: msg.slice(0, 200) });
+      trace.emit('createSessionTunnel.fail', { message: msg.slice(0, 200) });
       // Bead 42g: when the trace captured meaningful timing info, log it at
       // WARN so operators can post-mortem. Keeping it out of the thrown error
       // text so we don't leak internals to users.
       logger.warn(`Tunnel lifecycle trace (fail path):\n${trace.format()}`);
+      // Never leak a Caddy process on connect failure — nothing else will
+      // ever stop() an instance that never made it into activeTunnels.
+      await caddy.stop().catch(() => {});
       if (msg.includes('authtoken')) {
         throw new Error(`Failed to create tunnel: invalid auth token. ${msg}`);
       }
       throw new Error(`Failed to create tunnel: ${msg}`);
+    }
+  }
+
+  // ── Shared connect-retry ladder (KEPT byte-for-byte — bead ixh/pqgj/42g/fhg) ─
+
+  /**
+   * Bead ixh: 3-attempt retry for ngrok.connect transient failures.
+   * - Attempt 1: fresh connect
+   * - Attempt 2: after 500ms backoff, reset the ngrok agent module and retry
+   *   (existing "agent died" recovery path)
+   * - Attempt 3: after 1500ms backoff, retry with the already-reset agent
+   * Auth-token errors short-circuit at any attempt — no point looping.
+   *
+   * Parameterized by `localAddr` rather than computing it internally: the
+   * session-tunnel path (createSessionTunnel) always dials Caddy's fixed
+   * local origin; the dedicated-tunnel path (acquireDedicatedTunnel) dials
+   * the app directly via the isHttpsLocal/inDocker matrix. Both need the
+   * IDENTICAL retry/backoff/fault-injection/agent-prewarm behavior, so it
+   * lives here once.
+   */
+  private async connectWithRetry(
+    localAddr: string,
+    tunnelDomain: string,
+    authToken: string,
+    trace: TunnelTrace,
+    faults: FaultInjector,
+  ): Promise<string> {
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const BACKOFF_MS = this.connectBackoffMs; // bead ixh: test-overridable
+    const MAX_ATTEMPTS = BACKOFF_MS.length + 1; // N sleeps between N+1 attempts
+    const connectOpts = {
+      proto: 'http' as const,
+      addr: localAddr,
+      hostname: tunnelDomain,
+      authtoken: authToken,
+    };
+
+    // Bead pqgj: pre-warm the agent session so attempt 1 doesn't race the
+    // agent's ~293ms not-ready window (which poisons the tunnel name via
+    // ngrok's own name-reusing internal retry and surfaces as
+    // "invalid tunnel configuration").
+    await this.ensureAgentSession(authToken, trace);
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      trace.emit('connect.attempt.start', { attempt });
+      // Optional fault-injected delay before each attempt.
+      const delayMs = faults.delayMsForAttempt();
+      if (delayMs > 0) {
+        trace.emit('connect.fault.delay', { attempt, delayMs });
+        await sleep(delayMs);
+      }
+      try {
+        const ngrok = await getNgrok();
+        // Fault-inject a synthetic failure BEFORE ngrok.connect runs so we
+        // can simulate connect-layer failures without hitting the real API.
+        if (faults.shouldFailConnect()) {
+          trace.emit('connect.fault.inject', { attempt, mode: 'fail-connect-N' });
+          throw new Error(`[fault-inject] synthetic connect failure (attempt ${attempt})`);
+        }
+        const url = faults.shouldReturnEmptyUrl() ? '' : await ngrok.connect(connectOpts);
+        if (!url) {
+          trace.emit('connect.attempt.empty-url', { attempt });
+          throw new Error(`ngrok.connect() returned empty URL (attempt ${attempt})`);
+        }
+        trace.emit('connect.attempt.success', { attempt });
+        if (attempt > 1) {
+          Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
+            attempt,
+            outcome: 'success',
+            stage: 'ngrok_connect',
+          });
+        }
+        return url;
+      } catch (err) {
+        lastError = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        trace.emit('connect.attempt.fail', { attempt, message: msg.slice(0, 200) });
+
+        // Auth-class errors are non-retryable — retrying with the same token
+        // would loop. Let the outer catch classify the message.
+        if (/authtoken|unauthorized|\b401\b|\b403\b/i.test(msg)) {
+          trace.emit('connect.giving-up', { reason: 'auth-error' });
+          Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
+            attempt,
+            outcome: 'giving-up',
+            stage: 'ngrok_connect',
+            reason: 'auth-error',
+          });
+          throw err;
+        }
+
+        const isLastAttempt = attempt >= MAX_ATTEMPTS;
+        Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
+          attempt,
+          outcome: isLastAttempt ? 'giving-up' : 'will-retry',
+          stage: 'ngrok_connect',
+        });
+
+        if (isLastAttempt) {
+          trace.emit('connect.giving-up', { reason: 'max-attempts' });
+          throw err;
+        }
+
+        // Between attempt 1→2, do an agent-reset (covers the "agent died"
+        // failure mode that used to be the only retried case). Between 2→3,
+        // just wait — the reset already happened.
+        if (attempt === 1) {
+          logger.warn(`ngrok.connect() failed (attempt 1/${MAX_ATTEMPTS}), resetting agent: ${msg}`);
+          trace.emit('agent.reset');
+          resetNgrokModule();
+          this.initialized = false;
+          await this.ensureInitialized();
+        } else {
+          logger.warn(`ngrok.connect() failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
+        }
+        const backoffMs = BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
+        trace.emit('connect.backoff', { attempt, backoffMs });
+        await sleep(backoffMs);
+      }
+    }
+    // Unreachable (loop always returns or throws), but satisfy TS
+    throw lastError ?? new Error('connectWithRetry: exhausted attempts without error');
+  }
+
+  // ── Teardown internals ──────────────────────────────────────────────────────
+
+  private async stopSessionTunnel(info: TunnelInfo): Promise<void> {
+    // Unconditional, synchronous, BEFORE any cleanup I/O. A partial failure
+    // below can never leave stale-but-discoverable state — the next call for
+    // this session key always sees a clean miss and rebuilds from scratch.
+    this.activeTunnels.delete(info.tunnelId);
+    if (this.sessionTunnels.get(info.sessionKey) === info.tunnelId) {
+      this.sessionTunnels.delete(info.sessionKey);
+    }
+    if (info.autoShutoffTimer) clearTimeout(info.autoShutoffTimer);
+    this.removeRegistryEntry(info.tunnelId);
+
+    const results = await Promise.allSettled([
+      this.disconnectNgrok(info.tunnelUrl),
+      info.caddy.stop(),
+      info.revokeKey ? info.revokeKey() : Promise.resolve(),
+    ]);
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        // Logged and telemetered, never rethrown and never blocks/reverts the
+        // removal above — state is already gone by the time this runs.
+        logger.warn(`stopTunnel(${info.tunnelId}) cleanup step ${i} failed (state already removed): ${r.reason}`);
+        Telemetry.capture(TelemetryEvents.TUNNEL_TEARDOWN_PARTIAL_FAILURE, { tunnelId: info.tunnelId, step: i });
+      }
+    });
+
+    this.maybeResetNgrokModule();
+    logger.info(`Cleaned up session tunnel: ${info.tunnelUrl}`);
+    Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { tunnelId: info.tunnelId, reason: 'stopped' });
+  }
+
+  private async stopDirectTunnel(info: DirectTunnelInfo): Promise<void> {
+    // Same unconditional-removal contract as stopSessionTunnel, above.
+    this.directTunnels.delete(info.tunnelId);
+    if (info.autoShutoffTimer) clearTimeout(info.autoShutoffTimer);
+    this.removeRegistryEntry(info.tunnelId);
+
+    const results = await Promise.allSettled([
+      this.disconnectNgrok(info.tunnelUrl),
+      info.revokeKey ? info.revokeKey() : Promise.resolve(),
+    ]);
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        logger.warn(`stopTunnel(${info.tunnelId}) dedicated-tunnel cleanup step ${i} failed (state already removed): ${r.reason}`);
+        Telemetry.capture(TelemetryEvents.TUNNEL_TEARDOWN_PARTIAL_FAILURE, { tunnelId: info.tunnelId, step: i });
+      }
+    });
+
+    this.maybeResetNgrokModule();
+    logger.info(`Cleaned up dedicated tunnel: ${info.tunnelUrl}`);
+    Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { tunnelId: info.tunnelId, reason: 'stopped' });
+  }
+
+  private async disconnectNgrok(tunnelUrl: string): Promise<void> {
+    const ngrok = await getNgrok();
+    await ngrok.disconnect(tunnelUrl);
+  }
+
+  /** If no tunnels of any kind remain, the ngrok agent process may have
+   *  exited. Reset module + init state so the next connect() bootstraps a
+   *  fresh agent. */
+  private maybeResetNgrokModule(): void {
+    if (this.activeTunnels.size === 0 && this.directTunnels.size === 0) {
+      logger.info('No tunnels remain — resetting ngrok module for fresh init on next request');
+      resetNgrokModule();
+      this.initialized = false;
+    }
+  }
+
+  // ── Idle timer (KEPT — minus the retired cross-process extension branch) ───
+
+  /**
+   * Bead y7x6/lc62's cross-process "another process touched the registry
+   * entry, so extend instead of shutting down" branch is retired along with
+   * borrowing (§4/§5.1): every tunnel now has exactly one process that could
+   * ever be using it, so there is nothing else to check for before shutting
+   * an idle one down. The core mechanism — arm a timer, clear+rearm on
+   * touch, stop on expiry — is otherwise unchanged.
+   */
+  private armIdleTimer(entry: { tunnelId: string; autoShutoffTimer?: NodeJS.Timeout; lastAccessedAt: number }): void {
+    if (entry.autoShutoffTimer) clearTimeout(entry.autoShutoffTimer);
+    entry.lastAccessedAt = Date.now();
+    entry.autoShutoffTimer = setTimeout(async () => {
+      logger.info(`Auto-shutting down tunnel ${entry.tunnelId} after inactivity`);
+      Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { tunnelId: entry.tunnelId, reason: 'auto-shutoff' });
+      await this.stopTunnel(entry.tunnelId).catch((err) =>
+        logger.error(`Failed to auto-shutdown tunnel ${entry.tunnelId}:`, err)
+      );
+    }, this.idleTimeoutMs);
+  }
+
+  // ── Registry writes (§4: write-mostly observability, best-effort) ──────────
+
+  private writeRegistryEntry(tunnelId: string, sessionKey: string, tunnelUrl: string, caddyAdminPort: number): void {
+    try {
+      const registry = this.reg.read();
+      registry[tunnelId] = {
+        tunnelId,
+        sessionKey,
+        publicUrl: tunnelUrl,
+        tunnelUrl,
+        caddyAdminPort,
+        ownerPid: process.pid,
+        lastAccessedAt: Date.now(),
+      };
+      this.reg.write(registry);
+    } catch {
+      // best-effort — nothing reads this for correctness anymore
+    }
+  }
+
+  private touchRegistryEntry(tunnelId: string): void {
+    try {
+      const registry = this.reg.read();
+      if (registry[tunnelId]) {
+        registry[tunnelId].lastAccessedAt = Date.now();
+        this.reg.write(registry);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  private removeRegistryEntry(tunnelId: string): void {
+    try {
+      const registry = this.reg.read();
+      if (registry[tunnelId]) {
+        delete registry[tunnelId];
+        this.reg.write(registry);
+      }
+    } catch {
+      // best-effort
     }
   }
 
@@ -940,45 +889,6 @@ class TunnelManager {
       }
       this.initialized = true;
     }
-  }
-
-  private resetTunnelTimer(tunnelInfo: TunnelInfo): void {
-    if (tunnelInfo.autoShutoffTimer) clearTimeout(tunnelInfo.autoShutoffTimer);
-    tunnelInfo.lastAccessedAt = Date.now();
-    tunnelInfo.autoShutoffTimer = setTimeout(async () => {
-      // For owned tunnels: if another process recently touched the registry entry,
-      // reset the timer rather than disconnecting — that process is still using it.
-      //
-      // Bead lc62: the entry has to be OURS. This lookup is keyed by port, and
-      // the check used to stop at the timestamp, so once a replacement tunnel
-      // took over the port the displaced tunnel read the replacement's activity
-      // as its own and extended itself — forever, since every extension found
-      // the entry fresh again. That is what turned a 55-minute mistake into a
-      // multi-day one: an orphan nobody could reach, billing indefinitely.
-      // Comparing tunnelId makes an orphan simply time out, 55 idle minutes
-      // after the last time anyone actually used IT.
-      if (tunnelInfo.isOwned) {
-        try {
-          const entry = this.reg.read()[String(tunnelInfo.port)];
-          if (
-            entry &&
-            entry.tunnelId === tunnelInfo.tunnelId &&
-            Date.now() - entry.lastAccessedAt < this.idleTimeoutMs
-          ) {
-            logger.info(`Tunnel ${tunnelInfo.tunnelId} accessed by another process — extending lifetime`);
-            this.resetTunnelTimer(tunnelInfo);
-            return;
-          }
-        } catch {
-          // best-effort; proceed with shutoff
-        }
-      }
-      logger.info(`Auto-shutting down tunnel ${tunnelInfo.tunnelId} after inactivity`);
-      Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { port: tunnelInfo.port, reason: 'auto-shutoff', isOwned: tunnelInfo.isOwned });
-      await this.stopTunnel(tunnelInfo.tunnelId).catch((err) =>
-        logger.error(`Failed to auto-shutdown tunnel ${tunnelInfo.tunnelId}:`, err)
-      );
-    }, this.idleTimeoutMs);
   }
 }
 

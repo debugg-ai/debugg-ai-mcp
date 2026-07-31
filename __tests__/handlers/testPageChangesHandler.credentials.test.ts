@@ -38,6 +38,9 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   buildContext: jest.fn(() => ({ originalUrl: 'https://app.example.com', isLocalhost: false })),
   findExistingTunnel: jest.fn(() => null),
   ensureTunnel: jest.fn(),
+  // §2.4: public URL — real acquirePortRoute would no-op (return ctx unchanged).
+  acquirePortRoute: jest.fn(async (ctx: any) => ctx),
+  releasePortRoute: jest.fn(),
   sanitizeResponseUrls: jest.fn((v: any) => v),
   touchTunnelById: jest.fn(),
 }));
