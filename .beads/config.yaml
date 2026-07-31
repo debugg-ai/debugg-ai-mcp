@@ -60,3 +60,10 @@
 # - linear.api-key
 # - github.org
 # - github.repo
+
+export.interval: 5s
+dolt:
+    port: 64646
+export:
+    auto: true
+    git-add: true
