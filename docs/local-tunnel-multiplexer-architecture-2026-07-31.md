@@ -663,6 +663,15 @@ Same-port concurrency is not serialized (both start before either finishes, no f
 ## 6. Open risks / explicitly deferred non-goals
 
 - **Caddy binary is a new hard runtime dependency with no auto-install in v1.** Breaks the "zero-config `npx @debugg-ai/debugg-ai-mcp`" promise until either documented clearly as a prerequisite or a postinstall downloader is built as a fast-follow. Needs an explicit go/no-go before cutover, alongside the LB-affinity precondition (§2.1).
+  **RESOLVED (same PR, follow-up commit):** added `@radically-straightforward/caddy` as a
+  dependency, pinned to `2.11.3` (the version this doc's own resolution matrix and admin-API
+  behavior were validated against — see the `--adapter json` note in §2.2). Its postinstall
+  downloads the right platform binary into `node_modules/.bin/caddy`, same pattern this repo
+  already uses for `ngrok`. `resolveCaddyBinary()`'s precedence became `CADDY_BIN` → ctor override
+  → this bundled binary → bare `caddy` on `PATH`. Verified for real: the bundled binary resolves
+  and runs on this machine, `ensureStarted()` spawns it (not a bare PATH lookup) when no override
+  is set, and a live `probe_page` call through it succeeds end to end. The LB-affinity precondition
+  (§2.1) is unrelated and still stands as a deployment-topology item, not a code gap.
 - **No cold-start progress signal.** The lock has `onWaitProgress` for queueing, but the very first call of a session gets silence through Caddy spawn (up to ~5s) plus the ngrok connect retry ladder, with no interim signal analogous to the queueing UX. Minor UX inconsistency, not a correctness gap; a fast follow would emit a `{message: "Starting local tunnel..."}` progress tick around `caddy.ensureStarted()`/`connectWithRetry()`.
 - **`CaddyBinaryNotFoundError` surfacing at the actual tool-response layer is not fully traced.** The error class and its unit tests are defined at the Caddy-service layer; it should be caught in the handler layer (the same `handleExternalServiceError`/`errorResponse` pattern already used elsewhere) and turned into a clear, actionable tool-response error rather than an uncaught throw, but the exact catch site and message copy are not specified here — track as a fast follow alongside the binary-distribution decision itself.
 - **`getSessionKey()`'s fallback to `'stdio'` when `currentApiKey()` is unset.** If any HTTP code path can reach tunnel logic without an API key already resolved in `AsyncLocalStorage`, it collapses onto the same session key as every stdio process and every other such caller — reintroducing the cross-tenant bug §2.1 exists to fix. The pseudocode in §2.1 now logs loudly (`logger.error`) when this fallback fires so it surfaces in practice; whether it's actually reachable depends on upstream auth being mandatory, which is asserted nowhere in this repo and should be verified as a fast follow, with a hard throw substituted for the fallback if it's confirmed unreachable.

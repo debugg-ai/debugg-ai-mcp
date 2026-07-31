@@ -25,12 +25,14 @@ rewriting, so that failure mode is structurally impossible rather than patched.
 A live-browser regression test for exactly this case now exists and passes
 (`__tests__/integration/caddyProxy.test.ts`).
 
-**New hard runtime dependency:** the `caddy` binary must be on `PATH` (or
-pointed at via `CADDY_BIN`) for any `http://localhost:...` call to
-`check_app_in_browser`/`probe_page`/`trigger_crawl`. `test_suite {action:"run"}`
-is unaffected (dedicated per-run tunnel, bypasses Caddy). Install: `brew install
-caddy` / `apt install caddy` / https://caddyserver.com/docs/install. No
-auto-installer in this release — see the architecture doc §6.
+**New runtime dependency, auto-installed:** `check_app_in_browser`/`probe_page`/`trigger_crawl`
+now need the `caddy` binary for any `http://localhost:...` call. It installs itself — the
+`@radically-straightforward/caddy` npm dependency downloads a pinned Caddy release (`2.11.3`) for
+your platform during `npm install`/`npx`, the same pattern this project already uses for the
+`ngrok` binary. Falls back to `CADDY_BIN` (or a system `caddy` on `PATH`) if that download never
+ran (`npm install --ignore-scripts`, offline install) — fails fast with a clear
+`CaddyBinaryNotFoundError` rather than a silent hang if none of those resolve.
+`test_suite {action:"run"}` is unaffected either way (dedicated per-run tunnel, bypasses Caddy).
 
 **Deployment precondition for HTTP transport:** multi-replica deployments that
 want the one-tunnel-per-session guarantee need session-affine load-balancer

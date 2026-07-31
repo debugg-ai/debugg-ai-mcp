@@ -10,14 +10,17 @@ AI-powered browser testing via the [Model Context Protocol](https://modelcontext
 
 **Requires Node.js 20.20.0 or later** (transitive requirement from `posthog-node@^5.26.0`).
 
-**Testing `http://localhost:...` URLs also requires the `caddy` binary discoverable on `PATH`**
-(or set `CADDY_BIN` to an explicit path) — `check_app_in_browser`, `probe_page`, and
-`trigger_crawl` tunnel localhost targets through a local Caddy reverse proxy. Nothing here
-installs it for you: `brew install caddy` (macOS), `apt install caddy` (Debian/Ubuntu), or see
-[caddyserver.com/docs/install](https://caddyserver.com/docs/install). Missing it surfaces as a
+**Testing `http://localhost:...` URLs requires the `caddy` binary** — `check_app_in_browser`,
+`probe_page`, and `trigger_crawl` tunnel localhost targets through a local Caddy reverse proxy.
+This installs automatically: the `@radically-straightforward/caddy` npm dependency downloads a
+pinned Caddy release for your platform during `npm install`/`npx`, same as this project already
+does for the `ngrok` binary — nothing to install yourself in the normal case. If that download
+never ran (`npm install --ignore-scripts`, an offline/air-gapped install), point `CADDY_BIN` at
+your own install (`brew install caddy` / `apt install caddy` / see
+[caddyserver.com/docs/install](https://caddyserver.com/docs/install)) — missing it surfaces as a
 clear error on the first localhost-URL call, not a silent hang. Public-URL calls, every
 non-browser tool, and `test_suite {action:"run"}` (which uses its own dedicated tunnel and
-bypasses Caddy entirely) don't need it.
+bypasses Caddy entirely) don't need it either way.
 
 Get an API key at [debugg.ai](https://debugg.ai), then add to your MCP client config:
 
@@ -41,10 +44,16 @@ Or with Docker:
 docker run -i --rm --init -e DEBUGGAI_API_KEY=your_api_key quinnosha/debugg-ai-mcp
 ```
 
-The published image does not currently bundle the `caddy` binary — localhost-URL calls to
+The `Dockerfile`'s `npm install` step would pick up `caddy` the same automatic way local installs
+do, in principle — but as of this writing the `Dockerfile` doesn't `COPY` several directories the
+build now needs (`handlers`, `tools`, `types`, `config`) and still references a `tunnels/`
+directory that no longer exists, so a fresh build likely fails before that matters. That's a
+pre-existing gap, unrelated to Caddy. The **currently published** `quinnosha/debugg-ai-mcp` image
+predates the Caddy dependency regardless — localhost-URL calls to
 `check_app_in_browser`/`probe_page`/`trigger_crawl` will fail with `CaddyBinaryNotFoundError`
-inside the container until a custom image installs `caddy` (or `CADDY_BIN` points at one baked
-in). Public-URL calls, the non-browser tools, and `test_suite {action:"run"}` are unaffected.
+inside that image until it's rebuilt (Dockerfile fixed) and republished, or `CADDY_BIN` points at
+one baked in separately. Public-URL calls, the non-browser tools, and `test_suite {action:"run"}`
+are unaffected either way.
 
 ## Tools
 

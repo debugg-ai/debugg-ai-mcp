@@ -112,6 +112,8 @@ let CaddyAdminApiError: typeof import('../../services/caddy/caddyProxy.js').Cadd
 let CaddyPortReclaimError: typeof import('../../services/caddy/caddyProxy.js').CaddyPortReclaimError;
 let sweepOrphanedConfigs: typeof import('../../services/caddy/caddyProxy.js').sweepOrphanedConfigs;
 let _resetOrphanSweepForTests: typeof import('../../services/caddy/caddyProxy.js')._resetOrphanSweepForTests;
+let findBundledCaddyBinary: typeof import('../../services/caddy/caddyProxy.js').findBundledCaddyBinary;
+let _resetBundledCaddyBinaryCacheForTests: typeof import('../../services/caddy/caddyProxy.js')._resetBundledCaddyBinaryCacheForTests;
 
 beforeAll(async () => {
   const mod = await import('../../services/caddy/caddyProxy.js');
@@ -127,6 +129,8 @@ beforeAll(async () => {
   CaddyPortReclaimError = mod.CaddyPortReclaimError;
   sweepOrphanedConfigs = mod.sweepOrphanedConfigs;
   _resetOrphanSweepForTests = mod._resetOrphanSweepForTests;
+  findBundledCaddyBinary = mod.findBundledCaddyBinary;
+  _resetBundledCaddyBinaryCacheForTests = mod._resetBundledCaddyBinaryCacheForTests;
 });
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -260,6 +264,63 @@ describe('findFreePort', () => {
     expect(a).toBeGreaterThan(0);
     expect(b).toBeGreaterThan(0);
     expect(a).not.toBe(b);
+  });
+});
+
+// ── findBundledCaddyBinary (the @radically-straightforward/caddy fallback tier) ──
+//
+// Deliberately NOT mocking fs/path/url here (this file's existing convention —
+// see sweepOrphanedConfigs below — already exercises real fs against a real
+// project tree). This function's whole job is finding a REAL file relative to
+// the REAL package root, so testing it against the actual installed
+// node_modules/.bin/caddy is more honest than mocking the filesystem it's
+// meant to walk: a mock could pass while the real npm-install-time contract
+// (this repo depends on @radically-straightforward/caddy, which drops the
+// binary there) silently drifts.
+
+describe('findBundledCaddyBinary', () => {
+  afterEach(() => {
+    _resetBundledCaddyBinaryCacheForTests();
+  });
+
+  test('finds the real binary installed by @radically-straightforward/caddy at node_modules/.bin/caddy', () => {
+    const found = findBundledCaddyBinary();
+    expect(found).toBeDefined();
+    expect(pathReal.basename(found!)).toBe(process.platform === 'win32' ? 'caddy.exe' : 'caddy');
+    expect(fsReal.existsSync(found!)).toBe(true);
+  });
+
+  test('memoizes: repeated calls return the identical string without re-walking', () => {
+    const first = findBundledCaddyBinary();
+    const second = findBundledCaddyBinary();
+    expect(second).toBe(first);
+  });
+
+  test('_resetBundledCaddyBinaryCacheForTests() forces a fresh resolve that still finds the same real binary', () => {
+    const before = findBundledCaddyBinary();
+    _resetBundledCaddyBinaryCacheForTests();
+    const after = findBundledCaddyBinary();
+    expect(after).toBe(before);
+  });
+
+  test('resolveCaddyBinary precedence: with no CADDY_BIN and no caddyBinOverride, ensureStarted() spawns the bundled binary — not a bare "caddy" PATH lookup', async () => {
+    delete process.env.CADDY_BIN;
+    const manager = new CaddyProxyManager({ configDir: tmpDir, startTimeoutMs: 500, probeIntervalMs: 5 });
+    httpHandler = () => ({ kind: 'response', status: 200, body: '' });
+    await manager.ensureStarted();
+    expect(mockSpawn).toHaveBeenCalledWith(findBundledCaddyBinary(), expect.anything(), expect.anything());
+  });
+
+  test('resolveCaddyBinary precedence: CADDY_BIN env still wins over the bundled binary', async () => {
+    process.env.CADDY_BIN = '/explicit/env/caddy';
+    try {
+      const manager = new CaddyProxyManager({ configDir: tmpDir, startTimeoutMs: 500, probeIntervalMs: 5 });
+      httpHandler = () => ({ kind: 'response', status: 200, body: '' });
+      await manager.ensureStarted();
+      expect(mockSpawn).toHaveBeenCalledWith('/explicit/env/caddy', expect.anything(), expect.anything());
+    } finally {
+      delete process.env.CADDY_BIN;
+    }
   });
 });
 

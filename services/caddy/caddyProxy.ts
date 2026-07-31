@@ -28,6 +28,7 @@ import { createServer } from 'node:net';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { Logger } from '../../utils/logger.js';
 
@@ -118,6 +119,62 @@ export function resolveDialAddress(port: number, isHttpsLocal: boolean, inDocker
 /** Whether the current process is running inside Docker, per DOCKER_CONTAINER env var. */
 export function isDockerEnv(): boolean {
   return process.env.DOCKER_CONTAINER === 'true';
+}
+
+// ── Bundled binary resolution ────────────────────────────────────────────────
+//
+// @radically-straightforward/caddy is a dependency (package.json's "caddy"
+// field pins the exact version — see its postinstall) that downloads Caddy
+// from the project's own GitHub releases and drops it at
+// node_modules/.bin/caddy(.exe). Same pattern this repo already uses for the
+// ngrok binary (the "ngrok" npm package's own postinstall). Pinned rather
+// than "latest" deliberately: a real config incompatibility with a Caddy
+// version (--adapter json rejected by 2.11.3) was found and fixed during
+// development of this file — "latest" silently shipping a breaking change
+// under us is exactly the failure mode pinning avoids.
+//
+// Precedence (resolveCaddyBinary): CADDY_BIN env → caddyBinOverride ctor opt
+// → this bundled binary → bare 'caddy' resolved from PATH (last resort, e.g.
+// a system install with no bundled binary present for some reason).
+
+let _bundledCaddyBinaryCache: string | null | undefined; // undefined = not yet resolved
+
+/** Same "walk up to my own package.json" pattern as config/index.ts's
+ *  findPackageVersion() — finds this package's root regardless of whether
+ *  it's a repo checkout, a global install, or an npx cache dir. */
+function findOwnPackageRoot(): string | undefined {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  while (true) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8'));
+      if (pkg.name === '@debugg-ai/debugg-ai-mcp') return dir;
+    } catch { /* keep walking */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/** Resolves (and caches) the path to the bundled Caddy binary, if present.
+ *  Returns undefined if @radically-straightforward/caddy's postinstall never
+ *  ran or failed (e.g. npm install --ignore-scripts) — resolveCaddyBinary()
+ *  falls through to a bare 'caddy' PATH lookup in that case. */
+export function findBundledCaddyBinary(): string | undefined {
+  if (_bundledCaddyBinaryCache !== undefined) return _bundledCaddyBinaryCache ?? undefined;
+  const root = findOwnPackageRoot();
+  if (!root) {
+    _bundledCaddyBinaryCache = null;
+    return undefined;
+  }
+  const binName = process.platform === 'win32' ? 'caddy.exe' : 'caddy';
+  const binPath = path.join(root, 'node_modules', '.bin', binName);
+  _bundledCaddyBinaryCache = fs.existsSync(binPath) ? binPath : null;
+  return _bundledCaddyBinaryCache ?? undefined;
+}
+
+/** Test-only: clears the memoized bundled-binary lookup. */
+export function _resetBundledCaddyBinaryCacheForTests(): void {
+  _bundledCaddyBinaryCache = undefined;
 }
 
 // ── Config file location ─────────────────────────────────────────────────────
@@ -337,7 +394,8 @@ async function probeAdminHealthy(adminPort: number): Promise<boolean> {
 // ── CaddyProxyManager ────────────────────────────────────────────────────────
 
 export interface CaddyProxyManagerOptions {
-  /** CADDY_BIN env var → caddyBinOverride → bare 'caddy' on PATH. */
+  /** CADDY_BIN env var → caddyBinOverride → bundled binary (node_modules/.bin/caddy,
+   *  installed by the @radically-straightforward/caddy dependency) → bare 'caddy' on PATH. */
   caddyBinOverride?: string;
   /** Readiness-probe cap. Default 5000ms per the architecture doc §2.2. */
   startTimeoutMs?: number;
@@ -494,7 +552,7 @@ export class CaddyProxyManager implements CaddyProxy {
   }
 
   private resolveCaddyBinary(): string {
-    return process.env.CADDY_BIN || this.caddyBinOverride || 'caddy';
+    return process.env.CADDY_BIN || this.caddyBinOverride || findBundledCaddyBinary() || 'caddy';
   }
 
   private writeConfig(proxyPort: number, adminPort: number): string {
@@ -544,10 +602,12 @@ export class CaddyProxyManager implements CaddyProxy {
         finish(() => {
           if (err.code === 'ENOENT') {
             reject(new CaddyBinaryNotFoundError(
-              `caddy binary not found (tried "${this.resolveCaddyBinary()}"). Install it: ` +
-              `"brew install caddy" (macOS), "apt install caddy" (Debian/Ubuntu), or see ` +
-              `https://caddyserver.com/docs/install. You can also set the CADDY_BIN env var ` +
-              `to an explicit path.`,
+              `caddy binary not found (tried "${this.resolveCaddyBinary()}"). This should have been ` +
+              `installed automatically by the @radically-straightforward/caddy dependency — if you ran ` +
+              `npm install with --ignore-scripts, or in an offline/air-gapped environment, that download ` +
+              `never ran. Fix by either installing caddy yourself ("brew install caddy" on macOS, ` +
+              `"apt install caddy" on Debian/Ubuntu, or see https://caddyserver.com/docs/install) and ` +
+              `pointing CADDY_BIN at it, or re-running npm install with scripts enabled.`,
             ));
           } else {
             reject(new CaddyStartupError(String(err)));
