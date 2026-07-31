@@ -21,6 +21,22 @@ import * as fsReal from 'node:fs';
 import * as osReal from 'node:os';
 import * as pathReal from 'node:path';
 
+// Synchronous, load-time check (same self-skip shape as
+// __tests__/integration/caddyProxy.test.ts's HAS_CADDY) — some CI jobs
+// deliberately run `npm ci --ignore-scripts` (e.g. validate-setup.yml, to
+// validate package structure without executing arbitrary postinstall code),
+// so @radically-straightforward/caddy's postinstall never ran and
+// node_modules/.bin/caddy genuinely does not exist there. That's not a bug in
+// resolveCaddyBinary()'s fallback chain (it correctly falls through to a bare
+// 'caddy' PATH lookup) — it's a real environment precondition the tests that
+// assert "the bundled binary is present/used" must respect, not assume.
+const BUNDLED_CADDY_BIN_NAME = process.platform === 'win32' ? 'caddy.exe' : 'caddy';
+const HAS_BUNDLED_CADDY = fsReal.existsSync(
+  pathReal.join(import.meta.dirname, '..', '..', 'node_modules', '.bin', BUNDLED_CADDY_BIN_NAME),
+);
+const maybeTest = HAS_BUNDLED_CADDY ? test : test.skip;
+const maybeTestNoBundledBinary = HAS_BUNDLED_CADDY ? test.skip : test;
+
 // ── Fake child_process.spawn ─────────────────────────────────────────────
 
 class FakeChildProcess extends EventEmitter {
@@ -283,32 +299,40 @@ describe('findBundledCaddyBinary', () => {
     _resetBundledCaddyBinaryCacheForTests();
   });
 
-  test('finds the real binary installed by @radically-straightforward/caddy at node_modules/.bin/caddy', () => {
+  maybeTest('finds the real binary installed by @radically-straightforward/caddy at node_modules/.bin/caddy', () => {
     const found = findBundledCaddyBinary();
     expect(found).toBeDefined();
     expect(pathReal.basename(found!)).toBe(process.platform === 'win32' ? 'caddy.exe' : 'caddy');
     expect(fsReal.existsSync(found!)).toBe(true);
   });
 
-  test('memoizes: repeated calls return the identical string without re-walking', () => {
+  maybeTest('memoizes: repeated calls return the identical string without re-walking', () => {
     const first = findBundledCaddyBinary();
     const second = findBundledCaddyBinary();
     expect(second).toBe(first);
   });
 
-  test('_resetBundledCaddyBinaryCacheForTests() forces a fresh resolve that still finds the same real binary', () => {
+  maybeTest('_resetBundledCaddyBinaryCacheForTests() forces a fresh resolve that still finds the same real binary', () => {
     const before = findBundledCaddyBinary();
     _resetBundledCaddyBinaryCacheForTests();
     const after = findBundledCaddyBinary();
     expect(after).toBe(before);
   });
 
-  test('resolveCaddyBinary precedence: with no CADDY_BIN and no caddyBinOverride, ensureStarted() spawns the bundled binary — not a bare "caddy" PATH lookup', async () => {
+  maybeTest('resolveCaddyBinary precedence: with no CADDY_BIN and no caddyBinOverride, ensureStarted() spawns the bundled binary — not a bare "caddy" PATH lookup', async () => {
     delete process.env.CADDY_BIN;
     const manager = new CaddyProxyManager({ configDir: tmpDir, startTimeoutMs: 500, probeIntervalMs: 5 });
     httpHandler = () => ({ kind: 'response', status: 200, body: '' });
     await manager.ensureStarted();
     expect(mockSpawn).toHaveBeenCalledWith(findBundledCaddyBinary(), expect.anything(), expect.anything());
+  });
+
+  maybeTestNoBundledBinary('when the bundled binary is absent (e.g. npm ci --ignore-scripts), resolveCaddyBinary falls through to a bare "caddy" PATH lookup', async () => {
+    delete process.env.CADDY_BIN;
+    const manager = new CaddyProxyManager({ configDir: tmpDir, startTimeoutMs: 500, probeIntervalMs: 5 });
+    httpHandler = () => ({ kind: 'response', status: 200, body: '' });
+    await manager.ensureStarted();
+    expect(mockSpawn).toHaveBeenCalledWith('caddy', expect.anything(), expect.anything());
   });
 
   test('resolveCaddyBinary precedence: CADDY_BIN env still wins over the bundled binary', async () => {
