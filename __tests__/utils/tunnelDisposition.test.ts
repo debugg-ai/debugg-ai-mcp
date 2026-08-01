@@ -89,17 +89,17 @@ describe('isEndpointGone', () => {
 // ── The decision ─────────────────────────────────────────────────────────────
 
 describe('disposeUnhealthyTunnel', () => {
-  test('ERR_NGROK_3200 → evicts via markTunnelDead with the parsed port', () => {
+  test('ERR_NGROK_3200 → evicts via markTunnelDead(tunnelId) — no port needed anymore', () => {
     disposeUnhealthyTunnel({
       health: { healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200', elapsedMs: 40 },
       tunnelId: 't-dead',
       originalUrl: LOCALHOST,
     });
 
-    // markTunnelDead, not stopTunnel: for a BORROWED tunnel only markTunnelDead
-    // evicts the shared registry entry, which is what stops every other session
-    // re-borrowing the corpse (bead k34o).
-    expect(mockMarkTunnelDead).toHaveBeenCalledWith(3011, 't-dead');
+    // §2.3: markTunnelDead dropped its `port` parameter — eviction is no
+    // longer port-scoped now that every tunnel is created (never borrowed)
+    // by this process (§4).
+    expect(mockMarkTunnelDead).toHaveBeenCalledWith('t-dead');
     expect(mockStopTunnel).not.toHaveBeenCalled();
   });
 
@@ -145,17 +145,17 @@ describe('disposeUnhealthyTunnel', () => {
     expect(mockStopTunnel).not.toHaveBeenCalled();
   });
 
-  test('proven-dead code but an unparseable port → keeps the tunnel rather than guessing', () => {
-    // markTunnelDead is keyed by port. Without one, the old code fell back to a
-    // blind stopTunnel — the exact teardown this policy exists to prevent.
+  test('proven-dead code with a non-localhost originalUrl → still evicts (originalUrl is no longer load-bearing)', () => {
+    // markTunnelDead(tunnelId) no longer needs a port parsed out of
+    // originalUrl (§2.3), so this decision no longer depends on originalUrl
+    // being a parseable localhost URL at all.
     disposeUnhealthyTunnel({
       health: { healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200', elapsedMs: 40 },
       tunnelId: 't-dead',
       originalUrl: 'https://staging.example.com/app',
     });
 
-    expect(mockMarkTunnelDead).not.toHaveBeenCalled();
-    expect(mockStopTunnel).not.toHaveBeenCalled();
+    expect(mockMarkTunnelDead).toHaveBeenCalledWith('t-dead');
   });
 
   test('a failing eviction never escapes — cleanup must not break the error response', async () => {

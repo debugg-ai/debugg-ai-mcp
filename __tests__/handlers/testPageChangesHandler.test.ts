@@ -468,6 +468,12 @@ const mockBuildContext = jest.fn<(url: string) => any>();
 const mockResolveTargetUrl = jest.fn<(input: any) => string>();
 const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
 const mockTouchTunnelById = jest.fn<(id: string) => void>();
+// §2.4: named so lock-wiring tests can assert call order/counts and override
+// behavior per-test; default mirrors the real acquirePortRoute's no-op
+// contract (public URL / no tunnelId → unchanged ctx).
+const mockAcquirePortRoute = jest.fn(async (ctx: any) =>
+  ctx.isLocalhost && ctx.tunnelId ? { ...ctx, routeLock: { release: jest.fn() } } : ctx);
+const mockReleasePortRoute = jest.fn((ctx: any) => ctx?.routeLock?.release?.());
 const mockImageContentBlock = jest.fn<(...args: any[]) => any>();
 
 // ── Module mocks (BEFORE dynamic import) ───────────────────────────────────
@@ -491,6 +497,8 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   buildContext: mockBuildContext,
   findExistingTunnel: mockFindExistingTunnel,
   ensureTunnel: mockEnsureTunnel,
+  acquirePortRoute: mockAcquirePortRoute,
+  releasePortRoute: mockReleasePortRoute,
   sanitizeResponseUrls: mockSanitizeResponseUrls,
   touchTunnelById: mockTouchTunnelById,
 }));
@@ -732,6 +740,61 @@ describe('testPageChangesHandler — full handler flow', () => {
     );
   });
 
+  // §2.4 lock wiring: acquirePortRoute fires after ensureTunnel and BEFORE
+  // probeTunnelHealth (probing before the repoint is confirmed would probe
+  // whatever port happened to be active a moment ago); releasePortRoute
+  // fires in the finally regardless of success/failure. Parity with
+  // trigger_crawl/probe_page — check_app_in_browser is NOT the run_test_suite
+  // fire-and-forget exception (§2.3).
+  describe('shared port-route lock wiring (§2.4)', () => {
+    test('acquirePortRoute fires after ensureTunnel and before probeTunnelHealth; releasePortRoute fires in the finally', async () => {
+      setupHappyPath({ isLocalhost: true });
+      const order: string[] = [];
+      mockEnsureTunnel.mockImplementation(async () => {
+        order.push('ensureTunnel');
+        return { originalUrl: 'http://localhost:3000', isLocalhost: true, tunnelId: 'tid-abc', targetUrl: 'https://tid-abc.ngrok.debugg.ai/' };
+      });
+      mockAcquirePortRoute.mockImplementation(async (ctx: any) => {
+        order.push('acquirePortRoute');
+        return { ...ctx, routeLock: { release: () => order.push('releasePortRoute') } };
+      });
+      mockReleasePortRoute.mockImplementation((ctx: any) => ctx.routeLock?.release());
+      mockProbeTunnelHealth.mockImplementation(async () => {
+        order.push('probeTunnelHealth');
+        return { healthy: true, status: 200, elapsedMs: 1 };
+      });
+      mockExecute.mockImplementation(async () => { order.push('execute'); return EXECUTE_RESPONSE; });
+
+      await testPageChangesHandler(localhostInput, defaultContext);
+
+      expect(order).toEqual([
+        'ensureTunnel', 'acquirePortRoute', 'probeTunnelHealth', 'execute', 'releasePortRoute',
+      ]);
+      expect(mockAcquirePortRoute).toHaveBeenCalledTimes(1);
+      expect(mockReleasePortRoute).toHaveBeenCalledTimes(1);
+    });
+
+    test('releasePortRoute still fires when the handler errors out after acquiring the route', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockAcquirePortRoute.mockImplementation(async (ctx: any) => ({ ...ctx, routeLock: { release: jest.fn() } }));
+      mockExecute.mockRejectedValue(new Error('backend exploded'));
+
+      await expect(testPageChangesHandler(localhostInput, defaultContext)).rejects.toThrow();
+
+      expect(mockAcquirePortRoute).toHaveBeenCalledTimes(1);
+      expect(mockReleasePortRoute).toHaveBeenCalledTimes(1);
+    });
+
+    test('public URL: the handler never calls acquirePortRoute (no tunnel branch entered)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(result.isError).toBeFalsy();
+      expect(mockAcquirePortRoute).not.toHaveBeenCalled();
+      expect(mockReleasePortRoute).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // Test 3: Happy-path localhost — tunnel stays alive, no explicit revoke in finally
   test('tunnel reuse: releaseTunnel NOT called, revokeNgrokKey NOT called on success', async () => {
     setupHappyPath({ isLocalhost: true });
@@ -908,7 +971,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       // costs nothing and NOT evicting lets every other session re-borrow the
       // corpse for the rest of the freshness window (bead k34o). markTunnelDead
       // rather than stopTunnel, because only it clears the SHARED entry.
-      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(Number), expect.any(String));
+      // §2.3: markTunnelDead dropped its `port` parameter — no longer port-scoped.
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(String));
       expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 

@@ -56,6 +56,10 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   buildContext: mockBuildContext,
   findExistingTunnel: mockFindExistingTunnel,
   ensureTunnel: mockEnsureTunnel,
+  // §2.4: dev mode never sets ctx.tunnelId, so the real acquirePortRoute
+  // would no-op (return ctx unchanged) — mirror that here.
+  acquirePortRoute: jest.fn(async (ctx: any) => ctx),
+  releasePortRoute: jest.fn(),
   sanitizeResponseUrls: mockSanitizeResponseUrls,
   touchTunnelById: mockTouchTunnelById,
 }));

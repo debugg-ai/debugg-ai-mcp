@@ -5,6 +5,48 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — BREAKING
+
+### Changed — one ngrok tunnel per session instead of one per local port
+
+`check_app_in_browser`, `probe_page`, and `trigger_crawl` now share a **single**
+ngrok tunnel per session (keyed per-caller on HTTP transport, so different
+callers never share state), backed by a local Caddy reverse proxy that gets
+repointed at whichever local port a call targets immediately before dispatch.
+Previously every distinct local port tested in a session opened its own ngrok
+tunnel — N ports meant N billed tunnels. Full design:
+`docs/local-tunnel-multiplexer-architecture-2026-07-31.md`.
+
+This replaces (not extends) a Feb 2026 attempt at the same goal that used
+path-prefix routing (`/p/{port}/*`) and broke on any root-absolute asset/API
+path (`/api/...`, `/_next/...` — the default in most modern frameworks). The
+new design routes through a single dynamic upstream with zero path/host
+rewriting, so that failure mode is structurally impossible rather than patched.
+A live-browser regression test for exactly this case now exists and passes
+(`__tests__/integration/caddyProxy.test.ts`).
+
+**New runtime dependency, auto-installed:** `check_app_in_browser`/`probe_page`/`trigger_crawl`
+now need the `caddy` binary for any `http://localhost:...` call. It installs itself — the
+`@radically-straightforward/caddy` npm dependency downloads a pinned Caddy release (`2.11.3`) for
+your platform during `npm install`/`npx`, the same pattern this project already uses for the
+`ngrok` binary. Falls back to `CADDY_BIN` (or a system `caddy` on `PATH`) if that download never
+ran (`npm install --ignore-scripts`, offline install) — fails fast with a clear
+`CaddyBinaryNotFoundError` rather than a silent hang if none of those resolve.
+`test_suite {action:"run"}` is unaffected either way (dedicated per-run tunnel, bypasses Caddy).
+
+**Deployment precondition for HTTP transport:** multi-replica deployments that
+want the one-tunnel-per-session guarantee need session-affine load-balancer
+routing (consistent hash / sticky on the caller's bearer token). Without it,
+tunnel count degrades to bounded, cost-only over-provisioning (never a
+correctness issue) — see architecture doc §2.1.
+
+### Fixed — two latent response-sanitization bugs surfaced by the above
+
+- `probe_page` multi-target batches could cross-attribute a tunnel-hostname
+  rewrite from one target's result onto another's once targets started sharing
+  a session hostname (they didn't, before this change).
+- `run_test_suite` had no defensive URL-sanitization call at all.
+
 ## [3.5.1]
 
 ### Fixed — default OAuth issuer points at the Django AS

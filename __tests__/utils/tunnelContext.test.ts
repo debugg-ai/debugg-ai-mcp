@@ -4,26 +4,33 @@
  * Covers:
  *  - resolveTargetUrl
  *  - buildContext
- *  - ensureTunnel
+ *  - findExistingTunnel / ensureTunnel (now session-keyed, §2.1)
  *  - releaseTunnel
  *  - sanitizeResponseUrls
  */
 
 import { jest } from '@jest/globals';
 
-// Mock tunnelManager before importing the module under test
-const mockProcessUrl = jest.fn<(...args: any[]) => Promise<any>>();
+// Mock tunnelManager before importing the module under test. getSessionKey
+// is a real, pure function of request-scoped state (utils/requestContext.ts)
+// with no external effects — mocking it to a fixed value keeps these tests
+// decoupled from AsyncLocalStorage plumbing they don't need to exercise.
+const mockEnsureSessionTunnel = jest.fn<(...args: any[]) => Promise<any>>();
 const mockStopTunnel = jest.fn<(...args: any[]) => Promise<any>>();
-const mockGetTunnelForPort = jest.fn<(port: number) => any>();
+const mockGetSessionTunnelInfo = jest.fn<(sessionKey: string) => any>();
+const mockGetTunnelInfo = jest.fn<(tunnelId: string) => any>();
 const mockTouchTunnel = jest.fn<(tunnelId: string) => void>();
+const mockGetSessionKey = jest.fn<() => string>(() => 'sess-fixed');
 
 jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
   tunnelManager: {
-    processUrl: mockProcessUrl,
+    ensureSessionTunnel: mockEnsureSessionTunnel,
     stopTunnel: mockStopTunnel,
-    getTunnelForPort: mockGetTunnelForPort,
+    getSessionTunnelInfo: mockGetSessionTunnelInfo,
+    getTunnelInfo: mockGetTunnelInfo,
     touchTunnel: mockTouchTunnel,
   },
+  getSessionKey: mockGetSessionKey,
 }));
 
 const {
@@ -31,12 +38,15 @@ const {
   buildContext,
   findExistingTunnel,
   ensureTunnel,
+  acquirePortRoute,
+  releasePortRoute,
   releaseTunnel,
   sanitizeResponseUrls,
 } = await import('../../utils/tunnelContext.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetSessionKey.mockReturnValue('sess-fixed');
 });
 
 // ── resolveTargetUrl ─────────────────────────────────────────────────────────
@@ -77,28 +87,26 @@ describe('buildContext', () => {
 // ── findExistingTunnel ───────────────────────────────────────────────────────
 
 describe('findExistingTunnel', () => {
-  test('public URL: returns null without checking port', () => {
+  test('public URL: returns null without checking the session tunnel', () => {
     const ctx = buildContext('https://example.com');
     expect(findExistingTunnel(ctx)).toBeNull();
-    expect(mockGetTunnelForPort).not.toHaveBeenCalled();
+    expect(mockGetSessionTunnelInfo).not.toHaveBeenCalled();
   });
 
-  test('localhost but no active tunnel: returns null', () => {
+  test('localhost but this session has no active tunnel: returns null', () => {
     const ctx = buildContext('http://localhost:3000');
-    mockGetTunnelForPort.mockReturnValueOnce(undefined);
+    mockGetSessionTunnelInfo.mockReturnValueOnce(undefined);
 
     expect(findExistingTunnel(ctx)).toBeNull();
-    expect(mockGetTunnelForPort).toHaveBeenCalledWith(3000);
+    expect(mockGetSessionTunnelInfo).toHaveBeenCalledWith('sess-fixed');
     expect(mockTouchTunnel).not.toHaveBeenCalled();
   });
 
-  test('localhost with existing tunnel: returns enriched ctx and touches tunnel', () => {
+  test('localhost with an existing session tunnel: returns enriched ctx and touches it', () => {
     const ctx = buildContext('http://localhost:3000');
-    mockGetTunnelForPort.mockReturnValueOnce({
+    mockGetSessionTunnelInfo.mockReturnValueOnce({
       tunnelId: 'existing-t1',
       tunnelUrl: 'https://existing-t1.ngrok.debugg.ai',
-      publicUrl: 'https://existing-t1.ngrok.debugg.ai/',
-      port: 3000,
     });
 
     const result = findExistingTunnel(ctx);
@@ -111,17 +119,13 @@ describe('findExistingTunnel', () => {
     expect(mockTouchTunnel).toHaveBeenCalledWith('existing-t1');
   });
 
-  // Bead zmc9: the cache is keyed by PORT but stores a path-bearing publicUrl from
-  // whichever call CREATED the tunnel. Reuse must retarget to the CURRENT caller's
-  // path (tunnel origin + this request's path), never replay the creator's path.
-  test('zmc9: reuse retargets to the CALLER path, not the creator path baked into publicUrl', () => {
+  // Bead zmc9: the session tunnel's bare origin (tunnelUrl) must be retargeted
+  // to THIS caller's own path — never a path baked in by a different call.
+  test('zmc9: reuse retargets to the CALLER path, not a path baked into a previous URL', () => {
     const ctx = buildContext('http://localhost:3011/dashboard?tab=1#top');
-    mockGetTunnelForPort.mockReturnValueOnce({
+    mockGetSessionTunnelInfo.mockReturnValueOnce({
       tunnelId: 'abc123',
       tunnelUrl: 'https://abc123.ngrok.debugg.ai',
-      // creator tunneled a DIFFERENT deep path; this must NOT leak to our caller:
-      publicUrl: 'https://abc123.ngrok.debugg.ai/projects/83fa71e2/graphs',
-      port: 3011,
     });
 
     const result = findExistingTunnel(ctx);
@@ -130,13 +134,11 @@ describe('findExistingTunnel', () => {
     expect(result!.targetUrl).toBe('https://abc123.ngrok.debugg.ai/dashboard?tab=1#top');
   });
 
-  test('zmc9: a root-path caller does not inherit a cached deep path (the exact repro)', () => {
+  test('zmc9: a root-path caller does not inherit any deep path from a previous caller', () => {
     const ctx = buildContext('http://localhost:3011/');
-    mockGetTunnelForPort.mockReturnValueOnce({
+    mockGetSessionTunnelInfo.mockReturnValueOnce({
       tunnelId: 'abc123',
       tunnelUrl: 'https://abc123.ngrok.debugg.ai',
-      publicUrl: 'https://abc123.ngrok.debugg.ai/projects/83fa71e2/graphs',
-      port: 3011,
     });
 
     const result = findExistingTunnel(ctx);
@@ -148,47 +150,160 @@ describe('findExistingTunnel', () => {
 // ── ensureTunnel ─────────────────────────────────────────────────────────────
 
 describe('ensureTunnel', () => {
-  test('non-localhost ctx: returns same ctx, processUrl NOT called', async () => {
+  test('non-localhost ctx: returns same ctx, ensureSessionTunnel NOT called', async () => {
     const ctx = buildContext('https://example.com');
     const result = await ensureTunnel(ctx, 'key-1', 'tid-1');
     expect(result).toBe(ctx);
-    expect(mockProcessUrl).not.toHaveBeenCalled();
+    expect(mockEnsureSessionTunnel).not.toHaveBeenCalled();
   });
 
-  test('localhost ctx: calls processUrl and returns enriched ctx', async () => {
+  test('localhost ctx: calls ensureSessionTunnel with this session\'s key and returns enriched ctx', async () => {
     const ctx = buildContext('http://localhost:3000');
-    mockProcessUrl.mockResolvedValueOnce({
-      url: 'https://tid-1.ngrok.debugg.ai',
+    mockEnsureSessionTunnel.mockResolvedValueOnce({
       tunnelId: 'tid-1',
+      tunnelUrl: 'https://tid-1.ngrok.debugg.ai',
     });
 
     const result = await ensureTunnel(ctx, 'key-1', 'tid-1');
-    expect(mockProcessUrl).toHaveBeenCalledWith(
-      'http://localhost:3000', 'key-1', 'tid-1', undefined, undefined
+    expect(mockEnsureSessionTunnel).toHaveBeenCalledWith(
+      'sess-fixed', 'key-1', 'tid-1', undefined, undefined
     );
     expect(result.tunnelId).toBe('tid-1');
-    expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai');
+    expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai/');
     expect(result.originalUrl).toBe('http://localhost:3000');
     expect(result.isLocalhost).toBe(true);
   });
 
-  test('forwards keyId and revokeKey to processUrl', async () => {
+  test('retargets the session tunnel\'s bare origin to THIS call\'s path', async () => {
+    const ctx = buildContext('http://localhost:3000/api/widgets');
+    mockEnsureSessionTunnel.mockResolvedValueOnce({
+      tunnelId: 'tid-1',
+      tunnelUrl: 'https://tid-1.ngrok.debugg.ai',
+    });
+
+    const result = await ensureTunnel(ctx, 'key-1', 'tid-1');
+    expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai/api/widgets');
+  });
+
+  test('forwards keyId and revokeKey to ensureSessionTunnel', async () => {
     const ctx = buildContext('http://localhost:3000');
-    mockProcessUrl.mockResolvedValueOnce({ url: 'https://tid-1.ngrok.debugg.ai', tunnelId: 'tid-1' });
+    mockEnsureSessionTunnel.mockResolvedValueOnce({ tunnelId: 'tid-1', tunnelUrl: 'https://tid-1.ngrok.debugg.ai' });
     const revokeKey = jest.fn();
 
     await ensureTunnel(ctx, 'key-1', 'tid-1', 'kid-1', revokeKey);
 
-    expect(mockProcessUrl).toHaveBeenCalledWith(
-      'http://localhost:3000', 'key-1', 'tid-1', 'kid-1', revokeKey
+    expect(mockEnsureSessionTunnel).toHaveBeenCalledWith(
+      'sess-fixed', 'key-1', 'tid-1', 'kid-1', revokeKey
     );
   });
 
-  test('processUrl throws: error propagates', async () => {
+  test('ensureSessionTunnel throws: error propagates', async () => {
     const ctx = buildContext('http://localhost:3000');
-    mockProcessUrl.mockRejectedValueOnce(new Error('tunnel failed'));
+    mockEnsureSessionTunnel.mockRejectedValueOnce(new Error('tunnel failed'));
 
     await expect(ensureTunnel(ctx, 'key-1', 'tid-1')).rejects.toThrow('tunnel failed');
+  });
+});
+
+// ── acquirePortRoute / releasePortRoute (§2.4) ──────────────────────────────
+
+describe('acquirePortRoute', () => {
+  test('public URL (no tunnelId): returns ctx unchanged, never touches tunnelManager', async () => {
+    const ctx = buildContext('https://example.com');
+    const result = await acquirePortRoute(ctx, { callId: 'call-1' });
+    expect(result).toBe(ctx);
+    expect(mockGetTunnelInfo).not.toHaveBeenCalled();
+  });
+
+  test('localhost ctx without a tunnelId yet: returns ctx unchanged (no route to acquire)', async () => {
+    const ctx = buildContext('http://localhost:3000');
+    expect(ctx.tunnelId).toBeUndefined();
+    const result = await acquirePortRoute(ctx, { callId: 'call-1' });
+    expect(result).toBe(ctx);
+    expect(mockGetTunnelInfo).not.toHaveBeenCalled();
+  });
+
+  test('localhost ctx with a tunnelId: looks up TunnelInfo and acquires its portLock for this port', async () => {
+    const ctx = buildContext('http://localhost:3000');
+    const withTunnel = { ...ctx, tunnelId: 'tid-1', targetUrl: 'https://tid-1.ngrok.debugg.ai/' };
+    const mockHandle = { port: 3000, callId: 'call-1', release: jest.fn() };
+    const mockAcquire = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(mockHandle);
+    mockGetTunnelInfo.mockReturnValueOnce({ tunnelId: 'tid-1', portLock: { acquire: mockAcquire } });
+
+    const result = await acquirePortRoute(withTunnel, { callId: 'call-1' });
+
+    expect(mockGetTunnelInfo).toHaveBeenCalledWith('tid-1');
+    expect(mockAcquire).toHaveBeenCalledWith(
+      { port: 3000, isHttpsLocal: false },
+      expect.objectContaining({ callId: 'call-1' }),
+    );
+    expect(result.routeLock).toBe(mockHandle);
+    // Original ctx fields preserved.
+    expect(result.tunnelId).toBe('tid-1');
+    expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai/');
+  });
+
+  test('https localhost ctx: passes isHttpsLocal:true through to portLock.acquire', async () => {
+    const ctx = buildContext('https://localhost:3443');
+    const withTunnel = { ...ctx, tunnelId: 'tid-2' };
+    const mockAcquire = jest.fn<(...args: any[]) => Promise<any>>()
+      .mockResolvedValue({ port: 3443, callId: 'call-2', release: jest.fn() });
+    mockGetTunnelInfo.mockReturnValueOnce({ tunnelId: 'tid-2', portLock: { acquire: mockAcquire } });
+
+    await acquirePortRoute(withTunnel, { callId: 'call-2' });
+
+    expect(mockAcquire).toHaveBeenCalledWith(
+      { port: 3443, isHttpsLocal: true },
+      expect.objectContaining({ callId: 'call-2' }),
+    );
+  });
+
+  test('forwards signal and onWaitProgress through to portLock.acquire', async () => {
+    const ctx = buildContext('http://localhost:3000');
+    const withTunnel = { ...ctx, tunnelId: 'tid-1' };
+    const mockAcquire = jest.fn<(...args: any[]) => Promise<any>>()
+      .mockResolvedValue({ port: 3000, callId: 'call-3', release: jest.fn() });
+    mockGetTunnelInfo.mockReturnValueOnce({ tunnelId: 'tid-1', portLock: { acquire: mockAcquire } });
+    const signal = new AbortController().signal;
+    const onWaitProgress = jest.fn<(...args: any[]) => Promise<void>>();
+
+    await acquirePortRoute(withTunnel, { callId: 'call-3', signal, onWaitProgress });
+
+    expect(mockAcquire).toHaveBeenCalledWith(
+      { port: 3000, isHttpsLocal: false },
+      { callId: 'call-3', signal, onWaitProgress },
+    );
+  });
+
+  test('tunnelId set but TunnelInfo has vanished (evicted mid-flight): throws rather than silently no-op', async () => {
+    const ctx = buildContext('http://localhost:3000');
+    const withTunnel = { ...ctx, tunnelId: 'tid-gone' };
+    mockGetTunnelInfo.mockReturnValueOnce(undefined);
+
+    await expect(acquirePortRoute(withTunnel, { callId: 'call-4' })).rejects.toThrow(/no TunnelInfo/);
+  });
+
+  test('portLock.acquire rejects (e.g. CaddyRepointError): propagates, ctx never gets a routeLock', async () => {
+    const ctx = buildContext('http://localhost:3000');
+    const withTunnel = { ...ctx, tunnelId: 'tid-1' };
+    const mockAcquire = jest.fn<(...args: any[]) => Promise<any>>().mockRejectedValue(new Error('repoint failed'));
+    mockGetTunnelInfo.mockReturnValueOnce({ tunnelId: 'tid-1', portLock: { acquire: mockAcquire } });
+
+    await expect(acquirePortRoute(withTunnel, { callId: 'call-5' })).rejects.toThrow('repoint failed');
+  });
+});
+
+describe('releasePortRoute', () => {
+  test('ctx with a routeLock: calls release() exactly once', () => {
+    const release = jest.fn();
+    const ctx = { originalUrl: 'http://localhost:3000', isLocalhost: true, tunnelId: 'tid-1', routeLock: { port: 3000, callId: 'c1', release } };
+    releasePortRoute(ctx);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  test('ctx without a routeLock: no-op, never throws', () => {
+    const ctx = buildContext('https://example.com');
+    expect(() => releasePortRoute(ctx)).not.toThrow();
   });
 });
 
@@ -203,9 +318,9 @@ describe('releaseTunnel', () => {
 
   test('ctx with tunnelId: calls stopTunnel', async () => {
     const ctx = buildContext('http://localhost:3000');
-    mockProcessUrl.mockResolvedValueOnce({
-      url: 'https://tid-1.ngrok.debugg.ai',
+    mockEnsureSessionTunnel.mockResolvedValueOnce({
       tunnelId: 'tid-1',
+      tunnelUrl: 'https://tid-1.ngrok.debugg.ai',
     });
     const enriched = await ensureTunnel(ctx, 'key-1', 'tid-1');
 

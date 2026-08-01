@@ -30,9 +30,12 @@ import {
   buildContext,
   findExistingTunnel,
   ensureTunnel,
+  acquirePortRoute,
+  releasePortRoute,
   sanitizeResponseUrls,
   touchTunnelById,
 } from '../utils/tunnelContext.js';
+import { randomUUID } from 'node:crypto';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
 import { detectLocalGitRef } from '../utils/gitContext.js';
 import { getCrawlTemplateSlug } from '../services/workflows.js';
@@ -88,6 +91,9 @@ export async function triggerCrawlHandler(
   // we get: stdin is not the transport, so the old stdin 'close' listener never
   // fired and a dropped client kept polling for up to ~10 min. Wiring to
   // context.signal cancels the poll immediately (parity with 56kd.5).
+  // Unique per-call id for the shared port-route lock's holder bookkeeping (§2.4).
+  const callId = randomUUID();
+
   const abortController = new AbortController();
   const onAbort = () => {
     abortController.abort();
@@ -150,6 +156,26 @@ export async function triggerCrawlHandler(
             () => client.revokeNgrokKey(tunnel.keyId),
           );
         }
+
+        // §2.4: acquire this session's shared Caddy route for our port BEFORE
+        // probing/dispatching — trigger_crawl polls (pollExecution below) for
+        // the full duration real backend traffic can occur, exactly like
+        // check_app_in_browser/probe_page, so it holds this lock for the
+        // whole call, not just the repoint (verified: it is NOT a
+        // fire-and-forget exception — only run_test_suite is, §2.3).
+        ctx = await acquirePortRoute(ctx, {
+          callId,
+          signal: abortController.signal,
+          onWaitProgress: progressCallback
+            ? async (info) => {
+                await progressCallback({
+                  progress: 1,
+                  total: 4,
+                  message: `Waiting for shared tunnel — port ${info.blockingPort} is in use (waited ${Math.round(info.waitedMs / 1000)}s)...`,
+                });
+              }
+            : undefined,
+        });
 
         // Bead 1om: post-tunnel health check — verify traffic actually flows.
         if (ctx.targetUrl) {
@@ -370,6 +396,9 @@ export async function triggerCrawlHandler(
     throw handleExternalServiceError(error, 'DebuggAI', 'crawl execution');
   } finally {
     if (requestSignal) requestSignal.removeEventListener('abort', onAbort);
+    // §2.4: release this call's claim on the shared port route (no-op if we
+    // never acquired one).
+    releasePortRoute(ctx);
     // Tunnel intentionally NOT torn down (reuse path per bead vwd).
     // If tunnel creation failed after key provision, revoke the orphaned key.
     if (!ctx.tunnelId && keyId) {

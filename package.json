@@ -3,6 +3,7 @@
   "version": "3.10.0",
   "description": "Zero-Config, Fully AI-Managed End-to-End Testing for all code gen platforms.",
   "type": "module",
+  "caddy": "2.11.3",
   "bin": {
     "debugg-ai-mcp": "dist/index.js"
   },
@@ -57,6 +58,7 @@
   "changelog": "https://github.com/debugg-ai/debugg-ai-mcp/CHANGELOG.md",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
+    "@radically-straightforward/caddy": "^2.0.12",
     "axios": "^1.9.0",
     "mkdirp": "^3.0.1",
     "ngrok": "^5.0.0-beta.2",

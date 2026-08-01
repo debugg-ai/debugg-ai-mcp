@@ -23,6 +23,13 @@ const mockBuildContext = jest.fn<(url: string) => any>();
 const mockResolveTargetUrl = jest.fn<(input: any) => string>();
 const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
 const mockTouchTunnelById = jest.fn<(id: string) => void>();
+// §2.4/§4: mirrors the real acquirePortRoute's no-op contract (public URL /
+// no tunnelId → unchanged ctx). Named so multi-port-batch tests can assert
+// how many times/with what targets the lock was acquired.
+const mockRouteLockRelease = jest.fn();
+const mockAcquirePortRoute = jest.fn(async (ctx: any) =>
+  ctx.isLocalhost && ctx.tunnelId ? { ...ctx, routeLock: { release: mockRouteLockRelease } } : ctx);
+const mockReleasePortRoute = jest.fn();
 
 const mockProbeLocalPort = jest.fn<(port: number) => Promise<any>>();
 const mockProbeTunnelHealth = jest.fn<(url: string) => Promise<any>>();
@@ -45,6 +52,8 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   buildContext: mockBuildContext,
   findExistingTunnel: mockFindExistingTunnel,
   ensureTunnel: mockEnsureTunnel,
+  acquirePortRoute: mockAcquirePortRoute,
+  releasePortRoute: mockReleasePortRoute,
   sanitizeResponseUrls: mockSanitizeResponseUrls,
   touchTunnelById: mockTouchTunnelById,
 }));
@@ -300,6 +309,211 @@ describe('probePageHandler — batch behavior', () => {
   });
 });
 
+// §4 multi-port batch decision + §5.6 new tests: single-port batches (incl.
+// the existing all-public-URL batch above) dispatch exactly as before — one
+// repoint, one backend execution. Cross-port batches decompose into one
+// sequential acquirePortRoute → executeWorkflow(subset) → poll →
+// releasePortRoute cycle PER PORT GROUP, merging results back into the
+// caller's original target order. All localhost targets in these tests
+// resolve to the SAME session tunnelId/hostname (session-tid) — exactly the
+// hostname-sharing scenario that makes bead debugg_ai_mcp-6cfv.6's
+// cross-attribution bug reachable.
+describe('probePageHandler — multi-port batch decomposition (§4)', () => {
+  const SESSION_TUNNEL_ID = 'session-tid';
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const { invalidateTemplateCache } = await import('../../utils/handlerCaches.js');
+    invalidateTemplateCache();
+
+    mockInit.mockResolvedValue(undefined);
+    mockFindTemplateBySlug.mockResolvedValue(TEMPLATE);
+    mockProbeLocalPort.mockResolvedValue({ reachable: true, code: 'OK', elapsedMs: 5 });
+    mockProbeTunnelHealth.mockResolvedValue({ healthy: true, code: 'OK', status: 200, elapsedMs: 50 });
+    mockProvision.mockResolvedValue({ tunnelKey: 'key', tunnelId: SESSION_TUNNEL_ID, keyId: 'kid' });
+
+    // Every localhost target in these tests shares ONE session tunnel —
+    // findExistingTunnel never fires (mirrors the first pre-flight pass of a
+    // fresh session), ensureTunnel always attaches the SAME tunnelId/hostname
+    // regardless of which port the caller asked for, only the retargeted
+    // path differs (§2.1: one tunnel per session, not per port).
+    mockFindExistingTunnel.mockReturnValue(null);
+    mockBuildContext.mockImplementation((url: string) => ({
+      originalUrl: url,
+      targetUrl: url,
+      isLocalhost: url.includes('localhost') || url.includes('127.0.0.1'),
+    }));
+    mockEnsureTunnel.mockImplementation(async (ctx: any) => ({
+      ...ctx,
+      tunnelId: SESSION_TUNNEL_ID,
+      targetUrl: ctx.originalUrl.replace(/^https?:\/\/[^/]+/, `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai`),
+    }));
+  });
+
+  function captureNode(order: number, overrides: Record<string, any> = {}) {
+    return {
+      nodeType: 'browser.capture',
+      executionOrder: order,
+      status: 'success',
+      outputData: {
+        capturedUrl: 'http://placeholder', statusCode: 200, title: 'T', loadTimeMs: 100,
+        consoleSlice: [], networkSummary: [],
+        ...overrides,
+      },
+    };
+  }
+
+  test('same-port localhost batch: ONE repoint, ONE backend execution (unchanged from before §4)', async () => {
+    mockExecute.mockResolvedValue({ executionUuid: 'exec-same-port', resolvedEnvironmentId: null, resolvedCredentialId: null });
+    mockPoll.mockResolvedValue({
+      uuid: 'exec-same-port', status: 'completed', durationMs: 900,
+      nodeExecutions: [
+        captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a` }),
+        captureNode(2, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b` }),
+      ],
+      state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
+    });
+
+    const result = await probePageHandler(
+      { targets: [{ url: 'http://localhost:3000/a' }, { url: 'http://localhost:3000/b' }] } as any,
+      defaultContext,
+    );
+
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockAcquirePortRoute).toHaveBeenCalledTimes(1);
+    expect(mockReleasePortRoute).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(result.content[0].text!);
+    expect(body.results).toHaveLength(2);
+    expect(body.executionId).toBe('exec-same-port');
+    expect(body.executionIds).toBeUndefined();
+  });
+
+  test('cross-port batch: decomposes into ONE sequential dispatch per port group, merged in original order', async () => {
+    mockExecute
+      .mockResolvedValueOnce({ executionUuid: 'exec-port-3000', resolvedEnvironmentId: null, resolvedCredentialId: null })
+      .mockResolvedValueOnce({ executionUuid: 'exec-port-4000', resolvedEnvironmentId: null, resolvedCredentialId: null });
+    mockPoll
+      .mockResolvedValueOnce({
+        uuid: 'exec-port-3000', status: 'completed', durationMs: 500,
+        nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a`, title: 'PortA' })],
+        state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
+      })
+      .mockResolvedValueOnce({
+        uuid: 'exec-port-4000', status: 'completed', durationMs: 600,
+        nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b`, title: 'PortB' })],
+        state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
+      });
+
+    const result = await probePageHandler(
+      {
+        targets: [
+          { url: 'http://localhost:3000/a' },
+          { url: 'http://localhost:4000/b' },
+        ],
+      } as any,
+      defaultContext,
+    );
+
+    // TWO backend round-trips, one per port group, dispatched sequentially.
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(mockPoll).toHaveBeenCalledTimes(2);
+    // TWO separate acquire/release cycles — one per port group — not one for
+    // the whole batch.
+    expect(mockAcquirePortRoute).toHaveBeenCalledTimes(2);
+    expect(mockReleasePortRoute).toHaveBeenCalledTimes(2);
+
+    const body = JSON.parse(result.content[0].text!);
+    expect(body.results).toHaveLength(2);
+    // Results merged back into the CALLER'S original order, not dispatch order.
+    expect(body.results[0].url).toBe('http://localhost:3000/a');
+    expect(body.results[0].title).toBe('PortA');
+    expect(body.results[1].url).toBe('http://localhost:4000/b');
+    expect(body.results[1].title).toBe('PortB');
+    // Multi-group batches surface every execution id additively, without
+    // changing what single-group callers already parse (`executionId`).
+    expect(body.executionId).toBe('exec-port-3000');
+    expect(body.executionIds).toEqual(['exec-port-3000', 'exec-port-4000']);
+  });
+
+  test('cross-port batch: a failing port group does not corrupt the OTHER group\'s results', async () => {
+    mockExecute
+      .mockResolvedValueOnce({ executionUuid: 'exec-ok', resolvedEnvironmentId: null, resolvedCredentialId: null })
+      .mockRejectedValueOnce(new Error('backend exploded for port 4000'));
+    mockPoll.mockResolvedValueOnce({
+      uuid: 'exec-ok', status: 'completed', durationMs: 500,
+      nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a` })],
+      state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
+    });
+
+    await expect(probePageHandler(
+      { targets: [{ url: 'http://localhost:3000/a' }, { url: 'http://localhost:4000/b' }] } as any,
+      defaultContext,
+    )).rejects.toThrow();
+
+    // The first group's route was acquired AND released even though the
+    // second group blew up later — no leaked lock on the failure path.
+    expect(mockAcquirePortRoute).toHaveBeenCalledTimes(2);
+    expect(mockReleasePortRoute).toHaveBeenCalledTimes(2);
+  });
+
+  // Bead debugg_ai_mcp-6cfv.6: the cross-attribution regression test. Both
+  // targets' captured data contain the literal SAME shared session hostname
+  // (both localhost targets share ONE session tunnel/hostname under §2.1) —
+  // the exact condition that made the old whole-payload sanitize loop rewrite
+  // whichever target sanitized first onto EVERY remaining occurrence,
+  // including the other target's own (correct) one.
+  test('bead debugg_ai_mcp-6cfv.6: each result is sanitized against ITS OWN target origin, not cross-attributed', async () => {
+    // A realistic sanitize: strip the shared tunnel hostname down to the
+    // CALLER'S OWN localhost origin — exactly utils/urlParser.ts's
+    // replaceTunnelUrls, parameterized per-call by ctx.originalUrl.
+    mockSanitizeResponseUrls.mockImplementation((value: any, ctx: any) => {
+      if (!ctx.isLocalhost) return value;
+      const origin = new URL(ctx.originalUrl).origin;
+      return JSON.parse(
+        JSON.stringify(value).replace(/https?:\/\/[^\s"/]+\.ngrok\.debugg\.ai/g, origin),
+      );
+    });
+
+    mockExecute
+      .mockResolvedValueOnce({ executionUuid: 'exec-port-3000', resolvedEnvironmentId: null, resolvedCredentialId: null })
+      .mockResolvedValueOnce({ executionUuid: 'exec-port-4000', resolvedEnvironmentId: null, resolvedCredentialId: null });
+    mockPoll
+      .mockResolvedValueOnce({
+        uuid: 'exec-port-3000', status: 'completed', durationMs: 500,
+        nodeExecutions: [captureNode(1, {
+          capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a`,
+          // The tunnel hostname leaking into agent-authored content (title).
+          title: `Loaded https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a`,
+        })],
+        state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
+      })
+      .mockResolvedValueOnce({
+        uuid: 'exec-port-4000', status: 'completed', durationMs: 600,
+        nodeExecutions: [captureNode(1, {
+          capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b`,
+          title: `Loaded https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b`,
+        })],
+        state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
+      });
+
+    const result = await probePageHandler(
+      { targets: [{ url: 'http://localhost:3000/a' }, { url: 'http://localhost:4000/b' }] } as any,
+      defaultContext,
+    );
+
+    const body = JSON.parse(result.content[0].text!);
+    // Each result rewritten to ITS OWN target's localhost origin — never the
+    // other target's. The pre-fix whole-payload sanitize loop would have let
+    // whichever target ran last overwrite BOTH occurrences with its own origin.
+    expect(body.results[0].finalUrl).toBe('http://localhost:3000/a');
+    expect(body.results[0].title).toBe('Loaded http://localhost:3000/a');
+    expect(body.results[1].finalUrl).toBe('http://localhost:4000/b');
+    expect(body.results[1].title).toBe('Loaded http://localhost:4000/b');
+    // No raw tunnel hostname survives anywhere in the response.
+    expect(result.content[0].text).not.toMatch(/ngrok\.debugg\.ai/);
+  });
+});
+
 describe('probePageHandler — localhost pre-flight', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -385,7 +599,8 @@ describe('probePageHandler — localhost pre-flight', () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(mockMarkTunnelDead).toHaveBeenCalledWith(3011, 't-live');
+      // §2.3: markTunnelDead dropped its `port` parameter — no longer port-scoped.
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith('t-live');
       expect(mockStopTunnel).not.toHaveBeenCalled();
     });
   });

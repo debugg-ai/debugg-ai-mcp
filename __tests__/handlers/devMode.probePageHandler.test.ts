@@ -50,6 +50,11 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   buildContext: mockBuildContext,
   findExistingTunnel: mockFindExistingTunnel,
   ensureTunnel: mockEnsureTunnel,
+  // §2.4: dev mode never sets ctx.tunnelId, so probePageHandler's grouping
+  // never routes a dev-mode target through acquirePortRoute at all — mocked
+  // only so the real module's named exports are satisfied at link time.
+  acquirePortRoute: jest.fn(async (ctx: any) => ctx),
+  releasePortRoute: jest.fn(),
   sanitizeResponseUrls: mockSanitizeResponseUrls,
   touchTunnelById: mockTouchTunnelById,
 }));

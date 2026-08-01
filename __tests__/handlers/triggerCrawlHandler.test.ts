@@ -24,6 +24,15 @@ const mockBuildContext = jest.fn<(url: string) => any>();
 const mockResolveTargetUrl = jest.fn<(input: any) => string>();
 const mockSanitizeResponseUrls = jest.fn<(value: any, ctx: any) => any>();
 const mockTouchTunnelById = jest.fn<(id: string) => void>();
+// §5.5 "trigger_crawl lock-wiring parity" test: named so tests can assert
+// acquirePortRoute fires after ensureTunnel/before probeTunnelHealth and
+// releasePortRoute fires in the finally — identically to check_app_in_browser
+// / probe_page (§2.3: trigger_crawl polls, it is NOT a fire-and-forget
+// exception — only run_test_suite is).
+const mockRouteLockRelease = jest.fn();
+const mockAcquirePortRoute = jest.fn(async (ctx: any) =>
+  ctx.isLocalhost && ctx.tunnelId ? { ...ctx, routeLock: { release: mockRouteLockRelease } } : ctx);
+const mockReleasePortRoute = jest.fn();
 
 // sentinal-lwtaw.13: the handler attaches the LOCAL git ref to contextData.
 // Mock the git read so the test is hermetic (doesn't depend on this checkout).
@@ -48,6 +57,11 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   buildContext: mockBuildContext,
   findExistingTunnel: mockFindExistingTunnel,
   ensureTunnel: mockEnsureTunnel,
+  // §2.4: mirrors the real acquirePortRoute's no-op contract (public URL /
+  // no tunnelId → unchanged ctx) so tests exercising a real localhost ctx
+  // still get a routeLock to release.
+  acquirePortRoute: mockAcquirePortRoute,
+  releasePortRoute: mockReleasePortRoute,
   sanitizeResponseUrls: mockSanitizeResponseUrls,
   touchTunnelById: mockTouchTunnelById,
 }));
@@ -530,7 +544,8 @@ describe('triggerCrawlHandler', () => {
       // The one code that proves the endpoint no longer exists: evicting costs
       // nothing (it is already gone) and leaving it lets every session re-borrow
       // the corpse for the rest of the freshness window (bead k34o).
-      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(Number), expect.any(String));
+      // §2.3: markTunnelDead dropped its `port` parameter — no longer port-scoped.
+      expect(mockMarkTunnelDead).toHaveBeenCalledWith(expect.any(String));
       expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 
@@ -753,6 +768,69 @@ describe('triggerCrawlHandler', () => {
       const ctx: ToolContext = { requestId: 'crawl-no-signal', timestamp: new Date() }; // no signal
       const result = await triggerCrawlHandler(publicInput, ctx);
       expect(JSON.parse(result.content[0].text!).executionId).toBe('crawl-exec-uuid-1');
+    });
+  });
+
+  // §5.5 "trigger_crawl lock-wiring parity" test — trigger_crawl polls
+  // identically to check_app_in_browser/probe_page (verified by reading the
+  // handler, §2.3/§4 of the architecture doc), so it gets the SAME
+  // acquirePortRoute/releasePortRoute wiring — NOT the run_test_suite
+  // dedicated-tunnel carve-out. A future refactor that accidentally moved
+  // trigger_crawl onto the fire-and-forget exception path would fail this
+  // structural assertion loudly.
+  describe('shared port-route lock wiring (§2.4, parity with check_app_in_browser/probe_page)', () => {
+    test('acquirePortRoute fires after ensureTunnel and BEFORE probeTunnelHealth; releasePortRoute fires in the finally', async () => {
+      setupHappyPath({ isLocalhost: true });
+      const order: string[] = [];
+      mockEnsureTunnel.mockImplementation(async () => {
+        order.push('ensureTunnel');
+        return {
+          originalUrl: 'http://localhost:3000',
+          isLocalhost: true,
+          tunnelId: PROVISION_RESPONSE.tunnelId,
+          targetUrl: `https://${PROVISION_RESPONSE.tunnelId}.ngrok.debugg.ai/`,
+        };
+      });
+      mockAcquirePortRoute.mockImplementation(async (ctx: any) => {
+        order.push('acquirePortRoute');
+        return { ...ctx, routeLock: { release: () => order.push('releasePortRoute') } };
+      });
+      mockReleasePortRoute.mockImplementation((ctx: any) => ctx.routeLock?.release());
+      mockProbeTunnelHealth.mockImplementation(async () => {
+        order.push('probeTunnelHealth');
+        return { healthy: true, status: 200, elapsedMs: 1 };
+      });
+      mockExecute.mockImplementation(async () => { order.push('execute'); return EXECUTE_RESPONSE; });
+
+      await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(order).toEqual([
+        'ensureTunnel', 'acquirePortRoute', 'probeTunnelHealth', 'execute', 'releasePortRoute',
+      ]);
+      expect(mockAcquirePortRoute).toHaveBeenCalledTimes(1);
+      expect(mockReleasePortRoute).toHaveBeenCalledTimes(1);
+    });
+
+    test('releasePortRoute still fires when the handler errors out after acquiring the route', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockAcquirePortRoute.mockImplementation(async (ctx: any) => ({ ...ctx, routeLock: { release: jest.fn() } }));
+      mockExecute.mockRejectedValue(new Error('backend exploded'));
+
+      await expect(triggerCrawlHandler(localhostInput, defaultContext)).rejects.toThrow();
+
+      expect(mockAcquirePortRoute).toHaveBeenCalledTimes(1);
+      expect(mockReleasePortRoute).toHaveBeenCalledTimes(1);
+    });
+
+    test('public URL: the handler never even calls acquirePortRoute (no tunnel branch entered)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      const result = await triggerCrawlHandler(publicInput, defaultContext);
+
+      expect(result.isError).toBeFalsy();
+      expect(mockAcquirePortRoute).not.toHaveBeenCalled();
+      // releasePortRoute is still safe to call unconditionally in the finally
+      // (no-op on a ctx that never got a routeLock) — it fires regardless.
+      expect(mockReleasePortRoute).toHaveBeenCalledTimes(1);
     });
   });
 });

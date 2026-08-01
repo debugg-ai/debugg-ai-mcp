@@ -23,9 +23,12 @@ import {
   buildContext,
   findExistingTunnel,
   ensureTunnel,
+  acquirePortRoute,
+  releasePortRoute,
   sanitizeResponseUrls,
   touchTunnelById,
 } from '../utils/tunnelContext.js';
+import { randomUUID } from 'node:crypto';
 import { detectRepoName } from '../utils/gitContext.js';
 import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth, extractNgrokErrorCode } from '../utils/localReachability.js';
@@ -202,6 +205,10 @@ async function testPageChangesHandlerInner(
     }
   };
 
+  // Unique per-call id for the shared port-route lock's holder bookkeeping
+  // (§2.4) — reused for abort wiring purposes elsewhere in this handler.
+  const callId = randomUUID();
+
   const abortController = new AbortController();
   const onAbort = () => {
     clientAborted = true;
@@ -292,6 +299,25 @@ async function testPageChangesHandlerInner(
           }
           logger.info(`Tunnel ready: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
         }
+
+        // §2.4: acquire this session's shared Caddy route for our port BEFORE
+        // probing/dispatching — probing before the repoint is confirmed would
+        // probe whatever port happened to be active a moment ago. Blocks here
+        // (not just during the repoint) until any different-port holder in
+        // this same session releases.
+        ctx = await acquirePortRoute(ctx, {
+          callId,
+          signal: abortController.signal,
+          onWaitProgress: progressCallback
+            ? async (info) => {
+                await progressCallback({
+                  progress: 1,
+                  total: TOTAL_STEPS,
+                  message: `Waiting for shared tunnel — port ${info.blockingPort} is in use (waited ${Math.round(info.waitedMs / 1000)}s)...`,
+                });
+              }
+            : undefined,
+        });
 
         // Bead 1om: verify traffic actually flows through the tunnel. The
         // tunnel can be established (ngrok.connect returns OK) yet refuse
@@ -977,6 +1003,10 @@ async function testPageChangesHandlerInner(
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
     if (requestSignal) requestSignal.removeEventListener('abort', onAbort);
+    // §2.4: release this call's claim on the shared port route (no-op if we
+    // never acquired one — public URL, dev mode, or an early-return before
+    // acquisition). Covers every early-return path above for free.
+    releasePortRoute(ctx);
     // Tunnel is intentionally NOT torn down here — tunnelManager reuses it on
     // subsequent calls to the same port and auto-shutoffs after 55 min idle.
     // Process-exit cleanup happens via stopAllTunnels() in the SIGINT/SIGTERM

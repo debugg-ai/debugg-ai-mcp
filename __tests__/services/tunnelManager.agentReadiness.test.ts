@@ -44,6 +44,17 @@
 
 import { jest } from '@jest/globals';
 import { createInMemoryRegistry } from '../../services/ngrok/tunnelRegistry.js';
+import type { CaddyProxy } from '../../services/caddy/caddyProxy.js';
+
+function makeFakeCaddy(): CaddyProxy {
+  return {
+    ensureStarted: async () => ({ localOrigin: 'http://127.0.0.1:41000', localPort: 41000, adminPort: 41001 }),
+    setUpstream: async () => {},
+    isHealthy: async () => true,
+    stop: async () => {},
+    onPortChanged: () => {},
+  };
+}
 
 // ── A faithful fake of the ngrok agent + npm package ─────────────────────────
 
@@ -200,8 +211,8 @@ beforeEach(() => {
  * production default does with ngrok's real getProcess().
  */
 function wireFakeAgent(tm: any): void {
-  tm.reg = createInMemoryRegistry();
   tm.connectBackoffMs = [50, 50];
+  tm.caddyFactory = () => makeFakeCaddy();
   tm.agentSessionStarter = async (o: any) => { await fakeGetProcess(o); };
 }
 
@@ -209,12 +220,12 @@ function wireFakeAgent(tm: any): void {
 
 describe('bead pqgj: ngrok agent session readiness', () => {
   test('connect() succeeds on the FIRST attempt — no not-ready window, no name collision', async () => {
-    const tm: any = new TunnelManagerClass();
+    const tm: any = new TunnelManagerClass(createInMemoryRegistry());
     wireFakeAgent(tm);
 
-    const result = await tm.processUrl('http://localhost:39117', 'tok-abc', 'tid-1');
+    const info = await tm.ensureSessionTunnel('sess-1', 'tok-abc', 'tid-1');
 
-    expect(result.isLocalhost).toBe(true);
+    expect(info.tunnelId).toBe('tid-1');
     // THE ASSERTION THAT MATTERS: one connect, not a reset-and-retry.
     expect(connectCalls).toHaveLength(1);
     // The agent saw exactly one tunnel config, and it succeeded.
@@ -222,10 +233,10 @@ describe('bead pqgj: ngrok agent session readiness', () => {
   });
 
   test('leaves NO orphan tunnel record behind (the 503 poisons the reserved domain)', async () => {
-    const tm: any = new TunnelManagerClass();
+    const tm: any = new TunnelManagerClass(createInMemoryRegistry());
     wireFakeAgent(tm);
 
-    await tm.processUrl('http://localhost:39117', 'tok-abc', 'tid-2');
+    await tm.ensureSessionTunnel('sess-2', 'tok-abc', 'tid-2');
 
     const orphans = [...agent.tunnelsByName.values()].filter((t) => t.orphan);
     expect(orphans).toEqual([]);
@@ -233,10 +244,10 @@ describe('bead pqgj: ngrok agent session readiness', () => {
   });
 
   test('waits for the session before tunnelling, so the agent is never 503-raced', async () => {
-    const tm: any = new TunnelManagerClass();
+    const tm: any = new TunnelManagerClass(createInMemoryRegistry());
     wireFakeAgent(tm);
 
-    await tm.processUrl('http://localhost:39117', 'tok-abc', 'tid-3');
+    await tm.ensureSessionTunnel('sess-3', 'tok-abc', 'tid-3');
 
     // Every startTunnel the agent saw happened with an established session.
     expect(agent.startTunnelConfigs).toHaveLength(1);
@@ -244,16 +255,16 @@ describe('bead pqgj: ngrok agent session readiness', () => {
   });
 
   test('SAFETY NET: if the session starter is unavailable, the retry ladder still gets a tunnel', async () => {
-    const tm: any = new TunnelManagerClass();
-    tm.reg = createInMemoryRegistry();
+    const tm: any = new TunnelManagerClass(createInMemoryRegistry());
     tm.connectBackoffMs = [50, 50];
+    tm.caddyFactory = () => makeFakeCaddy();
     // Simulate the deep-require of ngrok's internals breaking on a version bump.
     tm.agentSessionStarter = async () => { throw new Error('getProcess unavailable'); };
 
-    const result = await tm.processUrl('http://localhost:39117', 'tok-abc', 'tid-4');
+    const info = await tm.ensureSessionTunnel('sess-4', 'tok-abc', 'tid-4');
 
-    expect(result.isLocalhost).toBe(true);
-    expect(result.url).toContain('tid-4.ngrok.debugg.ai');
+    expect(info.tunnelId).toBe('tid-4');
+    expect(info.tunnelUrl).toContain('tid-4.ngrok.debugg.ai');
     // The ladder did its job: it took a retry, but we still got a tunnel.
     expect(connectCalls.length).toBeGreaterThan(1);
   });

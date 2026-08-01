@@ -37,7 +37,6 @@
  */
 
 import { tunnelManager } from '../services/ngrok/tunnelManager.js';
-import { extractLocalhostPort } from './urlParser.js';
 import { Logger } from './logger.js';
 import type { TunnelHealthProbeResult } from './localReachability.js';
 
@@ -98,10 +97,13 @@ export function isEndpointGone(ngrokErrorCode?: string): boolean {
  * them (run_test_suite had already drifted: it evicted on every failure and never
  * got bead k34o's shared-registry eviction at all).
  *
- * Endpoint proven gone  → markTunnelDead: for an owned tunnel that disconnects and
- *                         revokes the key; for a BORROWED one it also evicts the
- *                         shared registry entry, which plain stopTunnel leaves
- *                         behind for every other session to re-borrow (bead k34o).
+ * Endpoint proven gone  → markTunnelDead: disconnects the tunnel and revokes its
+ *                         key. Under the per-session-tunnel model (§4 of
+ *                         docs/local-tunnel-multiplexer-architecture-2026-07-31.md)
+ *                         every tunnel is created — never borrowed — by this
+ *                         process, so there is no separate shared-registry
+ *                         adoption record left to evict; bead k34o's borrowed-
+ *                         tunnel half retired along with cross-process borrowing.
  * Anything else         → nothing at all. The caller still returns
  *                         TunnelTrafficBlocked, so the user is told; we simply do
  *                         not spend two billed hours acting on a verdict this
@@ -114,7 +116,10 @@ export function disposeUnhealthyTunnel(args: {
   health: TunnelHealthProbeResult;
   /** Tunnel in play for this request, if one was established. */
   tunnelId?: string;
-  /** The caller's original localhost URL — the port is parsed from it. */
+  /** The caller's original localhost URL. Kept for logging/call-site
+   *  compatibility; markTunnelDead(tunnelId) no longer needs a port parsed
+   *  out of it (§2.3 — markTunnelDead dropped its `port` parameter now that
+   *  eviction is no longer port-scoped). */
   originalUrl: string;
 }): void {
   const { health, tunnelId, originalUrl } = args;
@@ -129,23 +134,10 @@ export function disposeUnhealthyTunnel(args: {
     return;
   }
 
-  const port = extractLocalhostPort(originalUrl);
-  if (typeof port !== 'number') {
-    // markTunnelDead is keyed by port. Without one we cannot evict the shared
-    // entry safely, and a blind stopTunnel is exactly the teardown this module
-    // exists to prevent — so keep the tunnel and say why.
-    logger.warn(
-      `Tunnel ${tunnelId} reported ${health.ngrokErrorCode} but no port could be parsed from ${originalUrl} — ` +
-      'leaving it in place rather than risking a teardown of a live tunnel.',
-    );
-    return;
-  }
-
   logger.warn(
-    `Tunnel ${tunnelId} on port ${port} reported ${health.ngrokErrorCode} — the endpoint is gone, evicting it ` +
-    'so no session re-borrows the corpse (bead k34o).',
+    `Tunnel ${tunnelId} (${originalUrl}) reported ${health.ngrokErrorCode} — the endpoint is gone, evicting it.`,
   );
-  tunnelManager.markTunnelDead(port, tunnelId).catch((err) =>
+  tunnelManager.markTunnelDead(tunnelId).catch((err) =>
     logger.warn(`Failed to evict dead tunnel ${tunnelId}: ${err}`),
   );
 }

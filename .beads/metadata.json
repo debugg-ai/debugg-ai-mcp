@@ -2,6 +2,7 @@
   "database": "dolt",
   "backend": "dolt",
   "dolt_mode": "server",
+  "dolt_server_port": 64646,
   "dolt_database": "debugg_ai_mcp",
   "project_id": "56cbaa3e-dd63-4800-879a-26bd195d68d9"
 }
