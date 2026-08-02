@@ -42,6 +42,7 @@ const {
   releasePortRoute,
   releaseTunnel,
   sanitizeResponseUrls,
+  retargetAuxiliaryUrl,
 } = await import('../../utils/tunnelContext.js');
 
 beforeEach(() => {
@@ -372,5 +373,98 @@ describe('sanitizeResponseUrls', () => {
     expect(sanitizeResponseUrls(42, ctx)).toBe(42);
     expect(sanitizeResponseUrls(null, ctx)).toBeNull();
     expect(sanitizeResponseUrls(true, ctx)).toBe(true);
+  });
+});
+
+// ── Bead go1m: auxiliary caller URLs must be tunneled like the primary url ───
+// auth.entryUrl / auth.deepUrl are URLs the run NAVIGATES. Forwarded verbatim
+// they reached the REMOTE browser as a literal localhost and it dialled its own
+// loopback — offscope_host + ERR_CONNECTION_REFUSED on the documented
+// "log in THEN deep-navigate" path, while the identical URL passed as the
+// top-level `url` worked. These assert the browser is sent to the TUNNEL host.
+describe('retargetAuxiliaryUrl (bead go1m)', () => {
+  const tunneledCtx = {
+    originalUrl: 'http://localhost:3011/projects/x/validation',
+    isLocalhost: true,
+    tunnelId: 'tid-abc',
+    targetUrl: 'https://tid-abc.ngrok.debugg.ai/projects/x/validation',
+  };
+
+  test('localhost entryUrl is retargeted to the TUNNEL host, never 127.0.0.1', () => {
+    const result = retargetAuxiliaryUrl(tunneledCtx, 'http://localhost:3011/login');
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.rewritten).toBe(true);
+    expect(new URL(result.url).host).toBe('tid-abc.ngrok.debugg.ai');
+    // The regression itself: no form of loopback may survive into what the
+    // remote browser is told to navigate.
+    expect(result.url).not.toMatch(/localhost|127\.0\.0\.1/);
+    expect(result.url).toBe('https://tid-abc.ngrok.debugg.ai/login');
+  });
+
+  test('127.0.0.1 entryUrl is retargeted too (same defect, other spelling)', () => {
+    const result = retargetAuxiliaryUrl(tunneledCtx, 'http://127.0.0.1:3011/login');
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(new URL(result.url).host).toBe('tid-abc.ngrok.debugg.ai');
+    expect(result.url).not.toMatch(/localhost|127\.0\.0\.1/);
+  });
+
+  test('a supplied ?query deep link survives the rewrite intact', () => {
+    const result = retargetAuxiliaryUrl(
+      tunneledCtx,
+      'http://localhost:3011/projects/p1/validation?env=env:abc&node=n-42&foo=bar#panel',
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    const parsed = new URL(result.url);
+    expect(parsed.host).toBe('tid-abc.ngrok.debugg.ai');
+    expect(parsed.pathname).toBe('/projects/p1/validation');
+    // Every supplied param has to reach the browser — dropping one silently
+    // verifies a different page than the caller asked for (cf. bead zf4g).
+    expect(parsed.searchParams.get('env')).toBe('env:abc');
+    expect(parsed.searchParams.get('node')).toBe('n-42');
+    expect(parsed.searchParams.get('foo')).toBe('bar');
+    expect(parsed.hash).toBe('#panel');
+  });
+
+  test('a cross-port localhost URL is REFUSED, not silently misdirected', () => {
+    // One call tunnels exactly one local port: the session's single Caddy
+    // upstream is pinned to the primary URL's port for the whole call. Rewriting
+    // a :3000 login onto the same origin would dispatch it to :3011 — the silent
+    // misdirection the port lock exists to prevent.
+    const result = retargetAuxiliaryUrl(tunneledCtx, 'http://localhost:3000/login');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('port_mismatch');
+    expect(result.port).toBe(3000);
+    expect(result.primaryPort).toBe(3011);
+  });
+
+  test('a public auxiliary URL is left untouched', () => {
+    const result = retargetAuxiliaryUrl(tunneledCtx, 'https://app.example.com/login');
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.rewritten).toBe(false);
+    expect(result.url).toBe('https://app.example.com/login');
+  });
+
+  test('no tunnel in play (public target / dev mode) leaves the URL alone', () => {
+    // The primary url is not rewritten under these conditions either, so
+    // rewriting an auxiliary one would be inventing a host nobody asked for.
+    const publicCtx = { originalUrl: 'https://example.com', isLocalhost: false };
+    expect(retargetAuxiliaryUrl(publicCtx, 'https://example.com/login')).toEqual({
+      ok: true, url: 'https://example.com/login', rewritten: false,
+    });
+
+    const devModeCtx = { originalUrl: 'http://localhost:3011', isLocalhost: true };
+    expect(retargetAuxiliaryUrl(devModeCtx, 'http://localhost:3011/login')).toEqual({
+      ok: true, url: 'http://localhost:3011/login', rewritten: false,
+    });
   });
 });
