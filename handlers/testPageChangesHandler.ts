@@ -28,6 +28,7 @@ import {
   releasePortRoute,
   sanitizeResponseUrls,
   touchTunnelById,
+  retargetAuxiliaryUrl,
 } from '../utils/tunnelContext.js';
 import { randomUUID } from 'node:crypto';
 import { detectRepoName } from '../utils/gitContext.js';
@@ -425,8 +426,33 @@ async function testPageChangesHandlerInner(
       const auth: Record<string, any> = {};
       if (input.auth.environmentId) auth.environmentId = input.auth.environmentId;
       if (input.auth.precondition) auth.precondition = input.auth.precondition;
-      if (input.auth.entryUrl) auth.entryUrl = input.auth.entryUrl;
-      if (input.auth.deepUrl) auth.deepUrl = input.auth.deepUrl;
+      // Bead go1m: entryUrl/deepUrl are URLs the run NAVIGATES, so they need the
+      // same localhost→tunnel rewrite `url` gets (contextData.targetUrl above).
+      // Forwarded verbatim they reached the remote browser as literal localhost
+      // and it dialled its own loopback: offscope_host + ERR_CONNECTION_REFUSED.
+      for (const field of ['entryUrl', 'deepUrl'] as const) {
+        const supplied = input.auth[field];
+        if (!supplied) continue;
+        const rewrite = retargetAuxiliaryUrl(ctx, supplied);
+        if (!rewrite.ok) {
+          const payload = {
+            error: 'AuthUrlPortMismatch',
+            message:
+              `auth.${field} points at localhost:${rewrite.port} but url points at ` +
+              `localhost:${rewrite.primaryPort}. A single call tunnels exactly one local ` +
+              `port, so the remote browser cannot reach both. Put the login page and the ` +
+              `target page on the same port, or drop auth.${field} and pass username/password ` +
+              `at the top level so the agent signs in on the page it already reached.`,
+            detail: { field, authPort: rewrite.port, urlPort: rewrite.primaryPort, url: originalUrl },
+          };
+          logger.warn(`check_app_in_browser: ${payload.message}`);
+          return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+        }
+        auth[field] = rewrite.url;
+        if (rewrite.rewritten) {
+          logger.info(`check_app_in_browser: tunneled auth.${field} ${supplied} -> ${rewrite.url}`);
+        }
+      }
       // WHICH account the precondition logs in as. Absent → the environment's
       // default credential (the pre-existing behaviour, correct for a caller
       // that named nobody).

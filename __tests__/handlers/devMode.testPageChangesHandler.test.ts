@@ -51,6 +51,9 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   extractNgrokErrorCode: (body: string) => body.match(/ERR_NGROK_\d+/)?.[0],
 }));
 
+const mockRetargetAuxiliaryUrl = jest.fn<(ctx: any, url: string) => any>(
+  (_ctx: any, url: string) => ({ ok: true, url, rewritten: false }),
+);
 jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   resolveTargetUrl: mockResolveTargetUrl,
   buildContext: mockBuildContext,
@@ -62,6 +65,9 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   releasePortRoute: jest.fn(),
   sanitizeResponseUrls: mockSanitizeResponseUrls,
   touchTunnelById: mockTouchTunnelById,
+  // Bead go1m: default mirrors the real no-tunnel/public branch (forward
+  // untouched); the rewrite suites override this per-test.
+  retargetAuxiliaryUrl: mockRetargetAuxiliaryUrl,
 }));
 
 jest.unstable_mockModule('../../services/tunnels.js', () => ({
