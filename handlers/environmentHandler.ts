@@ -8,6 +8,10 @@ import { searchEnvironmentsHandler } from './searchEnvironmentsHandler.js';
 import { createEnvironmentHandler } from './createEnvironmentHandler.js';
 import { updateEnvironmentHandler } from './updateEnvironmentHandler.js';
 import { deleteEnvironmentHandler } from './deleteEnvironmentHandler.js';
+import {
+  clearEnvironmentSessionsHandler,
+  listEnvironmentSessionsHandler,
+} from './environmentSessionsHandler.js';
 
 export async function environmentHandler(input: EnvironmentInput, ctx: ToolContext): Promise<ToolResponse> {
   switch (input.action) {
@@ -27,6 +31,21 @@ export async function environmentHandler(input: EnvironmentInput, ctx: ToolConte
       const refusal = await ensureConfirmed('delete', `environment ${input.uuid}`, input, ctx);
       if (refusal) return refusal;
       return deleteEnvironmentHandler({ uuid: input.uuid, projectUuid: input.projectUuid }, ctx);
+    }
+    case 'sessions':
+      return listEnvironmentSessionsHandler(input, ctx);
+    case 'clearSessions': {
+      // Confirmed like a delete when it is UNSCOPED. Clearing one account's
+      // session costs that account one login; clearing an environment's costs
+      // every account on it one, which is a different size of action and should
+      // not happen because a filter was mistyped.
+      if (!input.username && !input.credentialId) {
+        const refusal = await ensureConfirmed(
+          'clearSessions', `environment ${input.uuid}`, input, ctx,
+        );
+        if (refusal) return refusal;
+      }
+      return clearEnvironmentSessionsHandler(input, ctx);
     }
   }
 }

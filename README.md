@@ -76,6 +76,7 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | `password` | string | Password for login (ephemeral — not persisted) |
 | `loginCredentials` | array | Accounts for logins the agent hits **during** the task — `[{username, password, label?}]` |
 | `useEnvironmentCredentials` | boolean | Default `true`. `false` forbids auto-filling the environment's stored credentials |
+| `freshSession` | boolean | Default `false`. `true` forces a real login instead of reusing the warm session held for that account |
 | `auth` | object | Auth precondition — `{precondition, entryUrl, deepUrl, environmentId, username, password}` |
 | `repoName` | string | Override auto-detected git repo name (e.g. `my-org/my-repo`) |
 
@@ -90,6 +91,17 @@ Naming an account only in `description` does **not** make the agent use it — i
 - `loginCredentials` — accounts for a login form the agent reaches **part-way through** the task. This is the one for flows like *set a password → get bounced to sign-in → log in as the account you just created*, where splitting into separate calls would lose browser state.
 
 Set `useEnvironmentCredentials: false` when a silent fallback to the default test user would invalidate the check. The call is rejected if you opt out without naming an account, since the run would have no way to authenticate.
+
+##### Session reuse: why a check can report "no login form"
+
+Runs don't log in every time. After a verified login the backend captures that account's session and **restores** it on the next run for the same identity, which skips the login entirely — that's why a check can legitimately come back with `submitted: false` and no login form: it was already signed in. A restored run reports itself in `logins` with `reason: "restored_session"`, so you can tell it apart from a run that genuinely found no form.
+
+Sessions are keyed per **account**, so naming a different account never reuses somebody else's. Two ways to bypass reuse:
+
+- `freshSession: true` on a single call — log in for real this once, then re-capture. Use it when the login flow *is* what you're checking, when you suspect the stored session is stale, or when the app's only route between personas is a logout.
+- `environment` tool, `action: "clearSessions"` — invalidate the stored sessions so subsequent runs log in. Narrow with `username` / `credentialId`; unscoped clears require confirmation because every account on the environment then re-authenticates.
+
+Use `action: "sessions"` to see what an environment is currently holding and whether each would be reused.
 
 Results report the identity actually used, so a wrong one is visible rather than masquerading as a broken app:
 
@@ -165,8 +177,12 @@ Team and repo resolve by **either** uuid **or** name (case-insensitive exact mat
 | `create` | `{name, url, description?, projectUuid?, credentials?}` | Created env (optionally seeds credentials) |
 | `update` | `{uuid, name?, url?, description?, addCredentials?, updateCredentials?, removeCredentialIds?}` | Patched env; credential ops run **remove → update → add** |
 | `delete` | `{uuid, projectUuid?, confirm?}` | Deletes env (cascades credentials) — **requires confirmation** |
+| `sessions` | `{uuid, username?, credentialId?}` | Captured login sessions the env holds, per account, with `isUsable` and a `usableCount` |
+| `clearSessions` | `{uuid, username?, credentialId?, confirm?}` | Invalidates them so the next run logs in for real — **unscoped clears require confirmation** |
 
 `projectUuid` auto-resolves from the git repo when omitted. Per-cred failures surface in `credentialWarnings[]` without blocking the env op.
+
+`sessions` / `clearSessions` manage the warm authenticated sessions the backend reuses to skip login (see [Session reuse](#session-reuse-why-a-check-can-report-no-login-form)). Session contents are never returned — a session cookie is a bearer credential. `clearSessions` marks sessions invalid rather than deleting the rows, so reuse stops immediately while the capture history stays readable.
 
 ### `test_suite`
 

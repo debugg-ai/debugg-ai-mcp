@@ -310,6 +310,54 @@ export class DebuggAIServerClient  {
   }
 
   /**
+   * Captured authenticated sessions held for an environment (sentinal-cs1hn.5).
+   *
+   * The backend keeps a warm session per account and restores it to skip login.
+   * That cache decides WHO a run signs in as, so it needs to be inspectable —
+   * until it was, a run reusing the wrong account's session looked identical to
+   * a run that simply found no login form.
+   *
+   * The flat route, not the nested one: this is company-scoped server-side and
+   * needs no projectUuid, so a caller holding only an environment UUID can ask.
+   * Never returns the session contents — a session cookie is a bearer credential.
+   */
+  public async listEnvironmentSessions(
+    envUuid: string,
+    filters: { username?: string; credentialId?: string } = {},
+  ): Promise<Array<{
+    uuid: string; username: string; role: string; backendRef: string;
+    credential: string | null; credentialLabel: string | null;
+    status: string; isUsable: boolean;
+    capturedAt: string | null; lastValidatedAt: string | null; expiresAt: string | null;
+  }>> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const response = await this.tx.get<any>(
+      `api/v1/environments/${envUuid}/sessions/`,
+      filters,
+    );
+    return Array.isArray(response) ? response : (response?.results ?? []);
+  }
+
+  /**
+   * Invalidate captured sessions so the next run logs in for real.
+   *
+   * Narrow with ``username`` / ``credentialId``; omit both to reset the whole
+   * environment. The backend marks rows invalid rather than deleting them, so
+   * reuse stops immediately while the capture history stays readable.
+   */
+  public async clearEnvironmentSessions(
+    envUuid: string,
+    filters: { username?: string; credentialId?: string } = {},
+  ): Promise<{ invalidated: number }> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const response = await this.tx.delete<any>(
+      `api/v1/environments/${envUuid}/sessions/`,
+      { params: filters },
+    );
+    return { invalidated: response?.invalidated ?? 0 };
+  }
+
+  /**
    * Fetch a single environment by UUID. Throws AxiosError with status 404 if not found.
    */
   public async getEnvironment(

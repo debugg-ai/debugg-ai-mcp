@@ -111,6 +111,10 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
           type: "boolean",
           description: "Default true. Set false to forbid the agent from ever auto-filling the environment's stored credentials — it signs in only as an account this call named (username/password, credentialId, credentialRole, loginCredentials, or auth.username), or not at all. Use when a run must prove a SPECIFIC account's experience and a silent fallback to the default test user would invalidate it."
         },
+        freshSession: {
+          type: "boolean",
+          description: "Default false. Set true to force a REAL login instead of reusing the warm session the backend keeps per account. Use when the login flow itself is what you're checking, when you suspect the stored session is stale, or when the app's only route between personas is a logout. Costs one login; the run re-captures afterwards, so later runs stay fast."
+        },
         repoName: {
           type: "string",
           description: "GitHub repository name (e.g. 'my-org/my-repo'). Auto-detected from the current git repo — only provide this if you want to run against a different project than the one you're in."

@@ -456,6 +456,12 @@ async function testPageChangesHandlerInner(
     if (input.useEnvironmentCredentials === false) {
       env.useEnvironmentCredentials = false;
     }
+    // Same rule for the session opt-out: send it only when it IS one, so the
+    // default (reuse a warm session when one exists for this account) is
+    // expressed by absence rather than by an explicit false.
+    if (input.freshSession === true) {
+      env.freshSession = true;
+    }
 
     // --- Execute ---
     // Log the SHAPE of env, never its secrets. It now carries per-account

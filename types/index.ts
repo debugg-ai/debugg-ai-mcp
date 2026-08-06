@@ -77,6 +77,11 @@ export const TestPageChangesInputSchema = z.object({
   // Opt out of the environment's stored credentials entirely: the agent signs
   // in only as an account this call named, or not at all.
   useEnvironmentCredentials: z.boolean().optional(),
+  // Force a REAL login instead of reusing a captured session (sentinal-cs1hn.4).
+  // The backend keeps a warm authenticated session per account and restores it to
+  // skip login; that is right for speed and wrong when the login itself is what
+  // you are checking, or when the app's only route between personas is a logout.
+  freshSession: z.boolean().optional(),
   // Auth-precondition deep-link intent (bead 56kd.6) — "log in THEN go to X".
   auth: AuthPreconditionSchema.optional(),
 }).refine(
@@ -557,6 +562,12 @@ export const EnvironmentInputSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('create'), name: z.string().min(1), url: z.string().url('url is required for standard environments'), description: z.string().optional(), projectUuid: z.string().uuid().optional(), credentials: z.array(CredentialSeedSchema).optional() }).strict(),
   z.object({ action: z.literal('update'), uuid: z.string().uuid(), name: z.string().min(1).optional(), url: z.string().url().optional(), description: z.string().optional(), projectUuid: z.string().uuid().optional(), addCredentials: z.array(CredentialSeedSchema).optional(), updateCredentials: z.array(CredentialUpdateSchema).optional(), removeCredentialIds: z.array(z.string().uuid()).optional() }).strict(),
   z.object({ action: z.literal('delete'), uuid: z.string().uuid(), projectUuid: z.string().uuid().optional(), confirm: z.boolean().optional() }).strict(),
+  // Captured authenticated sessions (sentinal-cs1hn.5). The backend holds a warm
+  // session per account and restores it to skip login; these two actions make that
+  // cache visible and clearable instead of a thing that silently decides who a run
+  // signs in as.
+  z.object({ action: z.literal('sessions'), uuid: z.string().uuid(), projectUuid: z.string().uuid().optional(), username: z.string().min(1).optional(), credentialId: z.string().uuid().optional() }).strict(),
+  z.object({ action: z.literal('clearSessions'), uuid: z.string().uuid(), projectUuid: z.string().uuid().optional(), username: z.string().min(1).optional(), credentialId: z.string().uuid().optional(), confirm: z.boolean().optional() }).strict(),
 ]);
 export type EnvironmentInput = z.infer<typeof EnvironmentInputSchema>;
 
