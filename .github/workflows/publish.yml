@@ -11,6 +11,19 @@ on:
       - 'reference-usages/**'
       - 'test-config.json'
       - '.claude/**'
+  # Manual escape hatch. Publishing had exactly one trigger, so a push that did
+  # not create a run left a merged, tested, release-worthy main sitting
+  # unpublished with no way to ship it short of an empty commit — which is how
+  # 4.1.0 came to be merged and invisible on npm. The job is idempotent: it
+  # derives the bump from commit messages and npm rejects a duplicate version.
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Override the bump type (default: derive from commit messages)'
+        required: false
+        default: 'auto'
+        type: choice
+        options: [auto, patch, minor, major]
 
 # Serialize publish runs. Two pushes landing close together used to race the
 # version-bump commit — the loser's `git push` failed non-fast-forward.
@@ -58,8 +71,17 @@ jobs:
       env:
         GITHUB_EVENT_BEFORE: ${{ github.event.before }}
         GITHUB_SHA: ${{ github.sha }}
+        DISPATCH_BUMP: ${{ github.event.inputs.bump_type }}
       run: |
         # Bead drn: detect feat!: / BREAKING CHANGE and bump major, not patch.
+        # A workflow_dispatch override wins: on a manual run github.event.before
+        # is absent, so the commit-message scan has no range to read and would
+        # fall through to a patch bump regardless of what actually landed.
+        if [ -n "$DISPATCH_BUMP" ] && [ "$DISPATCH_BUMP" != "auto" ]; then
+          echo "bump_type=$DISPATCH_BUMP" >> $GITHUB_OUTPUT
+          echo "Using dispatch override: $DISPATCH_BUMP"
+          exit 0
+        fi
         BUMP_TYPE=$(node scripts/ci-bump-type.mjs)
         case "$BUMP_TYPE" in
           major|minor|patch) ;;

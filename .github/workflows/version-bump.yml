@@ -20,7 +20,19 @@ on:
 jobs:
   version-bump:
     runs-on: ubuntu-latest
-    
+
+    # The repo's default workflow token is READ-ONLY, and a workflow that
+    # declares no permissions block inherits that — so this job's final
+    # `git push origin main` had never once succeeded:
+    #   remote: Permission to debugg-ai/debugg-ai-mcp.git denied to github-actions[bot]
+    #   fatal: ... The requested URL returned error: 403
+    # It bumped the version, wrote the CHANGELOG, committed, and then failed at
+    # the last step, which reads as "version bump is broken" rather than "the
+    # token cannot write". publish.yml declares contents: write for exactly this
+    # reason; this job needs the same.
+    permissions:
+      contents: write
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
