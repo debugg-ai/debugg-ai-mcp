@@ -13,12 +13,35 @@
 
 import { ToolContext, ToolResponse } from '../types/index.js';
 
-/** Action names treated as destructive. Currently just `delete`. */
-export const DESTRUCTIVE_ACTIONS = new Set(['delete']);
+/**
+ * Action names treated as destructive.
+ *
+ * `clearSessions` is here for BLAST RADIUS, not permanence: invalidating captured
+ * sessions is recoverable (the next run logs in and re-captures), but an unscoped
+ * clear makes EVERY account on an environment re-authenticate, and that should not
+ * happen because a `username` filter was mistyped. The caller-side guard only asks
+ * when the call is unscoped — see environmentHandler.
+ */
+export const DESTRUCTIVE_ACTIONS = new Set(['delete', 'clearSessions']);
 
 export function isDestructiveAction(action: string): boolean {
   return DESTRUCTIVE_ACTIONS.has(action);
 }
+
+/**
+ * How each destructive action is described when we ask. `delete` keeps its exact
+ * pre-existing wording so its behaviour (and tests) are untouched.
+ */
+const PROMPTS: Record<string, { verb: string; noun: string; consequence: string }> = {
+  delete: { verb: 'Delete', noun: 'Deletion', consequence: 'This cannot be undone.' },
+  clearSessions: {
+    verb: 'Clear all captured login sessions for',
+    noun: 'Clearing sessions',
+    // Deliberately NOT "cannot be undone" — that would be false, and a guard that
+    // overstates the stakes trains people to click through it.
+    consequence: 'Every account on it will have to log in again on its next run.',
+  },
+};
 
 function refusal(error: string, message: string): ToolResponse {
   return {
@@ -40,22 +63,27 @@ export async function ensureConfirmed(
 ): Promise<ToolResponse | null> {
   if (!isDestructiveAction(action)) return null;
 
+  const { verb, noun, consequence } = PROMPTS[action] ?? PROMPTS.delete;
+
   if (ctx.elicit) {
     const res = await ctx.elicit({
-      message: `Delete ${label}? This cannot be undone.`,
+      message: `${verb} ${label}? ${consequence}`,
       requestedSchema: {
         type: 'object',
-        properties: { confirm: { type: 'boolean', description: 'Confirm deletion of ' + label } },
+        properties: {
+          confirm: { type: 'boolean', description: `Confirm: ${verb.toLowerCase()} ${label}` },
+        },
         required: ['confirm'],
       },
     });
     if (res.action === 'accept' && res.content?.confirm === true) return null;
-    return refusal('confirmation_declined', `Deletion of ${label} was not confirmed.`);
+    return refusal('confirmation_declined', `${noun} of ${label} was not confirmed.`);
   }
 
   if (input.confirm === true) return null;
   return refusal(
     'confirmation_required',
-    `Refusing to delete ${label} without confirmation. Pass confirm:true, or use an elicitation-capable client.`,
+    `Refusing to ${verb.toLowerCase()} ${label} without confirmation. `
+    + 'Pass confirm:true, or use an elicitation-capable client.',
   );
 }

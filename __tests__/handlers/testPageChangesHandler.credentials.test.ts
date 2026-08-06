@@ -194,6 +194,41 @@ describe('mid-flow credentials reach the backend', () => {
     await testPageChangesHandler(baseInput as any, ctx);
     expect(mockExecute.mock.calls[0][2]).toBeUndefined();
   });
+
+  // ── freshSession (sentinal-cs1hn.4) ──────────────────────────────────────
+  // The backend restores a warm session per account and SKIPS login. That is
+  // right for speed and wrong when the login is what you're checking, or when
+  // the app's only route between personas is a logout — the case that made an
+  // artist-account check unverifiable and forced a Playwright fallback.
+
+  test('freshSession:true is forwarded so the run logs in for real', async () => {
+    setup();
+    await testPageChangesHandler(
+      { ...baseInput, username: 'a@b.c', password: 'pw', freshSession: true } as any,
+      ctx,
+    );
+    expect(sentEnv().freshSession).toBe(true);
+  });
+
+  test('freshSession is omitted when not requested, so reuse stays the default', async () => {
+    setup();
+    await testPageChangesHandler({ ...baseInput, username: 'a@b.c', password: 'pw' } as any, ctx);
+    expect(sentEnv()).not.toHaveProperty('freshSession');
+  });
+
+  test('freshSession:false is omitted too — absence expresses the default', async () => {
+    setup();
+    await testPageChangesHandler(
+      { ...baseInput, username: 'a@b.c', password: 'pw', freshSession: false } as any,
+      ctx,
+    );
+    expect(sentEnv()).not.toHaveProperty('freshSession');
+  });
+
+  test('freshSession alone needs no credentials — it is a session opt-out, not an auth one', async () => {
+    const parsed = TestPageChangesInputSchema.safeParse({ ...baseInput, freshSession: true });
+    expect(parsed.success).toBe(true);
+  });
 });
 
 // ── validation ──────────────────────────────────────────────────────────────
