@@ -1,5 +1,7 @@
 # Debugg AI — MCP Server
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fdebugg-ai%2Fdebugg-ai-mcp.svg)](https://mcptoplist.com/server/glama%2Fdebugg-ai%2Fdebugg-ai-mcp)
+
 AI-powered browser testing via the [Model Context Protocol](https://modelcontextprotocol.io). Point it at any URL (or localhost) and describe what to test — an AI agent browses your app and returns pass/fail with screenshots.
 
 <a href="https://glama.ai/mcp/servers/@debugg-ai/debugg-ai-mcp">
