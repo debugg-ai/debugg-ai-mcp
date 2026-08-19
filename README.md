@@ -75,7 +75,7 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | `username` | string | Username for login (ephemeral — not persisted) |
 | `password` | string | Password for login (ephemeral — not persisted) |
 | `loginCredentials` | array | Accounts for logins the agent hits **during** the task — `[{username, password, label?}]` |
-| `useEnvironmentCredentials` | boolean | Default `true`. `false` forbids auto-filling the environment's stored credentials |
+| `useEnvironmentCredentials` | boolean | Default `true`. `false` forbids auto-filling the environment's stored credentials; with no account named it means **do not log in at all** |
 | `freshSession` | boolean | Default `false`. `true` forces a real login instead of reusing the warm session held for that account |
 | `auth` | object | Auth precondition — `{precondition, entryUrl, deepUrl, environmentId, username, password}` |
 | `repoName` | string | Override auto-detected git repo name (e.g. `my-org/my-repo`) |
@@ -90,7 +90,9 @@ Naming an account only in `description` does **not** make the agent use it — i
 - `auth.username` / `auth.password` — pins the precondition login when you also use `auth.precondition: "login"`.
 - `loginCredentials` — accounts for a login form the agent reaches **part-way through** the task. This is the one for flows like *set a password → get bounced to sign-in → log in as the account you just created*, where splitting into separate calls would lose browser state.
 
-Set `useEnvironmentCredentials: false` when a silent fallback to the default test user would invalidate the check. The call is rejected if you opt out without naming an account, since the run would have no way to authenticate.
+Set `useEnvironmentCredentials: false` when a silent fallback to the default test user would invalidate the check.
+
+**Checking a page that needs no login at all?** Pass `useEnvironmentCredentials: false` and name no account. That combination means exactly what it says — *do not log in* — and the run skips authentication entirely instead of hunting for a login form. Use it for public pages, marketing sites, docs, and anything pre-auth. It is also faster: on the default (`auto`) the agent will follow a "Log in" link off your page and try the environment's stored account before it evaluates anything.
 
 ##### Session reuse: why a check can report "no login form"
 

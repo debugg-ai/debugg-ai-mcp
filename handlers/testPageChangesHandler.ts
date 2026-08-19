@@ -9,6 +9,7 @@ import {
   ToolResponse,
   ToolContext,
   ProgressCallback,
+  meansDoNotLogIn,
 } from '../types/index.js';
 import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
@@ -455,6 +456,18 @@ async function testPageChangesHandlerInner(
     // the default (environment credentials remain available as a fallback).
     if (input.useEnvironmentCredentials === false) {
       env.useEnvironmentCredentials = false;
+    }
+    // sentinal-oj7dp.3: opting out of the environment's credentials WITHOUT naming
+    // an account means "do not log in" — say so in the language the backend already
+    // speaks instead of leaving auth_mode on its 'auto' default. On 'auto' the auth
+    // subworkflow hunts for a login on a page that needs none: measured 2026-08-18,
+    // a public-homepage check spent 38 of its 111 seconds following the site's login
+    // link to a sibling host, submitting the environment's default credential three
+    // times, and parking the browser on a login screen the run was then graded
+    // against (execution 2c787273). no_auth short-circuits that cleanly and marks
+    // the run auth.skipped, which is explicitly NOT an auth failure (sentinal-76f8y.12).
+    if (meansDoNotLogIn(input)) {
+      contextData.auth_mode = 'no_auth';
     }
     // Same rule for the session opt-out: send it only when it IS one, so the
     // default (reuse a warm session when one exists for this account) is

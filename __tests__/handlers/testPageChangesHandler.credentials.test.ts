@@ -67,10 +67,12 @@ jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
 
 let testPageChangesHandler: typeof import('../../handlers/testPageChangesHandler.js').testPageChangesHandler;
 let TestPageChangesInputSchema: typeof import('../../types/index.js').TestPageChangesInputSchema;
+let meansDoNotLogIn: typeof import('../../types/index.js').meansDoNotLogIn;
 
 beforeAll(async () => {
   testPageChangesHandler = (await import('../../handlers/testPageChangesHandler.js')).testPageChangesHandler;
   TestPageChangesInputSchema = (await import('../../types/index.js')).TestPageChangesInputSchema;
+  meansDoNotLogIn = (await import('../../types/index.js')).meansDoNotLogIn;
 });
 
 const ctx: ToolContext = { requestId: 'cred-test', timestamp: new Date() };
@@ -189,6 +191,43 @@ describe('mid-flow credentials reach the backend', () => {
     expect(sentEnv()).not.toHaveProperty('useEnvironmentCredentials');
   });
 
+  // ── "do not log in at all" (sentinal-oj7dp.3) ─────────────────────────────
+  // Opting out of the environment's credentials while naming no account of your
+  // own used to be a hard validation error, which made the commonest check of all
+  // — "is my PUBLIC page still up?" — the one thing the tool could not express.
+  // On the default auth_mode 'auto' the backend hunts for a login on a page that
+  // needs none: measured 2026-08-18, a public-homepage check spent 38 of its 111
+  // seconds walking to a sibling host's login screen and was then graded against
+  // it (execution 2c787273).
+  test('opting out with no account named means do-not-log-in, not a validation error', async () => {
+    setup();
+    const res = await testPageChangesHandler(
+      { ...baseInput, useEnvironmentCredentials: false } as any,
+      ctx,
+    );
+    expect(res.isError).toBeFalsy();
+    const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+    expect(contextData.auth_mode).toBe('no_auth');
+  });
+
+  test('naming an account alongside the opt-out still authenticates as that account', async () => {
+    setup();
+    await testPageChangesHandler(
+      { ...baseInput, username: 'a@b.c', password: 'pw', useEnvironmentCredentials: false } as any,
+      ctx,
+    );
+    const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+    expect(contextData).not.toHaveProperty('auth_mode');
+    expect(sentEnv().username).toBe('a@b.c');
+  });
+
+  test('the default path never sends auth_mode, so the backend default stands', async () => {
+    setup();
+    await testPageChangesHandler(baseInput as any, ctx);
+    const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+    expect(contextData).not.toHaveProperty('auth_mode');
+  });
+
   test('no credentials at all still sends no env block', async () => {
     setup();
     await testPageChangesHandler(baseInput as any, ctx);
@@ -242,15 +281,32 @@ describe('input validation', () => {
     expect(parsed.success).toBe(false);
   });
 
-  test('opting out of env credentials without naming an account is rejected', () => {
-    const parsed = TestPageChangesInputSchema.safeParse({
-      ...baseInput,
-      useEnvironmentCredentials: false,
-    });
-    expect(parsed.success).toBe(false);
-    if (!parsed.success) {
-      expect(parsed.error.issues[0].message).toMatch(/no way to authenticate/);
+  // sentinal-oj7dp.3 — this used to assert a REJECTION. It was the wrong contract:
+  // "opt out of the environment's credentials and name nobody" is not an
+  // under-specified auth request, it is a complete instruction — do not log in.
+  // Rejecting it meant the commonest check of all, "is my public page still up?",
+  // was the one thing check_app_in_browser could not express.
+  test('opting out without naming an account is ACCEPTED and means do-not-log-in', () => {
+    const input = { ...baseInput, useEnvironmentCredentials: false };
+    const parsed = TestPageChangesInputSchema.safeParse(input);
+    expect(parsed.success).toBe(true);
+    expect(meansDoNotLogIn(input as any)).toBe(true);
+  });
+
+  test('meansDoNotLogIn is false whenever the caller named an account', () => {
+    for (const named of [
+      { username: 'a@b.c', password: 'pw' },
+      { credentialId: '11111111-1111-1111-1111-111111111111' },
+      { credentialRole: 'admin' },
+      { loginCredentials: [{ username: 'a@b.c', password: 'pw' }] },
+      { auth: { username: 'a@b.c', password: 'pw' } },
+    ]) {
+      expect(meansDoNotLogIn({ useEnvironmentCredentials: false, ...named } as any)).toBe(false);
     }
+  });
+
+  test('meansDoNotLogIn is false when the opt-out was never requested', () => {
+    expect(meansDoNotLogIn({ ...baseInput } as any)).toBe(false);
   });
 
   test('opting out is accepted when an account is named', () => {

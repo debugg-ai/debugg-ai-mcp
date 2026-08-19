@@ -84,18 +84,31 @@ export const TestPageChangesInputSchema = z.object({
   freshSession: z.boolean().optional(),
   // Auth-precondition deep-link intent (bead 56kd.6) — "log in THEN go to X".
   auth: AuthPreconditionSchema.optional(),
-}).refine(
-  (v) => !(v.useEnvironmentCredentials === false
+});
+
+/**
+ * True when the caller opted out of the environment's credentials AND named no
+ * account of their own — i.e. "do not log in at all".
+ *
+ * This used to be a hard validation error ("leaves the run with no way to
+ * authenticate"), which made the single most common check — "is my PUBLIC page
+ * still up?" — the one thing the tool refused to express. It is not an error; it
+ * is an instruction, and the backend already has the enum for it
+ * (auth_mode: no_auth, sentinal-i7fnc). See sentinal-oj7dp.3.
+ */
+export function meansDoNotLogIn(v: {
+  useEnvironmentCredentials?: boolean;
+  username?: string;
+  credentialId?: string;
+  credentialRole?: string;
+  loginCredentials?: unknown[];
+  auth?: { username?: string };
+}): boolean {
+  return v.useEnvironmentCredentials === false
     && !v.username && !v.credentialId && !v.credentialRole
     && !(v.loginCredentials && v.loginCredentials.length > 0)
-    && !v.auth?.username),
-  {
-    message:
-      'useEnvironmentCredentials:false leaves the run with no way to authenticate. '
-      + 'Pass username/password, credentialId, credentialRole, or loginCredentials alongside it.',
-    path: ['useEnvironmentCredentials'],
-  },
-);
+    && !v.auth?.username;
+}
 
 export type TestPageChangesInput = z.infer<typeof TestPageChangesInputSchema>;
 
