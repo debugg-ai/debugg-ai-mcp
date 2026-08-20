@@ -49,7 +49,7 @@ const TARGET_PROPERTIES = {
   },
   timeoutMs: {
     type: 'number',
-    description: 'Per-URL navigation timeout in milliseconds (1000-30000, default 10000).',
+    description: "Per-URL budget in milliseconds for navigating AND settling this target (1000-30000, default 10000). The content settle spends what the navigation left over, so this is the whole cost of the target, not just the goto.",
   },
 };
 
