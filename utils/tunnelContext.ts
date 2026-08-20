@@ -100,6 +100,54 @@ export async function ensureTunnel(
   return { ...ctx, tunnelId: info.tunnelId, targetUrl: retargetTunnelUrl(info.tunnelUrl, ctx.originalUrl) };
 }
 
+// ─── Auxiliary caller URLs (bead go1m) ───────────────────────────────────────
+
+/** Outcome of retargeting one caller-supplied auxiliary URL. */
+export type AuxUrlRewrite =
+  | { ok: true; url: string; rewritten: boolean }
+  | { ok: false; reason: 'port_mismatch'; port: number; primaryPort: number };
+
+/**
+ * Retarget an auxiliary URL the CALLER supplied (`auth.entryUrl`, `auth.deepUrl`)
+ * onto the same tunnel the run's primary `url` already uses.
+ *
+ * Bead go1m: only the top-level `url` ever went through the localhost→tunnel
+ * rewrite. `auth.entryUrl`/`auth.deepUrl` were forwarded verbatim, so a
+ * localhost entry URL reached the REMOTE browser as a literal `localhost:PORT`
+ * and it dialled its own loopback — `offscope_host` + ERR_CONNECTION_REFUSED on
+ * the documented "log in THEN deep-navigate" path. Every URL the run may
+ * navigate has to go through the same rewrite as `url`.
+ *
+ * Three cases, deliberately distinguished:
+ *  - not localhost (public URL, or dev mode / no tunnel) → returned unchanged.
+ *    Matches how the primary `url` is treated in those same conditions.
+ *  - localhost on the SAME port as the primary URL → retargeted onto the
+ *    tunnel origin, preserving path + query + hash (`retargetTunnelUrl`).
+ *  - localhost on a DIFFERENT port → REFUSED, never silently retargeted. The
+ *    session's single Caddy upstream is pointed at the primary URL's port for
+ *    the whole call (see `acquirePortRoute`), so rewriting a cross-port URL
+ *    onto the same origin would send the login navigation to whichever port
+ *    Caddy happens to hold — the silent misdirection the port lock exists to
+ *    prevent. Fail fast and tell the caller instead.
+ */
+export function retargetAuxiliaryUrl(ctx: TunnelContext, auxUrl: string): AuxUrlRewrite {
+  // No tunnel in play (public target, or dev mode where the backend reaches
+  // localhost directly): the primary URL isn't rewritten either, so neither is this.
+  if (!ctx.isLocalhost || !ctx.tunnelId || !ctx.targetUrl) {
+    return { ok: true, url: auxUrl, rewritten: false };
+  }
+  // A public auxiliary URL is reachable by the remote browser as-is.
+  if (!isLocalhostUrl(auxUrl)) {
+    return { ok: true, url: auxUrl, rewritten: false };
+  }
+  const port = extractLocalhostPort(auxUrl);
+  const primaryPort = extractLocalhostPort(ctx.originalUrl);
+  if (port !== undefined && primaryPort !== undefined && port !== primaryPort) {
+    return { ok: false, reason: 'port_mismatch', port, primaryPort };
+  }
+  return { ok: true, url: retargetTunnelUrl(ctx.targetUrl, auxUrl), rewritten: true };
+}
+
 // ─── Port route lock (§2.4) ──────────────────────────────────────────────────
 
 /**

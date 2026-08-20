@@ -492,6 +492,9 @@ jest.unstable_mockModule('../../services/index.js', () => ({
   })),
 }));
 
+const mockRetargetAuxiliaryUrl = jest.fn<(ctx: any, url: string) => any>(
+  (_ctx: any, url: string) => ({ ok: true, url, rewritten: false }),
+);
 jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   resolveTargetUrl: mockResolveTargetUrl,
   buildContext: mockBuildContext,
@@ -501,6 +504,9 @@ jest.unstable_mockModule('../../utils/tunnelContext.js', () => ({
   releasePortRoute: mockReleasePortRoute,
   sanitizeResponseUrls: mockSanitizeResponseUrls,
   touchTunnelById: mockTouchTunnelById,
+  // Bead go1m: default mirrors the real no-tunnel/public branch (forward
+  // untouched); the rewrite suites override this per-test.
+  retargetAuxiliaryUrl: mockRetargetAuxiliaryUrl,
 }));
 
 jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
@@ -1634,6 +1640,66 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(contextData.auth).toEqual({ environmentId: 'env-uuid-2', precondition: 'login' });
       expect(contextData.auth).not.toHaveProperty('entryUrl');
       expect(contextData.auth).not.toHaveProperty('deepUrl');
+    });
+  });
+
+  // ── Bead go1m: auth URLs go through the SAME localhost→tunnel rewrite as url ─
+  // Forwarding them verbatim sent the remote browser at its own loopback:
+  // offscope_host + ERR_CONNECTION_REFUSED on the documented login path, while
+  // the identical URL as top-level `url` worked. (The rewrite itself is covered
+  // against real code in __tests__/utils/tunnelContext.test.ts.)
+  describe('auth URL tunneling (bead go1m)', () => {
+    test('localhost entryUrl/deepUrl are rewritten onto the tunnel before dispatch', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockRetargetAuxiliaryUrl.mockImplementation((_ctx: any, url: string) => ({
+        ok: true,
+        url: url.replace('http://localhost:3000', 'https://tid-abc.ngrok.debugg.ai'),
+        rewritten: true,
+      }));
+
+      await testPageChangesHandler({
+        description: 'log in then check settings',
+        url: 'http://localhost:3000',
+        auth: {
+          precondition: 'login',
+          entryUrl: 'http://localhost:3000/login',
+          deepUrl: 'http://localhost:3000/settings?tab=profile',
+        },
+      } as any, defaultContext);
+
+      // Both auth URLs must have been offered to the rewrite — the defect was
+      // that neither ever was.
+      expect(mockRetargetAuxiliaryUrl).toHaveBeenCalledWith(expect.anything(), 'http://localhost:3000/login');
+      expect(mockRetargetAuxiliaryUrl).toHaveBeenCalledWith(expect.anything(), 'http://localhost:3000/settings?tab=profile');
+
+      const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+      expect(contextData.auth.entryUrl).toBe('https://tid-abc.ngrok.debugg.ai/login');
+      expect(contextData.auth.deepUrl).toBe('https://tid-abc.ngrok.debugg.ai/settings?tab=profile');
+      // Nothing the browser navigates may still say localhost.
+      expect(JSON.stringify(contextData.auth)).not.toMatch(/localhost|127\.0\.0\.1/);
+    });
+
+    test('a cross-port auth URL fails fast with a structured error, and never dispatches', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockRetargetAuxiliaryUrl.mockImplementation((_ctx: any, url: string) =>
+        url.includes(':3999')
+          ? { ok: false, reason: 'port_mismatch', port: 3999, primaryPort: 3000 }
+          : { ok: true, url, rewritten: true },
+      );
+
+      const result = await testPageChangesHandler({
+        description: 'log in then check settings',
+        url: 'http://localhost:3000',
+        auth: { precondition: 'login', entryUrl: 'http://localhost:3999/login' },
+      } as any, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const payload = JSON.parse((result.content[0] as any).text);
+      expect(payload.error).toBe('AuthUrlPortMismatch');
+      expect(payload.detail).toMatchObject({ field: 'entryUrl', authPort: 3999, urlPort: 3000 });
+      // Silently tunneling it to the wrong port is the failure mode being
+      // prevented — so no execution may be dispatched at all.
+      expect(mockExecute).not.toHaveBeenCalled();
     });
   });
 });
