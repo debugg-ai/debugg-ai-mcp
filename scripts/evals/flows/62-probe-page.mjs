@@ -128,6 +128,11 @@ export const flow = {
         const r = await client.request('tools/call', {
           name: 'probe_page',
           arguments: {
+            // sentinal-kvoou: 'networkidle' is still ACCEPTED by the published schema and is
+            // neutralized server-side (domcontentloaded + a bounded content settle). This
+            // fixture polls /api/poll in a loop, so its network never goes idle — under the
+            // old behaviour this probe could only end in its own timeout. Keeping the value
+            // here is the compatibility assertion: an existing caller still gets a result.
             targets: [{ url: `http://localhost:${port}`, waitForLoadState: 'networkidle', timeoutMs: 15000 }],
           },
         }, 30_000);

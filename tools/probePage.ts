@@ -25,6 +25,8 @@ LOCALHOST SUPPORT: any localhost URL is auto-tunneled. Pre-flight TCP probe fail
 
 BATCH MODE: pass up to 20 targets in one call to share browser session + tunnel — dramatically faster than firing parallel single-URL probes (one execution unit, not N). Per-URL waitForSelector / waitForLoadState / timeoutMs override defaults.
 
+READINESS: navigation settles on CONTENT (the page's DOM going quiet), bounded — not on network silence, which never arrives on a live app, and not on 'load', which blocks on third-party embeds. The default is right for SPAs; reach for waitForSelector, not waitForLoadState, when you need to wait for something specific.
+
 A single failed target's error appears in result.error without failing the whole batch — the other results stay valid.`;
 
 const TARGET_PROPERTIES = {
@@ -39,7 +41,11 @@ const TARGET_PROPERTIES = {
   waitForLoadState: {
     type: 'string',
     enum: ['load', 'domcontentloaded', 'networkidle'],
-    description: "When to consider the page 'loaded' before capturing. Default 'load'. Use 'networkidle' for SPAs to wait until the bundle finishes rendering.",
+    // sentinal-kvoou. This description used to read "Default 'load'. Use 'networkidle'
+    // for SPAs to wait until the bundle finishes rendering" — advice that hangs on
+    // exactly the class of app it names. See __tests__/tools/probePageWaitContract.ts
+    // for the measurement against https://debugg.ai.
+    description: "When to consider the page ready to capture. Default 'domcontentloaded', followed by a bounded content settle (the page's DOM going quiet) — that is what actually makes a client-rendered SPA safe to screenshot, and it needs no override. Only override for a specific reason: 'load' additionally blocks on every sub-resource, including third-party iframes and images we do not control, so a slow embed can time the whole probe out. 'networkidle' is accepted for compatibility but is never issued — a live site's network does not go idle (analytics, polling, websockets, ads) — and behaves as 'domcontentloaded'. To wait on something specific, use waitForSelector.",
   },
   timeoutMs: {
     type: 'number',

@@ -61,14 +61,33 @@ describe('ProbePageInputSchema', () => {
       expect(result.success).toBe(false);
     });
 
-    test('waitForLoadState defaults to "load" when omitted', () => {
+    // sentinal-kvoou: the default MUST NOT be 'load'. 'load' blocks on every
+    // sub-resource, including third-party iframes and images nobody on our side
+    // controls. Measured 2026-08-19 against https://debugg.ai (two YouTube embeds):
+    // the default 'load' probe returned "TimeoutError: Page.goto: Timeout 10000ms
+    // exceeded" and statusCode 0 after burning its whole budget, while the same page
+    // on 'domcontentloaded' returned 200 with the correct title in 3.5s. A third-party
+    // embed we do not control must never decide whether we can report on a customer's
+    // page.
+    test('waitForLoadState defaults to "domcontentloaded" when omitted', () => {
       const result = ProbePageInputSchema.safeParse({
         targets: [{ url: 'https://example.com' }],
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.targets[0].waitForLoadState).toBe('load');
+        expect(result.data.targets[0].waitForLoadState).toBe('domcontentloaded');
       }
+    });
+
+    // Retained, not removed: probe_page ships in a published npm package, so dropping
+    // the value would turn an existing caller's probe into a hard schema failure
+    // instead of a good probe. The backend accepts it and never issues it — it behaves
+    // as 'domcontentloaded' plus the bounded content settle.
+    test('networkidle is still ACCEPTED (neutralized, not rejected)', () => {
+      const result = ProbePageInputSchema.safeParse({
+        targets: [{ url: 'https://example.com', waitForLoadState: 'networkidle' }],
+      });
+      expect(result.success).toBe(true);
     });
 
     test('per-URL timeoutMs default = 10000', () => {

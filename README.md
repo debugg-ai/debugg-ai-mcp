@@ -140,13 +140,13 @@ Fires a server-side browser-agent crawl to populate the project's knowledge grap
 
 #### `probe_page`
 
-**Lightweight no-LLM batch page probe.** Pass 1-20 URLs; each navigates, waits for load, and returns rendered state — screenshot + page metadata + structured console errors + network summary. No agent loop, no LLM cost, no scenario assertions. Use it for "did I just break /settings?", multi-route smoke after a refactor, CI per-PR sweeps, and quick is-it-up checks where `check_app_in_browser`'s 60-150s agent loop is overkill.
+**Lightweight no-LLM batch page probe.** Pass 1-20 URLs; each navigates, settles on content (the DOM going quiet, bounded — never on network silence, which a live app never reaches), and returns rendered state — screenshot + page metadata + structured console errors + network summary. No agent loop, no LLM cost, no scenario assertions. Use it for "did I just break /settings?", multi-route smoke after a refactor, CI per-PR sweeps, and quick is-it-up checks where `check_app_in_browser`'s 60-150s agent loop is overkill.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `targets` | array **required** | 1-20 entries: `[{url, waitForSelector?, waitForLoadState?, timeoutMs?}]` |
 | `targets[].url` | string **required** | Public URL or localhost (auto-tunneled) |
-| `targets[].waitForLoadState` | enum | `'load'` (default) / `'domcontentloaded'` / `'networkidle'` |
+| `targets[].waitForLoadState` | enum | `'domcontentloaded'` (default, + a bounded content settle) / `'load'` (also blocks on third-party embeds) / `'networkidle'` (accepted, never issued — a live site's network does not go idle) |
 | `targets[].waitForSelector` | string | Optional CSS selector to wait for after navigation |
 | `targets[].timeoutMs` | number | Per-URL timeout, 1000-30000 (default 10000) |
 | `includeHtml` | boolean | Return raw HTML in each result (default false) |

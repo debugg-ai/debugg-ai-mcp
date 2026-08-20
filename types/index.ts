@@ -395,7 +395,15 @@ export const ProbePageTargetSchema = z.object({
     z.string().url('Invalid URL. Pass a full URL like "http://localhost:3000" or "https://example.com". Localhost URLs are auto-tunneled to the remote browser.'),
   ),
   waitForSelector: z.string().optional(),
-  waitForLoadState: z.enum(['load', 'domcontentloaded', 'networkidle']).default('load'),
+  // sentinal-kvoou: 'domcontentloaded', NOT 'load'. 'load' blocks on every
+  // sub-resource including third-party iframes we do not control — measured against
+  // https://debugg.ai (two YouTube embeds), the 'load' default timed the goto out at
+  // 10s and reported statusCode 0 on a page that renders in 3.5s. Readiness comes from
+  // the backend's bounded CONTENT settle after the goto, not from a load state.
+  // 'networkidle' stays in the enum (this package is published; removing it would turn
+  // an existing caller's probe into a hard validation error) and is neutralized
+  // server-side — never a wait, always domcontentloaded + settle.
+  waitForLoadState: z.enum(['load', 'domcontentloaded', 'networkidle']).default('domcontentloaded'),
   timeoutMs: z.number().int().min(1000, 'timeoutMs minimum is 1000 (1s)').max(30000, 'timeoutMs maximum is 30000 (30s) — longer probes should use check_app_in_browser').default(10000),
 }).strict();
 
