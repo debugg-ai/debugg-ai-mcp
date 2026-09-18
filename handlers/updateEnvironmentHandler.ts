@@ -8,6 +8,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { config } from '../config/index.js';
 import { detectRepoName } from '../utils/gitContext.js';
+import { checkAuthorizedCredentialHostsEcho } from '../utils/authorizedCredentialHosts.js';
 
 const logger = new Logger({ module: 'updateEnvironmentHandler' });
 
@@ -41,7 +42,7 @@ export async function updateEnvironmentHandler(
   const start = Date.now();
   logger.toolStart('update_environment', {
     uuid: input.uuid,
-    hasEnvPatch: !!(input.name || input.url || input.description),
+    hasEnvPatch: !!(input.name || input.url || input.description || input.authorizedCredentialHosts),
     addCount: input.addCredentials?.length ?? 0,
     updateCount: input.updateCredentials?.length ?? 0,
     removeCount: input.removeCredentialIds?.length ?? 0,
@@ -62,12 +63,16 @@ export async function updateEnvironmentHandler(
     }
 
     // ── Env field patch (only if any env field is present) ──────────────────
-    const hasEnvPatch = input.name !== undefined || input.url !== undefined || input.description !== undefined;
+    // authorizedCredentialHosts counts: an update that sets ONLY it must still
+    // PATCH, or it would return a silent no-op (bead q4d4).
+    const hasEnvPatch = input.name !== undefined || input.url !== undefined
+      || input.description !== undefined || input.authorizedCredentialHosts !== undefined;
     let environment: any = null;
     if (hasEnvPatch) {
       try {
         environment = await client.updateEnvironment(projectUuid, input.uuid, {
           name: input.name, url: input.url, description: input.description,
+          authorizedCredentialHosts: input.authorizedCredentialHosts,
         });
       } catch (err: any) {
         if (err?.statusCode === 404 || err?.response?.status === 404) {
@@ -142,6 +147,15 @@ export async function updateEnvironmentHandler(
     if (updatedCredentials.length > 0) payload.updatedCredentials = updatedCredentials;
     if (removedCredentialIds.length > 0) payload.removedCredentialIds = removedCredentialIds;
     if (warnings.length > 0) payload.credentialWarnings = warnings;
+    if (input.authorizedCredentialHosts !== undefined) {
+      const hostsWarning = checkAuthorizedCredentialHostsEcho(
+        input.authorizedCredentialHosts, environment?.authorizedCredentialHosts, 'update',
+      );
+      if (hostsWarning) {
+        payload.authorizedCredentialHostsWarning = hostsWarning;
+        logger.warn(`update_environment: ${hostsWarning.message}`);
+      }
+    }
 
     logger.toolComplete('update_environment', Date.now() - start);
     return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };

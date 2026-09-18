@@ -428,6 +428,140 @@ describe('the identity actually used is visible in the result', () => {
     expect(body).not.toHaveProperty('loginError');
     expect(body).not.toHaveProperty('credentialWarning');
   });
+
+  test('a login record keeps its actionable detail through to the response', async () => {
+    // bead ymq2: the refusal's `detail` is how a caller learns WHICH host to
+    // authorize. The handler must relay the array verbatim, not re-map fields.
+    const detail = "refused to enter credentials on auth.idp.example: not part of this run's scope";
+    setup(completedExecution({
+      logins: [
+        { username: 'qatest123@example.com', source: 'env_default', submitted: false, authenticated: false, reason: 'offscope_host', detail },
+      ],
+    }));
+
+    const result = await testPageChangesHandler(baseInput as any, ctx);
+    expect(payload(result).logins).toEqual([
+      { username: 'qatest123@example.com', source: 'env_default', submitted: false, authenticated: false, reason: 'offscope_host', detail },
+    ]);
+  });
+});
+
+// ── credentialWarning must only claim what happened (bead b5x6) ────────────
+// The warning says "this run signed in with an environment default credential
+// even though X was specified". Both client reports had it firing when that
+// sentence was false: nothing was ever typed (every login a deliberate skip),
+// or the "default" it named was X itself.
+
+describe('credentialWarning fires only on a real substitution', () => {
+  test('no warning when every environment-default login has submitted:false', async () => {
+    // Shape of client run 146f081f: every login refused, none submitted.
+    setup(completedExecution({
+      logins: [
+        { source: 'explicit', submitted: false, authenticated: false, reason: 'no_login_form_detected' },
+        { username: 'qatest123@example.com', source: 'env_default', submitted: false, authenticated: false, reason: 'offscope_host' },
+        { username: 'qatest123@example.com', source: 'env_default', submitted: false, authenticated: false, reason: 'offscope_host' },
+      ],
+    }));
+
+    const result = await testPageChangesHandler(
+      { ...baseInput, username: 'qa+invitefix@example.com', password: 'pw' } as any,
+      ctx,
+    );
+    const body = payload(result);
+    expect(body).not.toHaveProperty('credentialWarning');
+    expect(body.logins).toHaveLength(3); // the evidence itself is still relayed
+  });
+
+  test('no warning when the refused environment-default logins carry no submitted flag at all', async () => {
+    // Shape of client run 2d4970a6: skip records with only {reason, source}.
+    setup(completedExecution({
+      logins: [
+        { reason: 'no_login_form_detected', source: 'explicit' },
+        { reason: 'offscope_host', source: 'env_default' },
+        { reason: 'offscope_host', source: 'env_default' },
+      ],
+    }));
+
+    const result = await testPageChangesHandler(
+      {
+        ...baseInput,
+        username: 'qa+invitefix@example.com',
+        password: 'pw',
+        auth: { precondition: 'login', entryUrl: 'https://auth.idp.example/signin', username: 'qa+invitefix@example.com', password: 'pw' },
+        useEnvironmentCredentials: false,
+      } as any,
+      ctx,
+    );
+    expect(payload(result)).not.toHaveProperty('credentialWarning');
+  });
+
+  test('no warning when the identity used is the one that was requested', async () => {
+    // Shape of client run 146f081f's second defect: the warning named X as
+    // both `requested` and `used`, contradicting itself.
+    setup(completedExecution({
+      logins: [
+        { username: 'qa+invitefix@example.com', source: 'env_default', submitted: true, authenticated: true },
+      ],
+    }));
+
+    const result = await testPageChangesHandler(
+      { ...baseInput, username: 'qa+invitefix@example.com', password: 'pw' } as any,
+      ctx,
+    );
+    expect(payload(result)).not.toHaveProperty('credentialWarning');
+  });
+
+  test('identity match is case-insensitive and covers every account the caller named', async () => {
+    setup(completedExecution({
+      logins: [
+        { username: 'Second.Account@Example.com', source: 'env', submitted: true, authenticated: true },
+      ],
+    }));
+
+    const result = await testPageChangesHandler(
+      {
+        ...baseInput,
+        username: 'qa+invitefix@example.com',
+        password: 'pw',
+        loginCredentials: [{ username: 'second.account@example.com', password: 'pw2' }],
+      } as any,
+      ctx,
+    );
+    expect(payload(result)).not.toHaveProperty('credentialWarning');
+  });
+
+  test('used[] never lists the requested identity when a real substitution also happened', async () => {
+    setup(completedExecution({
+      logins: [
+        { username: 'qa+invitefix@example.com', source: 'env_default', submitted: true, authenticated: true },
+        { username: 'qatest123@example.com', source: 'env_default', submitted: true, authenticated: false },
+        { username: 'refused@example.com', source: 'env_default', submitted: false, reason: 'offscope_host' },
+      ],
+    }));
+
+    const result = await testPageChangesHandler(
+      { ...baseInput, username: 'qa+invitefix@example.com', password: 'pw' } as any,
+      ctx,
+    );
+    const warning = payload(result).credentialWarning;
+    expect(warning).toBeDefined();
+    expect(warning.requested).toBe('qa+invitefix@example.com');
+    expect(warning.used).toEqual(['qatest123@example.com']);
+  });
+
+  test('no warning for a submitted environment-default login that names no account', async () => {
+    // Nothing to name means nothing to claim: we cannot say it differed from
+    // the requested identity, and a warning with used:[] contradicts itself.
+    setup(completedExecution({
+      logins: [{ source: 'env_default', submitted: true, authenticated: false }],
+    }));
+
+    const result = await testPageChangesHandler(
+      { ...baseInput, username: 'qa+invitefix@example.com', password: 'pw' } as any,
+      ctx,
+    );
+    expect(payload(result)).not.toHaveProperty('credentialWarning');
+  });
 });
 
 // ── evaluation relay ────────────────────────────────────────────────────────

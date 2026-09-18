@@ -17,6 +17,7 @@
 
 import type { WorkflowExecution } from '../../services/workflows.js';
 import { adaptVerdict } from '../../services/verdictAdapter.js';
+import type { LoginRecord } from '../../services/verdictAdapter.js';
 
 function makeExecution(fields: Partial<WorkflowExecution> = {}): WorkflowExecution {
   return {
@@ -142,5 +143,50 @@ describe('adaptVerdict — evidence relay', () => {
     const v = adaptVerdict(makeExecution({ verdict: { outcome: 'pass' } }));
     expect(v.screenshot).toBeUndefined();
     expect(v.actionTrace).toBeUndefined();
+  });
+});
+
+// bead ymq2: callers read logins[] as the single most useful part of the
+// response. These pin the relay, typed against LoginRecord so the declared
+// contract and the runtime relay are held together: a refactor that maps the
+// array field-by-field, or drops a field from the interface, breaks one of them.
+describe('adaptVerdict — logins relay', () => {
+  const OFFSCOPE_DETAIL =
+    "refused to enter credentials on auth.idp.example: not part of this run's scope (app.example.com). " +
+    "If auth.idp.example is your identity provider, add it to the environment's authorized credential hosts";
+
+  test('an offscope refusal keeps its actionable detail', () => {
+    const logins: LoginRecord[] = [
+      { username: 'qa@example.com', source: 'env_default', submitted: false, authenticated: false, reason: 'offscope_host', detail: OFFSCOPE_DETAIL },
+    ];
+    const v = adaptVerdict(makeExecution({ verdict: { outcome: 'fail' }, evidence: { logins } }));
+    const first: LoginRecord | undefined = v.logins?.[0];
+    expect(first?.reason).toBe('offscope_host');
+    expect(first?.detail).toBe(OFFSCOPE_DETAIL);
+  });
+
+  test('source / submitted / authenticated / reason all survive the relay', () => {
+    const logins: LoginRecord[] = [
+      { username: 'a@example.com', source: 'task', submitted: true, authenticated: true, reason: 'logged_in' },
+      { username: 'b@example.com', source: 'env_default', submitted: false, authenticated: false, reason: 'offscope_host', detail: 'why' },
+      { username: 'c@example.com', source: 'credential_id', submitted: false, authenticated: true, reason: 'restored_session' },
+    ];
+    const v = adaptVerdict(makeExecution({ verdict: { outcome: 'pass' }, evidence: { logins } }));
+
+    expect(v.logins).toHaveLength(3);
+    v.logins!.forEach((got: LoginRecord, i: number) => {
+      const want = logins[i];
+      expect(got.username).toBe(want.username);
+      expect(got.source).toBe(want.source);
+      expect(got.submitted).toBe(want.submitted);
+      expect(got.authenticated).toBe(want.authenticated);
+      expect(got.reason).toBe(want.reason);
+      expect(got.detail).toBe(want.detail);
+    });
+  });
+
+  test('an empty logins array is omitted, not relayed as []', () => {
+    const v = adaptVerdict(makeExecution({ verdict: { outcome: 'pass' }, evidence: { logins: [] } }));
+    expect(v.logins).toBeUndefined();
   });
 });

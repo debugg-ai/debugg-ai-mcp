@@ -17,7 +17,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { getEvalTemplateSlug } from '../services/workflows.js';
-import { adaptVerdict, isEnvironmentDefault } from '../services/verdictAdapter.js';
+import { adaptVerdict, credentialSubstitutions } from '../services/verdictAdapter.js';
 import { TunnelProvisionError } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
@@ -860,14 +860,22 @@ async function testPageChangesHandlerInner(
     if (verdict.logins) responsePayload.logins = verdict.logins;
     if (verdict.loginError) responsePayload.loginError = verdict.loginError;
 
+    // Bead b5x6: only a SUBMITTED env-default login under a DIFFERENT account
+    // counts. A refused/skipped login (offscope_host, no form) typed nothing,
+    // and the env's stored credential may be the very account that was named —
+    // warning on either states something that did not happen.
     const requestedIdentity = input.username
       ?? input.auth?.username
       ?? input.loginCredentials?.[0]?.username;
-    const substituted = (verdict.logins ?? []).filter(isEnvironmentDefault);
+    const substituted = credentialSubstitutions(verdict.logins, [
+      input.username,
+      input.auth?.username,
+      ...(input.loginCredentials ?? []).map(c => c.username),
+    ]);
     if (requestedIdentity && substituted.length > 0) {
       responsePayload.credentialWarning = {
         requested: requestedIdentity,
-        used: substituted.map(l => l.username).filter(Boolean),
+        used: [...new Set(substituted.map(l => l.username as string))],
         message:
           `This run signed in with an environment default credential even though ` +
           `'${requestedIdentity}' was specified. Treat a login failure here as a ` +
@@ -875,7 +883,7 @@ async function testPageChangesHandlerInner(
       };
       logger.warn(
         `check_app_in_browser: requested identity '${requestedIdentity}' but the run used ` +
-        `environment-default credential(s): ${substituted.map(l => l.username).join(', ')}`,
+        `environment-default credential(s): ${responsePayload.credentialWarning.used.join(', ')}`,
       );
     }
 

@@ -178,12 +178,33 @@ const CredentialSeedSchema = z.object({
   role: z.string().min(1).optional(),
 }).strict();
 
+/**
+ * One entry of an environment's authorizedCredentialHosts (bead q4d4): a bare
+ * hostname where a run may type this environment's credentials besides the
+ * app's own host — typically the identity provider of a cross-domain SSO app.
+ * The backend matches it against a URL's lowercased hostname, exactly, so a
+ * scheme, path, port or wildcard could never match anything; reject them here
+ * with the reason instead of storing a host that silently does nothing.
+ */
+const HOSTNAME_RE = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/;
+const AuthorizedCredentialHostSchema = z.string().trim().toLowerCase().superRefine((h, ctx) => {
+  const bad = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  if (h === '') return bad('host must not be empty');
+  if (h.includes('://')) return bad(`'${h}' has a scheme — pass the bare hostname (e.g. auth.example.com), not a URL`);
+  if (h.includes('/')) return bad(`'${h}' has a path — pass the bare hostname only (e.g. auth.example.com)`);
+  if (h.includes('*')) return bad(`'${h}' is a wildcard — list each host explicitly (subdomains of the app's own host are already in scope)`);
+  if (h.includes(':')) return bad(`'${h}' has a port — pass the bare hostname; hosts are matched without a port`);
+  if (h.length > 253 || !HOSTNAME_RE.test(h)) return bad(`'${h}' is not a valid hostname`);
+});
+const AuthorizedCredentialHostsSchema = z.array(AuthorizedCredentialHostSchema).max(50, 'at most 50 hosts');
+
 export const CreateEnvironmentInputSchema = z.object({
   name: z.string().min(1, 'name is required'),
   url: z.string().url('url is required for standard environments'),
   description: z.string().optional(),
   projectUuid: z.string().uuid().optional(),
   credentials: z.array(CredentialSeedSchema).optional(),
+  authorizedCredentialHosts: AuthorizedCredentialHostsSchema.optional(),
 }).strict();
 export type CreateEnvironmentInput = z.infer<typeof CreateEnvironmentInputSchema>;
 
@@ -204,6 +225,7 @@ export const UpdateEnvironmentInputSchema = z.object({
   addCredentials: z.array(CredentialSeedSchema).optional(),
   updateCredentials: z.array(CredentialUpdateSchema).optional(),
   removeCredentialIds: z.array(z.string().uuid()).optional(),
+  authorizedCredentialHosts: AuthorizedCredentialHostsSchema.optional(),
 }).strict();
 export type UpdateEnvironmentInput = z.infer<typeof UpdateEnvironmentInputSchema>;
 
@@ -580,8 +602,8 @@ export type ProjectInput = z.infer<typeof ProjectInputSchema>;
 export const EnvironmentInputSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('get'), uuid: z.string().uuid(), projectUuid: z.string().uuid().optional() }).strict(),
   z.object({ action: z.literal('list'), projectUuid: z.string().uuid().optional(), q: z.string().min(1).optional(), page: _page, pageSize: _pageSize }).strict(),
-  z.object({ action: z.literal('create'), name: z.string().min(1), url: z.string().url('url is required for standard environments'), description: z.string().optional(), projectUuid: z.string().uuid().optional(), credentials: z.array(CredentialSeedSchema).optional() }).strict(),
-  z.object({ action: z.literal('update'), uuid: z.string().uuid(), name: z.string().min(1).optional(), url: z.string().url().optional(), description: z.string().optional(), projectUuid: z.string().uuid().optional(), addCredentials: z.array(CredentialSeedSchema).optional(), updateCredentials: z.array(CredentialUpdateSchema).optional(), removeCredentialIds: z.array(z.string().uuid()).optional() }).strict(),
+  z.object({ action: z.literal('create'), name: z.string().min(1), url: z.string().url('url is required for standard environments'), description: z.string().optional(), projectUuid: z.string().uuid().optional(), credentials: z.array(CredentialSeedSchema).optional(), authorizedCredentialHosts: AuthorizedCredentialHostsSchema.optional() }).strict(),
+  z.object({ action: z.literal('update'), uuid: z.string().uuid(), name: z.string().min(1).optional(), url: z.string().url().optional(), description: z.string().optional(), projectUuid: z.string().uuid().optional(), addCredentials: z.array(CredentialSeedSchema).optional(), updateCredentials: z.array(CredentialUpdateSchema).optional(), removeCredentialIds: z.array(z.string().uuid()).optional(), authorizedCredentialHosts: AuthorizedCredentialHostsSchema.optional() }).strict(),
   z.object({ action: z.literal('delete'), uuid: z.string().uuid(), projectUuid: z.string().uuid().optional(), confirm: z.boolean().optional() }).strict(),
   // Captured authenticated sessions (sentinal-cs1hn.5). The backend holds a warm
   // session per account and restores it to skip login; these two actions make that
