@@ -38,6 +38,18 @@ export interface ProjectInfo {
   repo?: { uuid: string; name: string } | null;
 }
 
+/**
+ * authorizedCredentialHosts from an environment response (bead q4d4), or {} when
+ * the backend sent none. OMITTED rather than defaulted to [] — a backend that
+ * does not support the field yet must not read as "this env trusts no extra
+ * hosts", and the create/update handlers rely on its absence to detect that.
+ */
+function pickAuthorizedCredentialHosts(e: any): { authorizedCredentialHosts?: string[] } {
+  return Array.isArray(e?.authorizedCredentialHosts)
+    ? { authorizedCredentialHosts: e.authorizedCredentialHosts }
+    : {};
+}
+
 export class DebuggAIServerClient  {
   tx: DebuggTransport | undefined;
   url: URL | undefined;
@@ -257,7 +269,7 @@ export class DebuggAIServerClient  {
     projectUuid: string,
     pagination: { page: number; pageSize: number },
     q?: string,
-  ): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; environments: Array<{ uuid: string; name: string; url: string; isActive: boolean }> }> {
+  ): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; environments: Array<{ uuid: string; name: string; url: string; isActive: boolean; authorizedCredentialHosts?: string[] }> }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const { makePageInfo } = await import('../utils/pagination.js');
     const params: Record<string, any> = { page: pagination.page, pageSize: pagination.pageSize };
@@ -273,6 +285,7 @@ export class DebuggAIServerClient  {
         name: e.name,
         url: e.url || e.activeUrl || '',
         isActive: e.isActive,
+        ...pickAuthorizedCredentialHosts(e),
       })),
     };
   }
@@ -283,12 +296,14 @@ export class DebuggAIServerClient  {
    */
   public async createEnvironment(
     projectUuid: string,
-    input: { name: string; url?: string; description?: string },
-  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean }> {
+    input: { name: string; url?: string; description?: string; authorizedCredentialHosts?: string[] },
+  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean; authorizedCredentialHosts?: string[] }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const body: Record<string, any> = { name: input.name };
     if (input.url) body.url = input.url;
     if (input.description) body.description = input.description;
+    // Wire: authorized_credential_hosts (snake_cased by the transport).
+    if (input.authorizedCredentialHosts !== undefined) body.authorizedCredentialHosts = input.authorizedCredentialHosts;
     const response = await this.tx.post<any>(
       `api/v1/projects/${projectUuid}/environments/`,
       body,
@@ -298,6 +313,7 @@ export class DebuggAIServerClient  {
       name: response.name,
       url: response.url || response.activeUrl || '',
       isActive: response.isActive,
+      ...pickAuthorizedCredentialHosts(response),
     };
   }
 
@@ -363,7 +379,7 @@ export class DebuggAIServerClient  {
   public async getEnvironment(
     projectUuid: string,
     envUuid: string,
-  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean; description: string | null; endpointType: string; activeUrl: string | null; timestamp: string; lastMod: string }> {
+  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean; description: string | null; endpointType: string; activeUrl: string | null; timestamp: string; lastMod: string; authorizedCredentialHosts?: string[] }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const e = await this.tx.get<any>(`api/v1/projects/${projectUuid}/environments/${envUuid}/`);
     return {
@@ -376,6 +392,7 @@ export class DebuggAIServerClient  {
       activeUrl: e.activeUrl ?? null,
       timestamp: e.timestamp,
       lastMod: e.lastMod,
+      ...pickAuthorizedCredentialHosts(e),
     };
   }
 
@@ -385,13 +402,15 @@ export class DebuggAIServerClient  {
   public async updateEnvironment(
     projectUuid: string,
     envUuid: string,
-    patch: { name?: string; url?: string; description?: string },
-  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean; description: string | null; endpointType: string }> {
+    patch: { name?: string; url?: string; description?: string; authorizedCredentialHosts?: string[] },
+  ): Promise<{ uuid: string; name: string; url: string; isActive: boolean; description: string | null; endpointType: string; authorizedCredentialHosts?: string[] }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const body: Record<string, any> = {};
     if (patch.name !== undefined) body.name = patch.name;
     if (patch.url !== undefined) body.url = patch.url;
     if (patch.description !== undefined) body.description = patch.description;
+    // Wire: authorized_credential_hosts. [] is meaningful (clears the list).
+    if (patch.authorizedCredentialHosts !== undefined) body.authorizedCredentialHosts = patch.authorizedCredentialHosts;
     const e = await this.tx.patch<any>(
       `api/v1/projects/${projectUuid}/environments/${envUuid}/`,
       body,
@@ -403,6 +422,7 @@ export class DebuggAIServerClient  {
       isActive: e.isActive,
       description: e.description ?? null,
       endpointType: e.endpointType,
+      ...pickAuthorizedCredentialHosts(e),
     };
   }
 

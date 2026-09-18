@@ -52,9 +52,10 @@ export interface RelayVerdict {
   actionTrace?: any[];
   /**
    * evidence.logins — every login the run performed:
-   * `{ username, source, submitted, authenticated }`, never a password.
-   * `source` is where the credential came from: 'task' | 'explicit' |
-   * 'credential_id' | 'env' | 'env_default'.
+   * `{ username, source, submitted, authenticated, reason, detail }`, never a
+   * password. `source` is where the credential came from: 'task' | 'explicit' |
+   * 'credential_id' | 'env' | 'env_default'. Relayed VERBATIM (bead ymq2) —
+   * never re-map it field by field, or a new backend field silently vanishes.
    */
   logins?: LoginRecord[];
   /**
@@ -78,17 +79,56 @@ export interface RelayVerdict {
 export interface LoginRecord {
   username?: string;
   source?: string;
+  /** True only when credentials were actually typed and submitted. */
   submitted?: boolean;
   authenticated?: boolean;
+  /** Machine-readable outcome, e.g. 'offscope_host', 'restored_session'. */
   reason?: string;
+  /**
+   * Human-readable, actionable explanation (sentinal-oj7dp.22) — e.g. which
+   * host a login was refused on and how to authorize it.
+   */
+  detail?: string;
 }
 
 /** Credential sources that mean "the caller named this account for this run". */
 const CALLER_SPECIFIED_SOURCES = new Set(['task', 'explicit', 'credential_id']);
 
-/** True when this login used an environment default rather than a named account. */
+/**
+ * True when this login's credential CAME FROM the environment rather than a
+ * named account. Says nothing about whether it was ever used — a refused
+ * `offscope_host` skip carries an env source too. See credentialSubstitutions.
+ */
 export function isEnvironmentDefault(login: LoginRecord): boolean {
   return !!login.source && !CALLER_SPECIFIED_SOURCES.has(login.source);
+}
+
+/**
+ * The logins that really did substitute an environment default for an account
+ * the caller named (bead b5x6). All three must hold:
+ *   - the credential came from the environment (isEnvironmentDefault);
+ *   - it was actually submitted — a refused or skipped login typed nothing, so
+ *     "signed in with an environment default" would be false (client runs
+ *     2d4970a6, 146f081f);
+ *   - it names an account, and not one the caller asked for — the environment's
+ *     stored credential can BE the requested account, and a warning that lists
+ *     X as both requested and used contradicts itself (client run 146f081f).
+ * Identities compare trimmed and case-insensitively (they are emails).
+ */
+export function credentialSubstitutions(
+  logins: LoginRecord[] | undefined,
+  namedIdentities: Array<string | undefined>,
+): LoginRecord[] {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const named = new Set(
+    namedIdentities.filter((u): u is string => typeof u === 'string' && u.trim() !== '').map(norm),
+  );
+  return (logins ?? []).filter((l) =>
+    isEnvironmentDefault(l)
+    && l.submitted === true
+    && typeof l.username === 'string' && l.username.trim() !== ''
+    && !named.has(norm(l.username)),
+  );
 }
 
 export interface AdaptVerdictOptions {

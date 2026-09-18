@@ -121,7 +121,7 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
         },
         auth: {
           type: "object",
-          description: "Optional auth-precondition for a 'log in THEN deep-navigate' check. Set precondition:'login' to authenticate first, then land on deepUrl. Use this instead of hoping the agent signs itself in at a login wall. Pass username/password here to pin WHICH account it authenticates as; omit them to use the environment's default credential.",
+          description: "Optional auth-precondition for a 'log in THEN deep-navigate' check. Set precondition:'login' to authenticate first, then land on deepUrl. Use this instead of hoping the agent signs itself in at a login wall. Pass username/password here to pin WHICH account it authenticates as; omit them to use the environment's default credential. Cross-domain SSO (sign-in page on a different domain than the app): add that IdP host to the environment's authorizedCredentialHosts (environment tool), or the login there is refused as offscope_host.",
           properties: {
             environmentId: {
               type: "string",

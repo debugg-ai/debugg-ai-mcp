@@ -205,6 +205,27 @@ describe('searchEnvironmentsHandler', () => {
     });
   });
 
+  // bead q4d4: get/list must carry the env's IdP allowlist through. The handler
+  // allowlists credential fields; it must not start allowlisting env fields
+  // without keeping this one.
+  describe('authorizedCredentialHosts', () => {
+    test('get and list relay authorizedCredentialHosts', async () => {
+      mockGetEnvironment.mockResolvedValue({ ...ENV_A, authorizedCredentialHosts: ['auth.idp.example'] });
+      mockListEnvironmentsPaginated.mockResolvedValue({
+        pageInfo: { page: 1, pageSize: 20, totalCount: 2, totalPages: 1, hasMore: false },
+        environments: [{ ...ENV_A, authorizedCredentialHosts: ['auth.idp.example'] }, ENV_B],
+      });
+      mockListCredentialsForEnvironment.mockResolvedValue([]);
+
+      const got = JSON.parse((await searchEnvironmentsHandler({ uuid: ENV_UUID, projectUuid: PROJECT_UUID }, ctx)).content[0].text!);
+      expect(got.environments[0].authorizedCredentialHosts).toEqual(['auth.idp.example']);
+
+      const list = JSON.parse((await searchEnvironmentsHandler({ projectUuid: PROJECT_UUID }, ctx)).content[0].text!);
+      expect(list.environments[0].authorizedCredentialHosts).toEqual(['auth.idp.example']);
+      expect(list.environments[1]).not.toHaveProperty('authorizedCredentialHosts');
+    });
+  });
+
   describe('NO PASSWORD LEAK — invariant', () => {
     test('even if service accidentally returns a password field, handler response strips it', async () => {
       // Simulate buggy service leaking a password

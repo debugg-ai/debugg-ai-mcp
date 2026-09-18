@@ -43,6 +43,17 @@ describe('tool registry', () => {
     }
   });
 
+  // bead q4d4: the wire schema is additionalProperties:false, so a field missing
+  // here cannot be sent by any client no matter what the Zod schema accepts.
+  test('environment tool exposes authorizedCredentialHosts and says when to use it', () => {
+    const def = getTools().find(t => t.name === 'environment')!;
+    const prop = (def.inputSchema as any).properties.authorizedCredentialHosts;
+    expect(prop).toMatchObject({ type: 'array', items: { type: 'string' } });
+    expect(def.description).toMatch(/authorizedCredentialHosts/);
+    expect(def.description).toMatch(/identity provider/i);
+    expect(def.description).toMatch(/SSO/);
+  });
+
   test('project tool offers only get/list/create (update/delete cut)', () => {
     const actions = (getTools().find(t => t.name === 'project')!.inputSchema as any).properties.action.enum;
     expect(actions.sort()).toEqual(['create', 'get', 'list']);

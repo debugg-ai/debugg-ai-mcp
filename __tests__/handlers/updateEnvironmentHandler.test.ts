@@ -203,6 +203,89 @@ describe('updateEnvironmentHandler', () => {
     });
   });
 
+  // bead q4d4: the field ships before the backend accepts it (sentinal-oj7dp.23),
+  // and DRF silently ignores an unknown key — so a PATCH "succeeds" whether or
+  // not the hosts were saved. Only the echo in the response tells the truth.
+  describe('authorizedCredentialHosts', () => {
+    test('setting ONLY authorizedCredentialHosts still PATCHes the environment', async () => {
+      mockUpdateEnvironment.mockResolvedValueOnce({ ...ENV_UPDATED, authorizedCredentialHosts: ['auth.idp.example'] });
+
+      const res = await updateEnvironmentHandler({
+        uuid: ENV_UUID, projectUuid: PROJECT_UUID,
+        authorizedCredentialHosts: ['auth.idp.example'],
+      }, ctx);
+
+      expect(mockUpdateEnvironment).toHaveBeenCalledWith(
+        PROJECT_UUID, ENV_UUID,
+        expect.objectContaining({ authorizedCredentialHosts: ['auth.idp.example'] }),
+      );
+      expect(res.isError).not.toBe(true);
+      const body = JSON.parse(res.content[0].text!);
+      expect(body.updated).toBe(true);
+      expect(body.environment.authorizedCredentialHosts).toEqual(['auth.idp.example']);
+      expect(body).not.toHaveProperty('authorizedCredentialHostsWarning');
+    });
+
+    test('a backend that does not echo the hosts back is reported, never a silent success', async () => {
+      // Today's prod: the PATCH response carries no authorizedCredentialHosts.
+      mockUpdateEnvironment.mockResolvedValueOnce(ENV_UPDATED);
+
+      const res = await updateEnvironmentHandler({
+        uuid: ENV_UUID, projectUuid: PROJECT_UUID,
+        authorizedCredentialHosts: ['auth.idp.example'],
+      }, ctx);
+
+      const body = JSON.parse(res.content[0].text!);
+      expect(body.authorizedCredentialHostsWarning).toBeDefined();
+      expect(body.authorizedCredentialHostsWarning.requested).toEqual(['auth.idp.example']);
+      expect(body.authorizedCredentialHostsWarning.message).toMatch(/did not persist authorizedCredentialHosts/);
+      expect(body.authorizedCredentialHostsWarning.message).toMatch(/not yet supported/);
+    });
+
+    test('a backend that echoes a different list is reported too', async () => {
+      mockUpdateEnvironment.mockResolvedValueOnce({ ...ENV_UPDATED, authorizedCredentialHosts: [] });
+
+      const res = await updateEnvironmentHandler({
+        uuid: ENV_UUID, projectUuid: PROJECT_UUID,
+        authorizedCredentialHosts: ['auth.idp.example'],
+      }, ctx);
+
+      const body = JSON.parse(res.content[0].text!);
+      expect(body.authorizedCredentialHostsWarning.message).toMatch(/did not persist authorizedCredentialHosts/);
+      expect(body.authorizedCredentialHostsWarning.returned).toEqual([]);
+    });
+
+    test('the echo is compared as a set, case-insensitively (the backend normalizes)', async () => {
+      mockUpdateEnvironment.mockResolvedValueOnce({ ...ENV_UPDATED, authorizedCredentialHosts: ['b.idp.example', 'a.idp.example'] });
+
+      const res = await updateEnvironmentHandler({
+        uuid: ENV_UUID, projectUuid: PROJECT_UUID,
+        authorizedCredentialHosts: ['A.idp.example', 'b.idp.example'],
+      }, ctx);
+
+      expect(JSON.parse(res.content[0].text!)).not.toHaveProperty('authorizedCredentialHostsWarning');
+    });
+
+    test('clearing with [] is confirmed by an empty echo', async () => {
+      mockUpdateEnvironment.mockResolvedValueOnce({ ...ENV_UPDATED, authorizedCredentialHosts: [] });
+
+      const res = await updateEnvironmentHandler({
+        uuid: ENV_UUID, projectUuid: PROJECT_UUID,
+        authorizedCredentialHosts: [],
+      }, ctx);
+
+      expect(mockUpdateEnvironment).toHaveBeenCalled();
+      expect(JSON.parse(res.content[0].text!)).not.toHaveProperty('authorizedCredentialHostsWarning');
+    });
+
+    test('an update that never mentions the field raises no warning, whatever the backend returns', async () => {
+      const res = await updateEnvironmentHandler({
+        uuid: ENV_UUID, projectUuid: PROJECT_UUID, description: 'd',
+      }, ctx);
+      expect(JSON.parse(res.content[0].text!)).not.toHaveProperty('authorizedCredentialHostsWarning');
+    });
+  });
+
   describe('NO PASSWORD LEAK', () => {
     test('addCredentials with password: response never contains the password', async () => {
       mockCreateCredential.mockResolvedValueOnce({

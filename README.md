@@ -92,6 +92,8 @@ Naming an account only in `description` does **not** make the agent use it — i
 
 Set `useEnvironmentCredentials: false` when a silent fallback to the default test user would invalidate the check.
 
+**Cross-domain SSO?** A run only types credentials on the app's own host and its subdomains; a sign-in page on another domain is refused as `offscope_host`. Add the identity provider's host to the environment's `authorizedCredentialHosts` (see [`environment`](#environment)).
+
 **Checking a page that needs no login at all?** Pass `useEnvironmentCredentials: false` and name no account. That combination means exactly what it says — *do not log in* — and the run skips authentication entirely instead of hunting for a login form. Use it for public pages, marketing sites, docs, and anything pre-auth. It is also faster: on the default (`auto`) the agent will follow a "Log in" link off your page and try the environment's stored account before it evaluates anything.
 
 ##### Session reuse: why a check can report "no login form"
@@ -109,7 +111,9 @@ Results report the identity actually used, so a wrong one is visible rather than
 
 ```json
 "logins": [
-  { "username": "qa+invitefix@example.com", "source": "task", "submitted": true, "authenticated": true }
+  { "username": "qa+invitefix@example.com", "source": "task", "submitted": true, "authenticated": true },
+  { "username": "qatest123@example.com", "source": "env_default", "submitted": false, "authenticated": false,
+    "reason": "offscope_host", "detail": "refused to enter credentials on auth.idp.example: not part of this run's scope …" }
 ],
 "credentialWarning": {
   "requested": "qa+invitefix@example.com",
@@ -118,7 +122,7 @@ Results report the identity actually used, so a wrong one is visible rather than
 }
 ```
 
-`source` is `task` | `explicit` | `credential_id` (an account you named) or `env` | `env_default` (the environment's stored account). `credentialWarning` appears only when you named an account and an environment default was used anyway. `loginError` appears when a named account could not be resolved and the run declined to substitute a different one.
+`source` is `task` | `explicit` | `credential_id` (an account you named) or `env` | `env_default` (the environment's stored account). `submitted` is true only when credentials were actually typed and submitted; `reason` says what happened (e.g. `offscope_host`, `restored_session`), and `detail`, when present, is a human-readable explanation of it — for an `offscope_host` refusal it names the host and how to authorize it. `credentialWarning` appears only when you named an account and an environment default for a **different** account was actually submitted — never for a login that was refused or skipped. `loginError` appears when a named account could not be resolved and the run declined to substitute a different one.
 
 Every successful run returns a `browserSession` block alongside the screenshot — presigned S3 URLs for the captured **HAR** (full network trace) and **console log** (every JS console message). Use them to detect refetch loops, hydration errors, and other runtime issues that pass type-checks and unit tests:
 
@@ -176,13 +180,15 @@ Team and repo resolve by **either** uuid **or** name (case-insensitive exact mat
 |--------|--------|--------|
 | `get` | `{uuid, projectUuid?}` | Env with credentials inlined (passwords never returned) |
 | `list` | `{projectUuid?, q?, page?, pageSize?}` | Paginated envs, each with a credentials array |
-| `create` | `{name, url, description?, projectUuid?, credentials?}` | Created env (optionally seeds credentials) |
-| `update` | `{uuid, name?, url?, description?, addCredentials?, updateCredentials?, removeCredentialIds?}` | Patched env; credential ops run **remove → update → add** |
+| `create` | `{name, url, description?, projectUuid?, credentials?, authorizedCredentialHosts?}` | Created env (optionally seeds credentials) |
+| `update` | `{uuid, name?, url?, description?, addCredentials?, updateCredentials?, removeCredentialIds?, authorizedCredentialHosts?}` | Patched env; credential ops run **remove → update → add** |
 | `delete` | `{uuid, projectUuid?, confirm?}` | Deletes env (cascades credentials) — **requires confirmation** |
 | `sessions` | `{uuid, username?, credentialId?}` | Captured login sessions the env holds, per account, with `isUsable` and a `usableCount` |
 | `clearSessions` | `{uuid, username?, credentialId?, confirm?}` | Invalidates them so the next run logs in for real — **unscoped clears require confirmation** |
 
 `projectUuid` auto-resolves from the git repo when omitted. Per-cred failures surface in `credentialWarnings[]` without blocking the env op.
+
+`authorizedCredentialHosts` lists hosts where a run may enter this environment's credentials besides the app's own host — **for cross-domain SSO, add the IdP host here** (e.g. `["auth.example.com"]`). Bare hostnames only: no scheme, path, port or wildcard (subdomains of the app's host are already in scope). On `update` it replaces the list; `[]` clears it. `get`/`list` return it when the server supports it. The response echoes the saved list; if the server did not persist it (older servers ignore the field), the result carries an `authorizedCredentialHostsWarning` saying so instead of a silent success.
 
 `sessions` / `clearSessions` manage the warm authenticated sessions the backend reuses to skip login (see [Session reuse](#session-reuse-why-a-check-can-report-no-login-form)). Session contents are never returned — a session cookie is a bearer credential. `clearSessions` marks sessions invalid rather than deleting the rows, so reuse stops immediately while the capture history stays readable.
 

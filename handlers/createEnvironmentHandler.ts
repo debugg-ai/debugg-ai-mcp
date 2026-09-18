@@ -8,6 +8,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { config } from '../config/index.js';
 import { detectRepoName } from '../utils/gitContext.js';
+import { checkAuthorizedCredentialHostsEcho } from '../utils/authorizedCredentialHosts.js';
 
 const logger = new Logger({ module: 'createEnvironmentHandler' });
 
@@ -51,6 +52,7 @@ export async function createEnvironmentHandler(
       name: input.name,
       url: input.url,
       description: input.description,
+      authorizedCredentialHosts: input.authorizedCredentialHosts,
     });
 
     const payload: Record<string, any> = {
@@ -89,6 +91,17 @@ export async function createEnvironmentHandler(
       }
       payload.credentials = created;
       if (warnings.length > 0) payload.credentialWarnings = warnings;
+    }
+
+    // Bead q4d4: only the echo proves the backend kept the hosts.
+    if (input.authorizedCredentialHosts !== undefined) {
+      const hostsWarning = checkAuthorizedCredentialHostsEcho(
+        input.authorizedCredentialHosts, env.authorizedCredentialHosts, 'create',
+      );
+      if (hostsWarning) {
+        payload.authorizedCredentialHostsWarning = hostsWarning;
+        logger.warn(`create_environment: ${hostsWarning.message}`);
+      }
     }
 
     logger.toolComplete('create_environment', Date.now() - start);
