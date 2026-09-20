@@ -6,10 +6,10 @@
  * discovered and BORROWED an existing tunnel instead of provisioning a
  * duplicate for the same port. That borrowing mechanism (and everything that
  * existed only to make it safe — freshness TTLs, PID-reuse defenses,
- * adopt/reconcile against the local ngrok agent) is retired outright by
+ * adopt/reconcile against a local tunnel agent) is retired outright by
  * docs/local-tunnel-multiplexer-architecture-2026-07-31.md §4: "No sharing,
  * ever, at any granularity. Each session key gets its own Caddy instance and
- * its own ngrok tunnel."
+ * its own tunnel."
  *
  * What remains is a diagnostic view: `RegistryEntry` rows, keyed by
  * `tunnelId` (not port — a port no longer identifies anything unique once

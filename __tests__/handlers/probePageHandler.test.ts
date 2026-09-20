@@ -43,7 +43,6 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
     },
-    revokeNgrokKey: mockRevokeKey,
   })),
 }));
 
@@ -68,7 +67,7 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
 // real tunnel, and named so tests can assert on what the handler did NOT do.
 const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any);
 const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: { stopTunnel: mockStopTunnel, markTunnelDead: mockMarkTunnelDead },
 }));
 
@@ -346,7 +345,7 @@ describe('probePageHandler — multi-port batch decomposition (§4)', () => {
     mockEnsureTunnel.mockImplementation(async (ctx: any) => ({
       ...ctx,
       tunnelId: SESSION_TUNNEL_ID,
-      targetUrl: ctx.originalUrl.replace(/^https?:\/\/[^/]+/, `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai`),
+      targetUrl: ctx.originalUrl.replace(/^https?:\/\/[^/]+/, `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai`),
     }));
   });
 
@@ -368,8 +367,8 @@ describe('probePageHandler — multi-port batch decomposition (§4)', () => {
     mockPoll.mockResolvedValue({
       uuid: 'exec-same-port', status: 'completed', durationMs: 900,
       nodeExecutions: [
-        captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a` }),
-        captureNode(2, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b` }),
+        captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/a` }),
+        captureNode(2, { capturedUrl: `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/b` }),
       ],
       state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
     });
@@ -395,12 +394,12 @@ describe('probePageHandler — multi-port batch decomposition (§4)', () => {
     mockPoll
       .mockResolvedValueOnce({
         uuid: 'exec-port-3000', status: 'completed', durationMs: 500,
-        nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a`, title: 'PortA' })],
+        nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/a`, title: 'PortA' })],
         state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
       })
       .mockResolvedValueOnce({
         uuid: 'exec-port-4000', status: 'completed', durationMs: 600,
-        nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b`, title: 'PortB' })],
+        nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/b`, title: 'PortB' })],
         state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
       });
 
@@ -441,7 +440,7 @@ describe('probePageHandler — multi-port batch decomposition (§4)', () => {
       .mockRejectedValueOnce(new Error('backend exploded for port 4000'));
     mockPoll.mockResolvedValueOnce({
       uuid: 'exec-ok', status: 'completed', durationMs: 500,
-      nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a` })],
+      nodeExecutions: [captureNode(1, { capturedUrl: `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/a` })],
       state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
     });
 
@@ -470,7 +469,7 @@ describe('probePageHandler — multi-port batch decomposition (§4)', () => {
       if (!ctx.isLocalhost) return value;
       const origin = new URL(ctx.originalUrl).origin;
       return JSON.parse(
-        JSON.stringify(value).replace(/https?:\/\/[^\s"/]+\.ngrok\.debugg\.ai/g, origin),
+        JSON.stringify(value).replace(/https?:\/\/[^\s"/]+\.tunnel\.debugg\.ai/g, origin),
       );
     });
 
@@ -481,17 +480,17 @@ describe('probePageHandler — multi-port batch decomposition (§4)', () => {
       .mockResolvedValueOnce({
         uuid: 'exec-port-3000', status: 'completed', durationMs: 500,
         nodeExecutions: [captureNode(1, {
-          capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a`,
+          capturedUrl: `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/a`,
           // The tunnel hostname leaking into agent-authored content (title).
-          title: `Loaded https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/a`,
+          title: `Loaded https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/a`,
         })],
         state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
       })
       .mockResolvedValueOnce({
         uuid: 'exec-port-4000', status: 'completed', durationMs: 600,
         nodeExecutions: [captureNode(1, {
-          capturedUrl: `https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b`,
-          title: `Loaded https://${SESSION_TUNNEL_ID}.ngrok.debugg.ai/b`,
+          capturedUrl: `https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/b`,
+          title: `Loaded https://${SESSION_TUNNEL_ID}.tunnel.debugg.ai/b`,
         })],
         state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
       });
@@ -510,7 +509,7 @@ describe('probePageHandler — multi-port batch decomposition (§4)', () => {
     expect(body.results[1].finalUrl).toBe('http://localhost:4000/b');
     expect(body.results[1].title).toBe('Loaded http://localhost:4000/b');
     // No raw tunnel hostname survives anywhere in the response.
-    expect(result.content[0].text).not.toMatch(/ngrok\.debugg\.ai/);
+    expect(result.content[0].text).not.toMatch(/tunnel\.debugg\.ai/);
   });
 });
 
@@ -543,7 +542,7 @@ describe('probePageHandler — localhost pre-flight', () => {
   });
 
   // ── Tunnel disposition on a failed health probe (utils/tunnelDisposition.ts) ──
-  // ngrok bills a 1-hour MINIMUM per tunnel, so a teardown plus the re-provision
+  // A teardown plus the re-provision
   // it forces costs two billed hours. Only a code proving the endpoint is gone
   // may evict; everything else keeps the tunnel for the next call.
   describe('unhealthy tunnel disposition', () => {
@@ -563,16 +562,16 @@ describe('probePageHandler — localhost pre-flight', () => {
       mockProvision.mockResolvedValue({ tunnelKey: 'key', tunnelId: 't-live', keyId: 'kid' });
       mockEnsureTunnel.mockResolvedValue({
         originalUrl: 'http://localhost:3011',
-        targetUrl: 'https://t-live.ngrok.debugg.ai/',
+        targetUrl: 'https://t-live.tunnel.debugg.ai/',
         tunnelId: 't-live',
         isLocalhost: true,
       });
       return probePageHandler({ targets: [{ url: 'http://localhost:3011' }] } as any, defaultContext);
     }
 
-    test('ERR_NGROK_8012 → tunnel kept (8012 means the tunnel is ALIVE, the upstream refused)', async () => {
+    test('DEBUGG_TUNNEL_UPSTREAM_REFUSED → tunnel kept (8012 means the tunnel is ALIVE, the upstream refused)', async () => {
       const result = await localhostProbe({
-        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_8012', status: 502, elapsedMs: 60,
+        healthy: false, code: 'TUNNEL_ERROR', tunnelErrorCode: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED', status: 502, elapsedMs: 60,
       });
 
       expect(result.isError).toBe(true);
@@ -593,9 +592,9 @@ describe('probePageHandler — localhost pre-flight', () => {
       expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 
-    test('ERR_NGROK_3200 → evicted, because the endpoint is proven gone', async () => {
+    test('DEBUGG_TUNNEL_OFFLINE → evicted, because the endpoint is proven gone', async () => {
       const result = await localhostProbe({
-        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200', status: 404, elapsedMs: 55,
+        healthy: false, code: 'TUNNEL_ERROR', tunnelErrorCode: 'DEBUGG_TUNNEL_OFFLINE', status: 404, elapsedMs: 55,
       });
 
       expect(result.isError).toBe(true);

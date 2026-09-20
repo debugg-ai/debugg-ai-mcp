@@ -266,7 +266,7 @@ export interface E2eTestCommitSuite {
     description: string;
     summarizedChanges: string | null;
     tests?: E2eTest[];
-    tunnelKey: string | null;  // Actual api key for ngrok
+    tunnelKey: string | null;  // The tunnel token issued by the backend
     key: string | null;  // UUID key for url endpoint
     runStatus: E2eRunStatus;
     createdBy?: PublicUserInfo | null;

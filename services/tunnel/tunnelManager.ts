@@ -1,7 +1,7 @@
 /**
  * Tunnel Management Service
  *
- * ONE ngrok tunnel per SESSION KEY (§2.1 of
+ * ONE tunnel per SESSION KEY (§2.1 of
  * docs/local-tunnel-multiplexer-architecture-2026-07-31.md) — not one per
  * local port. A session's tunnel dials a local Caddy instance
  * (services/caddy/caddyProxy.ts) that holds exactly one dynamic upstream,
@@ -11,10 +11,10 @@
  *
  * This retires the entire cross-process "borrow another MCP's tunnel"
  * mechanism the previous per-port design needed (registry-mediated adoption,
- * PID-liveness/freshness checks, re-adoption from the local ngrok agent) —
+ * PID-liveness/freshness checks, re-adoption from a local agent) —
  * see §4's "Same-machine multi-process / multi-session sharing" decision:
  * "No sharing, ever, at any granularity." Every tunnel this process holds is
- * one it created; `services/ngrok/tunnelRegistry.ts` is now write-mostly
+ * one it created; `services/tunnel/tunnelRegistry.ts` is now write-mostly
  * observability, not a correctness dependency.
  *
  * Session identity (§2.1): stdio has exactly one session key for its whole
@@ -42,35 +42,31 @@ import {
   RegistryStore,
   getDefaultRegistry,
 } from './tunnelRegistry.js';
-import { AgentSessionStarter } from './ngrokAgentSession.js';
 import {
   createCaddyProxy,
   isDockerEnv,
   type CaddyProxy,
 } from '../caddy/caddyProxy.js';
 import { PortLock } from '../caddy/portLock.js';
-import {
-  createNgrokTransport,
-  type NgrokTransport,
-} from '../tunnel/ngrokTransport.js';
-import { createDebuggTransport } from '../tunnel/debuggTransport.js';
+import { createDebuggTransport } from './debuggTransport.js';
 import type {
   TunnelTransport,
   TunnelTransportError,
   TunnelTransportSelection,
-} from '../tunnel/transport.js';
+} from './transport.js';
 import {
   extractTunnelIdFromHost,
   isTunnelHost,
-  type TunnelTransportKind,
 } from '../../utils/tunnelDomains.js';
 
 /**
  * The hostname suffix a tunnel gets when the provision response does not name
- * one — i.e. the ngrok path, which is every tunnel until the backend starts
- * selecting the debugg transport.
+ * one. The backend always names one, so this is a floor rather than a path
+ * anything is expected to take — but a tunnel with no hostname at all is
+ * unusable, and silently building one on a domain we do not own would be worse
+ * than building one here.
  */
-const DEFAULT_TUNNEL_DOMAIN = 'ngrok.debugg.ai';
+const DEFAULT_TUNNEL_DOMAIN = 'tunnel.debugg.ai';
 
 const logger = new Logger({ module: 'tunnelManager' });
 
@@ -125,14 +121,12 @@ export interface TunnelInfo {
   tunnelId: string;
   /** §2.1 — replaces `port` as the identity a tunnel is keyed by. */
   sessionKey: string;
-  /** Bare origin returned by ngrok.connect() — unchanged meaning (bead zmc9);
+  /** Bare origin the transport returned — unchanged meaning (bead zmc9);
    *  per-caller path baking happens at the call site via retargetTunnelUrl. */
   tunnelUrl: string;
   createdAt: number;
   lastAccessedAt: number;
   autoShutoffTimer?: NodeJS.Timeout;
-  /** Which transport carries this tunnel. Routes disconnect, probe and telemetry. */
-  transport: TunnelTransportKind;
   /** Backend key / tunnel ID — revoked when this tunnel stops. */
   keyId?: string;
   /** Callback to revoke the backend key on stop. */
@@ -153,7 +147,6 @@ export interface TunnelInfo {
  */
 interface DirectTunnelInfo {
   tunnelId: string;
-  transport: TunnelTransportKind;
   tunnelUrl: string;
   createdAt: number;
   lastAccessedAt: number;
@@ -181,54 +174,24 @@ class TunnelManager {
    */
   public idleTimeoutMs = 55 * 60 * 1000;
   /**
-   * Backoff schedule (ms) between ngrok.connect() retry attempts. Bead ixh.
+   * Backoff schedule (ms) between transport connect() retry attempts. Bead ixh.
    * Exposed on the class so tests can override with short delays without
    * changing the public API or depending on jest fake timers.
    */
   public connectBackoffMs: number[] = [500, 1500];
   /**
-   * The transport implementations, keyed by the kind a provision response can
-   * select. Public and mutable in the same spirit as `caddyFactory`: a test
-   * drives a fake transport instead of a real agent or websocket.
+   * The tunnel transport. Public and mutable in the same spirit as
+   * `caddyFactory`: a test drives a fake transport instead of a real websocket
+   * to a real relay.
    *
-   * A provision response with no `transport` means ngrok, so an old backend
-   * and a new client keep working together.
+   * This was a `Record<kind, TunnelTransport>` while the ngrok and debugg
+   * clients ran side by side. With ngrok deleted it is one field again — a map
+   * with a single key, keyed by a union with a single member, is bookkeeping
+   * for a choice nobody makes any more.
    */
-  public transports: Record<TunnelTransportKind, TunnelTransport> = {
-    ngrok: createNgrokTransport(),
-    debugg: createDebuggTransport({ clientVersion: `debugg-ai-mcp/${config.server.version}` }),
-  };
+  public transport: TunnelTransport =
+    createDebuggTransport({ clientVersion: `debugg-ai-mcp/${config.server.version}` });
 
-  /**
-   * Bead pqgj: how the ngrok agent gets started + how we learn its client
-   * session is live. Overridable so tests can drive a fake agent instead of
-   * spawning a real ngrok process.
-   *
-   * The pre-warm itself moved into ngrokTransport (it is ngrok-only, and the
-   * debugg path must never touch the `ngrok` package), but the seam stays here
-   * because it is public API the existing suites drive.
-   */
-  public get agentSessionStarter(): AgentSessionStarter {
-    return (this.transports.ngrok as NgrokTransport).agentSessionStarter;
-  }
-
-  public set agentSessionStarter(starter: AgentSessionStarter) {
-    (this.transports.ngrok as NgrokTransport).agentSessionStarter = starter;
-  }
-
-  /**
-   * Cap on waiting for "client session established". Measured live at ~293ms;
-   * this is a generous ceiling, not an expected wait. On expiry we tunnel
-   * anyway and let the retry ladder handle it — a slow session must not become
-   * a hang.
-   */
-  public get agentSessionTimeoutMs(): number {
-    return (this.transports.ngrok as NgrokTransport).agentSessionTimeoutMs;
-  }
-
-  public set agentSessionTimeoutMs(ms: number) {
-    (this.transports.ngrok as NgrokTransport).agentSessionTimeoutMs = ms;
-  }
   /**
    * §2.2/§2.3: one fresh `CaddyProxy` instance PER SESSION KEY, never a
    * process-wide singleton. Overridable so tests drive a fake proxy instead
@@ -260,7 +223,7 @@ class TunnelManager {
    *
    * §2.3's cold-start TOCTOU fix: the read (`sessionTunnels.get`) and the
    * eventual write (`sessionTunnels.set`) are separated by several `await`
-   * points (spawning Caddy, connecting ngrok). Two near-simultaneous first
+   * points (spawning Caddy, connecting the tunnel). Two near-simultaneous first
    * calls for the same fresh session key — exactly what an orchestrating
    * agent produces (an initial navigate fired alongside an initial probe) —
    * would otherwise both observe a miss and each mint their own tunnel,
@@ -321,8 +284,8 @@ class TunnelManager {
 
   /**
    * Used ONLY by runTestSuiteHandler.ts. Bypasses Caddy/PortLock entirely —
-   * dials ngrok straight at the app, exactly like today's per-port
-   * createTunnel(). Governed by the same idleTimeoutMs auto-shutoff as any
+   * the tunnel dials straight at the app, exactly like the pre-cutover
+   * per-port createTunnel(). Governed by the same idleTimeoutMs auto-shutoff as any
    * other tunnel. This is a deliberate, scoped exception to "one tunnel per
    * session" (§2.3) — not a smuggled-in legacy fallback — forced by
    * run_test_suite's async execution model: it is fire-and-forget (no poll
@@ -347,11 +310,10 @@ class TunnelManager {
       throw new Error(`acquireDedicatedTunnel: could not extract port from localhost URL: ${url}`);
     }
 
-    const transportKind = selection?.transport ?? 'ngrok';
-    // The ngrok path mints its own id, as it always has — an ngrok key is not
-    // bound to a hostname. A debugg token IS bound to its Tunnel record, so a
-    // client-minted uuid would be rejected with 401 and the id the backend
-    // issued must be used instead.
+    // The token IS bound to its Tunnel record, so a client-minted uuid is
+    // rejected with 401 and the id the backend issued must be used. The uuidv4()
+    // is a floor for callers that pass no provision at all (tests); it cannot
+    // authenticate against a real relay.
     const tunnelId = selection?.tunnelId ?? uuidv4();
     const domain = selection?.tunnelDomain ?? DEFAULT_TUNNEL_DOMAIN;
     const tunnelDomain = `${tunnelId}.${domain}`;
@@ -360,14 +322,14 @@ class TunnelManager {
     // NOTE: this intentionally does NOT reuse caddyProxy.ts's
     // resolveDialAddress() — that function builds Caddy's JSON `dial` field,
     // which is always a bare `host:port` (Caddy conveys TLS-ness via its
-    // separate `transport` field, never a URL scheme in `dial`). ngrok's
-    // own `connect({ addr })` option is a different consumer with a
-    // different format: it DOES need a `https://` scheme prefix for an
-    // HTTPS local target (see the original tunnelManager.ts:696-701, which
-    // this path preserves byte-for-byte since it dials the app directly,
-    // exactly like the pre-cutover per-port createTunnel()). Reusing
-    // resolveDialAddress() here would silently drop that scheme and break
-    // HTTPS dedicated tunnels.
+    // separate `transport` field, never a URL scheme in `dial`). A transport's
+    // `connect(localAddr)` is a different consumer with a different format: it
+    // DOES need a `https://` scheme prefix for an HTTPS local target (see
+    // debuggTransport's parseLocalAddr, and the original
+    // tunnelManager.ts:696-701 this path preserves byte-for-byte since it
+    // dials the app directly, exactly like the pre-cutover per-port
+    // createTunnel()). Reusing resolveDialAddress() here would silently drop
+    // that scheme and break HTTPS dedicated tunnels.
     const dockerHost = 'host.docker.internal';
     let localAddr: string;
     if (isHttpsLocal) {
@@ -390,7 +352,6 @@ class TunnelManager {
       const tunnelUrl = await this.connectWithRetry(
         localAddr, tunnelDomain, authToken, trace, faults,
         {
-          transport: transportKind,
           tunnelId,
           relayUrl: selection?.relayUrl,
           onDead: (reason: string) => {
@@ -401,7 +362,7 @@ class TunnelManager {
       );
       const now = Date.now();
       const info: DirectTunnelInfo = {
-        tunnelId, transport: transportKind, tunnelUrl, createdAt: now, lastAccessedAt: now, keyId, revokeKey,
+        tunnelId, tunnelUrl, createdAt: now, lastAccessedAt: now, keyId, revokeKey,
       };
       this.directTunnels.set(tunnelId, info);
       this.writeRegistryEntry(tunnelId, `dedicated:${tunnelId}`, tunnelUrl, -1);
@@ -410,7 +371,7 @@ class TunnelManager {
       trace.emit('acquireDedicatedTunnel.success', { tunnelId, tunnelUrl });
       logger.info(`Dedicated tunnel created: ${tunnelUrl} -> localhost:${port}`);
       Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, {
-        tunnelId, how: 'created-dedicated', transport: transportKind,
+        tunnelId, how: 'created-dedicated', transport: this.transport.kind,
       });
       return { url: generateTunnelUrl(url, tunnelId, domain), tunnelId };
     } catch (error) {
@@ -427,7 +388,7 @@ class TunnelManager {
   // ── Public API — lifecycle / teardown ──────────────────────────────────────
 
   /**
-   * Evict a tunnel that a health probe PROVED dead (e.g. ERR_NGROK_3200) —
+   * Evict a tunnel that a health probe PROVED dead (e.g. DEBUGG_TUNNEL_UNKNOWN) —
    * simplifies to a plain delegate now that every tunnel is created (never
    * borrowed) by this process: there is no shared-registry adoption record
    * to also evict (bead k34o's second half retired along with borrowing,
@@ -440,7 +401,7 @@ class TunnelManager {
   /**
    * `stopTunnel()`'s ordering is a load-bearing contract, not an
    * implementation detail (§2.3): map removal is UNCONDITIONAL and happens
-   * before any cleanup I/O, so a downstream cleanup failure (ngrok
+   * before any cleanup I/O, so a downstream cleanup failure (tunnel
    * disconnect, `caddy.stop()`, key revoke) can never leave a
    * live-looking-but-actually-dead `TunnelInfo` behind for the next call to
    * find — the exact failure mode the `onPortChanged`-triggered eviction
@@ -545,10 +506,8 @@ class TunnelManager {
     revokeKey?: () => Promise<void>,
     selection?: TunnelTransportSelection,
   ): Promise<TunnelInfo> {
-    const transportKind = selection?.transport ?? 'ngrok';
     const tunnelId = specificTunnelId ?? uuidv4();
-    // The hostname comes from the provision response for a debugg tunnel, and
-    // is ngrok's for everything else — minted ONCE per session either way.
+    // The hostname comes from the provision response, minted ONCE per session.
     const tunnelDomain = `${tunnelId}.${selection?.tunnelDomain ?? DEFAULT_TUNNEL_DOMAIN}`;
     const caddy = this.caddyFactory(); // NEW instance per session key — never a process-wide singleton
     const { localOrigin, adminPort } = await caddy.ensureStarted();
@@ -563,14 +522,13 @@ class TunnelManager {
     trace.emit('createSessionTunnel.start', { tunnelId, sessionKey, hasFaultMode: !!faultMode });
 
     try {
-      // ngrok's own dial target is now always plain loopback HTTP to Caddy —
+      // The tunnel's own dial target is always plain loopback HTTP to Caddy —
       // no HTTPS/Docker complexity on this leg at all (Caddy runs in the same
       // host/container as the MCP server). That matrix moved entirely into
       // caddyProxy.setUpstream(), invoked per-dispatch, not per-tunnel-creation.
       const tunnelUrl = await this.connectWithRetry(
         localOrigin, tunnelDomain, authToken, trace, faults,
         {
-          transport: transportKind,
           tunnelId,
           relayUrl: selection?.relayUrl,
           // A transport that reports the tunnel permanently gone (revoked, or
@@ -587,20 +545,20 @@ class TunnelManager {
       const portLock = new PortLock((t) => caddy.setUpstream(t));
       caddy.onPortChanged(() => {
         // A crash-triggered respawn landed on a DIFFERENT local proxy port
-        // (sticky-port reclaim failed). The existing ngrok tunnel is now
+        // (sticky-port reclaim failed). The existing tunnel is now
         // dialing a dead port — nothing Caddy-internal can fix this; the
         // whole session tunnel must be torn down and recreated on the next
         // call. stopTunnel() never throws (its unconditional-removal
         // contract, above), so this needs no defensive .catch() of its own.
         logger.error(`Caddy proxy port changed under session ${sessionKey} — evicting tunnel ${tunnelId}`);
         Telemetry.capture(TelemetryEvents.TUNNEL_EVICTED_PORT_CHANGED, {
-          tunnelId, sessionKey, transport: transportKind,
+          tunnelId, sessionKey, transport: this.transport.kind,
         });
         void this.stopTunnel(tunnelId);
       });
 
       const info: TunnelInfo = {
-        tunnelId, sessionKey, transport: transportKind, tunnelUrl, createdAt: now, lastAccessedAt: now,
+        tunnelId, sessionKey, tunnelUrl, createdAt: now, lastAccessedAt: now,
         keyId, revokeKey, caddy, portLock,
       };
       this.activeTunnels.set(tunnelId, info);
@@ -610,7 +568,9 @@ class TunnelManager {
 
       trace.emit('createSessionTunnel.success', { tunnelId, tunnelUrl });
       logger.info(`Session tunnel created: ${tunnelUrl} (session ${sessionKey})`);
-      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { tunnelId, how: 'created', transport: transportKind });
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, {
+        tunnelId, how: 'created', transport: this.transport.kind,
+      });
       return info;
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -632,19 +592,22 @@ class TunnelManager {
   // ── Shared connect-retry ladder (KEPT byte-for-byte — bead ixh/pqgj/42g/fhg) ─
 
   /**
-   * Bead ixh: 3-attempt retry for ngrok.connect transient failures.
+   * Bead ixh: 3-attempt retry for transient connect failures.
    * - Attempt 1: fresh connect
-   * - Attempt 2: after 500ms backoff, reset the ngrok agent module and retry
-   *   (existing "agent died" recovery path)
-   * - Attempt 3: after 1500ms backoff, retry with the already-reset agent
+   * - Attempt 2: after 500ms backoff, retry
+   * - Attempt 3: after 1500ms backoff, retry
    * Auth-token errors short-circuit at any attempt — no point looping.
+   *
+   * The ladder used to reset the ngrok agent module between attempts 1 and 2,
+   * because an out-of-process agent that had died was the failure this existed
+   * to recover from. The debugg transport has no out-of-process agent and owns
+   * its own socket lifecycle, so the ladder is now purely backoff-and-retry.
    *
    * Parameterized by `localAddr` rather than computing it internally: the
    * session-tunnel path (createSessionTunnel) always dials Caddy's fixed
    * local origin; the dedicated-tunnel path (acquireDedicatedTunnel) dials
    * the app directly via the isHttpsLocal/inDocker matrix. Both need the
-   * IDENTICAL retry/backoff/fault-injection/agent-prewarm behavior, so it
-   * lives here once.
+   * IDENTICAL retry/backoff/fault-injection behavior, so it lives here once.
    */
   private async connectWithRetry(
     localAddr: string,
@@ -653,7 +616,6 @@ class TunnelManager {
     trace: TunnelTrace,
     faults: FaultInjector,
     connectSpec: {
-      transport: TunnelTransportKind;
       tunnelId: string;
       relayUrl?: string;
       onDead?: (reason: string) => void;
@@ -662,26 +624,15 @@ class TunnelManager {
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     const BACKOFF_MS = this.connectBackoffMs; // bead ixh: test-overridable
     const MAX_ATTEMPTS = BACKOFF_MS.length + 1; // N sleeps between N+1 attempts
-    const transport = this.transports[connectSpec.transport];
-    if (!transport) {
-      throw new Error(`No tunnel transport registered for "${connectSpec.transport}"`);
-    }
-    // Telemetry stage: the ngrok path keeps its existing value so dashboards
-    // built on it stay continuous.
-    const connectStage = transport.kind === 'ngrok' ? 'ngrok_connect' : 'debugg_connect';
+    const transport = this.transport;
+    // Telemetry stage: kept as an explicit constant so dashboards built on the
+    // retry event's `stage` dimension stay continuous.
+    const connectStage = 'debugg_connect';
     const connectOpts = {
       tunnelId: connectSpec.tunnelId,
       relayUrl: connectSpec.relayUrl,
       onDead: connectSpec.onDead,
     };
-
-    // Bead pqgj: pre-warm the agent session so attempt 1 doesn't race the ngrok
-    // agent's ~293ms not-ready window (which poisons the tunnel name via
-    // ngrok's own name-reusing internal retry and surfaces as
-    // "invalid tunnel configuration"). Transport-specific and a no-op for
-    // debugg, which has no agent to warm.
-    await transport.prepare?.(authToken);
-    trace.emit('transport.prepared', { transport: transport.kind });
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -726,7 +677,8 @@ class TunnelManager {
         // build is too old). Retrying those sends the identical request.
         const declaredTerminal = (err as TunnelTransportError)?.retryable === false;
         // Auth-class errors are non-retryable for the same reason. Kept as a
-        // message test as well, because ngrok only ever reports them that way.
+        // message test as well as a flag, so an auth failure that reaches us
+        // as text rather than as `retryable: false` still stops the ladder.
         if (declaredTerminal || /authtoken|unauthorized|\b401\b|\b403\b/i.test(msg)) {
           const reason = declaredTerminal ? 'transport-terminal' : 'auth-error';
           trace.emit('connect.giving-up', { reason });
@@ -753,17 +705,7 @@ class TunnelManager {
           throw err;
         }
 
-        // Between attempt 1→2, let the transport reset itself — for ngrok that
-        // is the agent reset that covers the "agent died" failure mode, which
-        // used to be the only retried case. Between 2→3, just wait: the reset
-        // already happened. A transport with nothing to reset does nothing.
-        if (attempt === 1) {
-          logger.warn(`${transport.kind} connect failed (attempt 1/${MAX_ATTEMPTS}), resetting transport: ${msg}`);
-          trace.emit('agent.reset');
-          await transport.resetAfterFailedAttempt?.();
-        } else {
-          logger.warn(`${transport.kind} connect failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
-        }
+        logger.warn(`${transport.kind} connect failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
         const backoffMs = BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
         trace.emit('connect.backoff', { attempt, backoffMs });
         await sleep(backoffMs);
@@ -787,7 +729,7 @@ class TunnelManager {
     this.removeRegistryEntry(info.tunnelId);
 
     const results = await Promise.allSettled([
-      this.transports[info.transport].disconnect(info.tunnelUrl),
+      this.transport.disconnect(info.tunnelUrl),
       info.caddy.stop(),
       info.revokeKey ? info.revokeKey() : Promise.resolve(),
     ]);
@@ -800,10 +742,9 @@ class TunnelManager {
       }
     });
 
-    this.notifyIfNoTunnelsRemain(info.transport);
     logger.info(`Cleaned up session tunnel: ${info.tunnelUrl}`);
     Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, {
-      tunnelId: info.tunnelId, reason: 'stopped', transport: info.transport,
+      tunnelId: info.tunnelId, reason: 'stopped', transport: this.transport.kind,
     });
   }
 
@@ -814,7 +755,7 @@ class TunnelManager {
     this.removeRegistryEntry(info.tunnelId);
 
     const results = await Promise.allSettled([
-      this.transports[info.transport].disconnect(info.tunnelUrl),
+      this.transport.disconnect(info.tunnelUrl),
       info.revokeKey ? info.revokeKey() : Promise.resolve(),
     ]);
     results.forEach((r, i) => {
@@ -824,28 +765,10 @@ class TunnelManager {
       }
     });
 
-    this.notifyIfNoTunnelsRemain(info.transport);
     logger.info(`Cleaned up dedicated tunnel: ${info.tunnelUrl}`);
     Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, {
-      tunnelId: info.tunnelId, reason: 'stopped', transport: info.transport,
+      tunnelId: info.tunnelId, reason: 'stopped', transport: this.transport.kind,
     });
-  }
-
-  /**
-   * Tell a transport when the last tunnel OF ITS KIND is gone. ngrok uses it to
-   * reset its module and init state, because the agent process may have exited
-   * with it; debugg has nothing process-wide to reset.
-   *
-   * Counted per transport, not globally: while both are in play, a debugg
-   * tunnel shutting down must not make the ngrok transport throw away a live
-   * agent that another tunnel is still using.
-   */
-  private notifyIfNoTunnelsRemain(transport: TunnelTransportKind): void {
-    const remaining = [...this.activeTunnels.values(), ...this.directTunnels.values()]
-      .some((t) => t.transport === transport);
-    if (remaining) return;
-    logger.info(`No ${transport} tunnels remain — notifying its transport`);
-    this.transports[transport].onAllTunnelsStopped?.();
   }
 
   // ── Idle timer (KEPT — minus the retired cross-process extension branch) ───

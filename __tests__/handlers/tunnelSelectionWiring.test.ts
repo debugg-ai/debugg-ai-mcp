@@ -3,11 +3,14 @@
  * transport selection.
  *
  * Why a source-level test: omitting the argument is silently valid TypeScript
- * (the parameter is optional) and produces a working tunnel — just always an
- * ngrok one, whatever the backend chose, plus a revoke sent to the ngrok
- * endpoint. Every unit test still passes, because each piece works in
- * isolation. check_app_in_browser shipped exactly that way: the flagship tool
- * ignored the debugg transport in production while the other three used it.
+ * (the parameter is optional), so the tunnel call compiles and every unit test
+ * still passes, because each piece works in isolation — while in production the
+ * transport gets no relayUrl, no tunnelDomain and not the backend's tunnelId.
+ * check_app_in_browser shipped exactly that way: the flagship tool ignored the
+ * provision while the other three used it.
+ *
+ * `revokeNgrokKey` is gone from the client, so the second assertion below is a
+ * tombstone: it stops the method being reintroduced along with the endpoint.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

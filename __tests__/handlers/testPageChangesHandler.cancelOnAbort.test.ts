@@ -46,7 +46,6 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       pollExecution: mockPoll,
       cancelExecution: mockCancelExecution,
     },
-    revokeNgrokKey: mockRevokeKey,
     findProjectByRepoName: mockFindProject,
   })),
 }));
@@ -82,10 +81,10 @@ jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
 jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeLocalPort: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({ reachable: true, elapsedMs: 1 }),
   probeTunnelHealth: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({ healthy: true, status: 200, elapsedMs: 1 }),
-  extractNgrokErrorCode: jest.fn(() => undefined),
+  extractTunnelErrorCode: jest.fn(() => undefined),
 }));
 
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
 }));
 

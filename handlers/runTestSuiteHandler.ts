@@ -7,7 +7,7 @@ import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
 import { buildContext, sanitizeResponseUrls, TunnelContext } from '../utils/tunnelContext.js';
-import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { tunnelManager } from '../services/tunnel/tunnelManager.js';
 import { config } from '../config/index.js';
 import { resolveProject, resolveTestSuite } from '../utils/resolveProject.js';
 
@@ -83,7 +83,7 @@ export async function runTestSuiteHandler(
           // and its PortLock would give this handler no real protection —
           // the lock would release back to contention seconds after
           // triggering a suite that goes on to use the port for much longer.
-          // So it gets its OWN tunnel, dialing ngrok directly, bypassing
+          // So it gets its OWN tunnel, dialing the app directly, bypassing
           // Caddy/PortLock entirely (never deduped/reused — always fresh).
           let tunnel;
           try {
@@ -112,7 +112,7 @@ export async function runTestSuiteHandler(
             return errorResp('TunnelCreationFailed', `Tunnel creation failed for ${input.targetUrl}. (Detail: ${msg})`);
           }
 
-          // Health probe — catches ERR_NGROK_8012 and bind mismatches before
+          // Health probe — catches an upstream-refused tunnel and bind mismatches before
           // the remote agent wastes steps trying to reach the server.
           if (dedicated.url) {
             const health = await probeTunnelHealth(dedicated.url);
@@ -131,7 +131,7 @@ export async function runTestSuiteHandler(
               return errorResp(
                 'TunnelTrafficBlocked',
                 `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,
-                { code: health.code, ngrokErrorCode: health.ngrokErrorCode, elapsedMs: health.elapsedMs },
+                { code: health.code, tunnelErrorCode: health.tunnelErrorCode, elapsedMs: health.elapsedMs },
               );
             }
           }
@@ -158,7 +158,7 @@ export async function runTestSuiteHandler(
     // at all — safe only by accident of `result`'s narrow return type never
     // having carried a tunnel hostname in practice. Add the same defensive
     // pass every other handler already runs, so a future backend field that
-    // echoes back the (dedicated, ngrok-direct) tunnel URL can never leak it
+    // echoes back the (dedicated, app-direct) tunnel URL can never leak it
     // to a caller who only knows their own localhost address.
     const sanitizedPayload = sanitizeCtx ? sanitizeResponseUrls(responsePayload, sanitizeCtx) : responsePayload;
 

@@ -1,65 +1,51 @@
 /**
  * TunnelManager tests.
  *
- * Covers session-key-scoped tunnel creation/reuse (one ngrok tunnel per
- * session — docs/local-tunnel-multiplexer-architecture-2026-07-31.md §2.1/
- * §2.3), stopTunnel/stopAllTunnels cleanup, the concurrent cold-start dedup
- * fix, the run_test_suite dedicated-tunnel exception, and the connect-retry
- * ladder / fault-injection behavior carried over unchanged from the old
- * per-port design.
+ * Covers session-key-scoped tunnel creation/reuse (one tunnel per session —
+ * docs/local-tunnel-multiplexer-architecture-2026-07-31.md §2.1/§2.3),
+ * stopTunnel/stopAllTunnels cleanup, the concurrent cold-start dedup fix, the
+ * run_test_suite dedicated-tunnel exception, and the connect-retry ladder /
+ * fault-injection behavior carried over unchanged from the old per-port design.
  *
  * The whole cross-process "borrow another MCP's tunnel" mechanism (registry
- * adoption, PID-liveness/freshness checks, re-adoption from the local ngrok
+ * adoption, PID-liveness/freshness checks, re-adoption from a local tunnel
  * agent — beads 3th/y7x6/mdp/lc62's borrow half) is retired per §4: "No
  * sharing, ever, at any granularity." Those describe blocks are gone, not
  * adapted — there is nothing left in TunnelManager for them to test.
+ *
+ * Drives a FAKE TunnelTransport through `tm.transport` rather than mocking the
+ * `ngrok` package, which is how this file used to keep a unit run from
+ * downloading a binary and spawning an agent. The seam is now the only thing
+ * standing between these tests and a real websocket, so it is injected the
+ * same way `caddyFactory` is.
  */
 
 import { jest } from '@jest/globals';
-import { createInMemoryRegistry } from '../../services/ngrok/tunnelRegistry.js';
+import { createInMemoryRegistry } from '../../services/tunnel/tunnelRegistry.js';
 import { runWithApiKey } from '../../utils/requestContext.js';
 import type { CaddyProxy, UpstreamTarget } from '../../services/caddy/caddyProxy.js';
 
-// ── Mock ngrok ────────────────────────────────────────────────────────────────
+// ── Fake transport ────────────────────────────────────────────────────────────
 
-const mockNgrokConnect = jest.fn<() => Promise<string>>();
-const mockNgrokDisconnect = jest.fn<() => Promise<void>>();
-const mockNgrokGetApi = jest.fn();
+/** `connect(localAddr, hostname, token, opts)` — the TunnelTransport contract. */
+const mockConnect = jest.fn<(...args: any[]) => Promise<string>>();
+const mockDisconnect = jest.fn<(...args: any[]) => Promise<void>>();
 
-jest.unstable_mockModule('ngrok', () => ({
-  connect: mockNgrokConnect,
-  disconnect: mockNgrokDisconnect,
-  getApi: mockNgrokGetApi,
-  default: {
-    connect: mockNgrokConnect,
-    disconnect: mockNgrokDisconnect,
-    getApi: mockNgrokGetApi,
-  },
-}));
+const fakeTransport = {
+  kind: 'debugg',
+  connect: mockConnect,
+  disconnect: mockDisconnect,
+  probe: jest.fn(async () => ({ status: 200, elapsedMs: 1 })),
+};
 
-// Bead pqgj: the manager pre-warms the ngrok agent's client session before
-// tunnelling. The real starter deep-requires ngrok's internals and SPAWNS AN
-// ACTUAL AGENT PROCESS — which a unit suite must never do. Stub it with a
-// faithful stand-in: agent started, session established immediately.
-const mockStartAgentSession = jest.fn(async (opts: any) => { opts.onStatusChange('connected'); });
+import TunnelManagerClassImport, { getSessionKey as getSessionKeyImport } from '../../services/tunnel/tunnelManager.js';
 
-jest.unstable_mockModule('../../services/ngrok/ngrokAgentSession.js', () => ({
-  startAgentSession: mockStartAgentSession,
-}));
-
-// ── Import module under test (after mocks) ────────────────────────────────────
-
-let TunnelManagerClass: typeof import('../../services/ngrok/tunnelManager.js').default;
-let getSessionKey: typeof import('../../services/ngrok/tunnelManager.js').getSessionKey;
-
-beforeAll(async () => {
-  ({ default: TunnelManagerClass, getSessionKey } = await import('../../services/ngrok/tunnelManager.js'));
-});
+const TunnelManagerClass = TunnelManagerClassImport;
+const getSessionKey = getSessionKeyImport;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockNgrokDisconnect.mockResolvedValue(undefined as any);
-  mockNgrokGetApi.mockReturnValue(null);
+  mockDisconnect.mockResolvedValue(undefined as any);
 });
 
 // ── Fake CaddyProxy — a session's own instance is injected via caddyFactory,
@@ -108,24 +94,25 @@ function freshTm(opts: { caddyFactory?: () => CaddyProxy } = {}) {
   const tm = new TunnelManagerClass(createInMemoryRegistry());
   tm.connectBackoffMs = [1, 1];
   tm.caddyFactory = opts.caddyFactory ?? (() => makeFakeCaddy());
+  tm.transport = fakeTransport as any;
   return tm;
 }
 
 // ── URL detection ─────────────────────────────────────────────────────────────
 
 describe('URL detection', () => {
-  test('isTunnelUrl detects .ngrok.debugg.ai URLs', () => {
+  test('isTunnelUrl detects .tunnel.debugg.ai URLs', () => {
     const tm = freshTm();
-    expect(tm.isTunnelUrl('https://abc-123.ngrok.debugg.ai')).toBe(true);
-    expect(tm.isTunnelUrl('https://abc-123.ngrok.debugg.ai/path')).toBe(true);
+    expect(tm.isTunnelUrl('https://abc-123.tunnel.debugg.ai')).toBe(true);
+    expect(tm.isTunnelUrl('https://abc-123.tunnel.debugg.ai/path')).toBe(true);
     expect(tm.isTunnelUrl('http://localhost:3000')).toBe(false);
     expect(tm.isTunnelUrl('https://example.com')).toBe(false);
   });
 
   test('extractTunnelId parses subdomain correctly', () => {
     const tm = freshTm();
-    expect(tm.extractTunnelId('https://abc-123-def.ngrok.debugg.ai')).toBe('abc-123-def');
-    expect(tm.extractTunnelId('https://tunnel-id.ngrok.debugg.ai/api')).toBe('tunnel-id');
+    expect(tm.extractTunnelId('https://abc-123-def.tunnel.debugg.ai')).toBe('abc-123-def');
+    expect(tm.extractTunnelId('https://tunnel-id.tunnel.debugg.ai/api')).toBe('tunnel-id');
     expect(tm.extractTunnelId('http://localhost:3000')).toBeNull();
     expect(tm.extractTunnelId('https://example.com')).toBeNull();
   });
@@ -174,8 +161,8 @@ describe('getSessionKey', () => {
 // ── ensureSessionTunnel — creation and reuse ─────────────────────────────────
 
 describe('ensureSessionTunnel', () => {
-  test('creates a session tunnel: spawns Caddy, dials it via ngrok, stores it under both maps', async () => {
-    mockNgrokConnect.mockResolvedValue('https://my-id.ngrok.debugg.ai' as any);
+  test('creates a session tunnel: spawns Caddy, dials it via the transport, stores it under both maps', async () => {
+    mockConnect.mockResolvedValue('https://my-id.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy({ localOrigin: 'http://127.0.0.1:41000' });
     const tm = freshTm({ caddyFactory: () => caddy });
 
@@ -183,21 +170,21 @@ describe('ensureSessionTunnel', () => {
 
     expect(info.tunnelId).toBe('my-id');
     expect(info.sessionKey).toBe('sess-a');
-    expect(info.tunnelUrl).toBe('https://my-id.ngrok.debugg.ai');
+    expect(info.tunnelUrl).toBe('https://my-id.tunnel.debugg.ai');
     expect(caddy.ensureStarted).toHaveBeenCalledTimes(1);
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
-    const connectOpts = mockNgrokConnect.mock.calls[0][0] as any;
-    // ngrok's own dial target is ALWAYS plain loopback HTTP to Caddy now —
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+    const [localAddr, hostname, token] = mockConnect.mock.calls[0];
+    // The tunnel's dial target is ALWAYS plain loopback HTTP to Caddy now —
     // no isHttpsLocal/inDocker complexity on this leg (§2.2/§2.3's MOVE).
-    expect(connectOpts.addr).toBe('http://127.0.0.1:41000');
-    expect(connectOpts.hostname).toBe('my-id.ngrok.debugg.ai');
-    expect(connectOpts.authtoken).toBe('auth-token');
+    expect(localAddr).toBe('http://127.0.0.1:41000');
+    expect(hostname).toBe('my-id.tunnel.debugg.ai');
+    expect(token).toBe('auth-token');
     expect(tm.getTunnelInfo('my-id')).toBe(info);
     expect(tm.getSessionTunnelInfo('sess-a')).toBe(info);
   });
 
   test('a random tunnelId is minted when none is supplied', async () => {
-    mockNgrokConnect.mockResolvedValue('https://x.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://x.tunnel.debugg.ai' as any);
     const tm = freshTm();
     const info = await tm.ensureSessionTunnel('sess-a', 'auth-token');
     expect(typeof info.tunnelId).toBe('string');
@@ -205,7 +192,7 @@ describe('ensureSessionTunnel', () => {
   });
 
   test('second call for the SAME session key reuses the tunnel — no second Caddy, no second connect', async () => {
-    mockNgrokConnect.mockResolvedValueOnce('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValueOnce('https://t1.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
 
@@ -214,13 +201,13 @@ describe('ensureSessionTunnel', () => {
 
     expect(second).toBe(first); // same object, not just same tunnelId
     expect(caddy.ensureStarted).toHaveBeenCalledTimes(1);
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
   });
 
   test('a DIFFERENT session key gets its OWN Caddy instance and its OWN tunnel', async () => {
-    mockNgrokConnect
-      .mockResolvedValueOnce('https://t1.ngrok.debugg.ai' as any)
-      .mockResolvedValueOnce('https://t2.ngrok.debugg.ai' as any);
+    mockConnect
+      .mockResolvedValueOnce('https://t1.tunnel.debugg.ai' as any)
+      .mockResolvedValueOnce('https://t2.tunnel.debugg.ai' as any);
     const caddies: FakeCaddy[] = [];
     const tm = freshTm({ caddyFactory: () => { const c = makeFakeCaddy(); caddies.push(c); return c; } });
 
@@ -230,11 +217,11 @@ describe('ensureSessionTunnel', () => {
     expect(a.tunnelId).not.toBe(b.tunnelId);
     expect(a.caddy).not.toBe(b.caddy);
     expect(caddies).toHaveLength(2);
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
   });
 
   test('wraps authtoken error with a clear message and stops the Caddy it just spawned', async () => {
-    mockNgrokConnect.mockRejectedValue(new Error('invalid authtoken provided'));
+    mockConnect.mockRejectedValue(new Error('invalid authtoken provided'));
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
 
@@ -243,7 +230,7 @@ describe('ensureSessionTunnel', () => {
   });
 
   test('wraps other connect errors, and stops the orphaned Caddy instance', async () => {
-    mockNgrokConnect.mockRejectedValue(new Error('connection refused'));
+    mockConnect.mockRejectedValue(new Error('connection refused'));
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
 
@@ -256,7 +243,7 @@ describe('ensureSessionTunnel', () => {
 
 describe('concurrent cold-start dedup (closes review finding: cold-start TOCTOU)', () => {
   test('two near-simultaneous first calls for a brand-new session key join ONE creation', async () => {
-    mockNgrokConnect.mockResolvedValue('https://tunnel-a.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://tunnel-a.tunnel.debugg.ai' as any);
     let caddyFactoryCalls = 0;
     const tm = freshTm({
       caddyFactory: () => { caddyFactoryCalls++; return makeFakeCaddy(); },
@@ -271,17 +258,17 @@ describe('concurrent cold-start dedup (closes review finding: cold-start TOCTOU)
     const [a, b] = await Promise.all([aPromise, bPromise]);
 
     expect(caddyFactoryCalls).toBe(1);
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
     expect(a).toBe(b); // identical TunnelInfo object, not just equal tunnelId
     expect(a.tunnelId).toBe('tunnel-a'); // whichever call's synchronous prefix won the slot
   });
 
   test('rejected creation: BOTH callers reject, no half-registered state, a later call retries cleanly', async () => {
-    mockNgrokConnect
+    mockConnect
       .mockRejectedValueOnce(new Error('boom'))
       .mockRejectedValueOnce(new Error('boom')) // ixh retry ladder: connectBackoffMs=[1,1] => up to 3 attempts
       .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValueOnce('https://recovered.ngrok.debugg.ai' as any);
+      .mockResolvedValueOnce('https://recovered.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const aPromise = tm.ensureSessionTunnel('sess-cold-fail', 'auth', 'tunnel-a');
@@ -303,15 +290,15 @@ describe('concurrent cold-start dedup (closes review finding: cold-start TOCTOU)
 // ── stopTunnel ────────────────────────────────────────────────────────────────
 
 describe('stopTunnel', () => {
-  test('disconnects ngrok, stops Caddy, and removes the tunnel from both maps', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+  test('disconnects the transport, stops Caddy, and removes the tunnel from both maps', async () => {
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
 
     await tm.stopTunnel('t1');
 
-    expect(mockNgrokDisconnect).toHaveBeenCalledWith('https://t1.ngrok.debugg.ai');
+    expect(mockDisconnect).toHaveBeenCalledWith('https://t1.tunnel.debugg.ai');
     expect(caddy.stop).toHaveBeenCalledTimes(1);
     expect(tm.getActiveTunnels()).toHaveLength(0);
     expect(tm.getSessionTunnelInfo('sess-a')).toBeUndefined();
@@ -323,7 +310,7 @@ describe('stopTunnel', () => {
   });
 
   test('calls revokeKey callback when tunnel stops', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const revokeKey = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const tm = freshTm();
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1', 'kid-1', revokeKey);
@@ -334,7 +321,7 @@ describe('stopTunnel', () => {
   });
 
   test('no revokeKey registered — no crash', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const tm = freshTm();
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
     await expect(tm.stopTunnel('t1')).resolves.not.toThrow();
@@ -345,7 +332,7 @@ describe('stopTunnel', () => {
 
 describe('stopTunnel: unconditional state removal (closes review finding: onPortChanged cleanup ordering)', () => {
   test('caddy.stop() rejecting still removes the tunnel synchronously relative to the rejection, never rethrows, and telemeters the failure', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy({ stopImpl: async () => { throw new Error('caddy admin API unreachable'); } });
     const tm = freshTm({ caddyFactory: () => caddy });
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
@@ -358,9 +345,9 @@ describe('stopTunnel: unconditional state removal (closes review finding: onPort
     expect(tm.getSessionTunnelInfo('sess-a')).toBeUndefined();
   });
 
-  test('ngrok.disconnect rejecting still removes the tunnel and still revokes the key', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
-    mockNgrokDisconnect.mockRejectedValueOnce(new Error('already gone'));
+  test('transport.disconnect rejecting still removes the tunnel and still revokes the key', async () => {
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
+    mockDisconnect.mockRejectedValueOnce(new Error('already gone'));
     const revokeKey = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const tm = freshTm();
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1', 'kid-1', revokeKey);
@@ -376,7 +363,7 @@ describe('stopTunnel: unconditional state removal (closes review finding: onPort
     // side: once stopTunnel has run, the session's own PortLock is a fresh
     // orphan — nothing in TunnelManager keeps stale portLock/caddy pairs
     // reachable via activeTunnels/sessionTunnels after this point.
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
     const info = await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
@@ -396,7 +383,7 @@ describe('stopTunnel: unconditional state removal (closes review finding: onPort
 
 describe('onPortChanged eviction (§2.3: a crash-respawn that lands on a new port evicts the whole session tunnel)', () => {
   test('firing onPortChanged evicts the tunnel via stopTunnel', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
@@ -413,7 +400,7 @@ describe('onPortChanged eviction (§2.3: a crash-respawn that lands on a new por
   });
 
   test('registered exactly once per session tunnel', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
@@ -426,16 +413,16 @@ describe('onPortChanged eviction (§2.3: a crash-respawn that lands on a new por
 
 describe('stopAllTunnels', () => {
   test('disconnects all active session tunnels', async () => {
-    mockNgrokConnect
-      .mockResolvedValueOnce('https://t1.ngrok.debugg.ai' as any)
-      .mockResolvedValueOnce('https://t2.ngrok.debugg.ai' as any);
+    mockConnect
+      .mockResolvedValueOnce('https://t1.tunnel.debugg.ai' as any)
+      .mockResolvedValueOnce('https://t2.tunnel.debugg.ai' as any);
     const tm = freshTm();
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
     await tm.ensureSessionTunnel('sess-b', 'auth', 't2');
 
     await tm.stopAllTunnels();
 
-    expect(mockNgrokDisconnect).toHaveBeenCalledTimes(2);
+    expect(mockDisconnect).toHaveBeenCalledTimes(2);
     expect(tm.getActiveTunnels()).toHaveLength(0);
   });
 });
@@ -450,7 +437,7 @@ describe('timer and status helpers', () => {
 
   test('touchTunnelByUrl on non-existent URL does not throw', () => {
     const tm = freshTm();
-    expect(() => tm.touchTunnelByUrl('https://ghost.ngrok.debugg.ai')).not.toThrow();
+    expect(() => tm.touchTunnelByUrl('https://ghost.tunnel.debugg.ai')).not.toThrow();
   });
 
   test('getTunnelStatus returns null for unknown ID', () => {
@@ -464,7 +451,7 @@ describe('timer and status helpers', () => {
   });
 
   test('touchTunnel resets the idle timer for an existing session tunnel', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const tm = freshTm();
     // Deliberately NOT the default 55 minutes — a long-lived dangling
     // setTimeout would outlive this test file's Jest realm and blow up on
@@ -482,49 +469,49 @@ describe('timer and status helpers', () => {
   });
 });
 
-// ── Bead ixh: ngrok.connect() 3-attempt retry with backoff ──────────────────
+// ── Bead ixh: connect() 3-attempt retry with backoff ────────────────────────
 
 describe('bead ixh: connectWithRetry 3-attempt retry (unchanged, now dialing Caddy)', () => {
   test('attempt 1 succeeds: no retry, no extra call', async () => {
-    mockNgrokConnect.mockResolvedValueOnce('https://ok.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValueOnce('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const info = await tm.ensureSessionTunnel('sess-a', 'tok', 't1');
 
     expect(info.tunnelId).toBe('t1');
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
   });
 
   test('attempt 1 fails, attempt 2 succeeds (agent-reset path)', async () => {
     const flaky = new Error('connect ECONNRESET');
-    mockNgrokConnect
+    mockConnect
       .mockRejectedValueOnce(flaky)
-      .mockResolvedValueOnce('https://ok.ngrok.debugg.ai' as any);
+      .mockResolvedValueOnce('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const info = await tm.ensureSessionTunnel('sess-a', 'tok', 't1');
 
     expect(info.tunnelId).toBe('t1');
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
   });
 
   test('attempts 1+2 fail, attempt 3 succeeds — the NEW retry case ixh fixes', async () => {
     const flaky1 = new Error('connect ECONNRESET');
-    const flaky2 = new Error('ngrok agent dial timeout');
-    mockNgrokConnect
+    const flaky2 = new Error('tunnel relay dial timeout');
+    mockConnect
       .mockRejectedValueOnce(flaky1)
       .mockRejectedValueOnce(flaky2)
-      .mockResolvedValueOnce('https://ok.ngrok.debugg.ai' as any);
+      .mockResolvedValueOnce('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const info = await tm.ensureSessionTunnel('sess-a', 'tok', 't1');
 
     expect(info.tunnelId).toBe('t1');
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(3);
+    expect(mockConnect).toHaveBeenCalledTimes(3);
   });
 
   test('all 3 attempts fail: throws with the last error message', async () => {
-    mockNgrokConnect
+    mockConnect
       .mockRejectedValueOnce(new Error('first fail'))
       .mockRejectedValueOnce(new Error('second fail'))
       .mockRejectedValueOnce(new Error('third fail'));
@@ -534,37 +521,37 @@ describe('bead ixh: connectWithRetry 3-attempt retry (unchanged, now dialing Cad
       tm.ensureSessionTunnel('sess-a', 'tok', 't1'),
     ).rejects.toThrow(/Failed to create tunnel.*third fail/);
 
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(3);
+    expect(mockConnect).toHaveBeenCalledTimes(3);
   });
 
   test('auth error: fails fast on attempt 1, no retry', async () => {
-    mockNgrokConnect.mockRejectedValueOnce(new Error('invalid authtoken'));
+    mockConnect.mockRejectedValueOnce(new Error('invalid authtoken'));
     const tm = freshTm();
 
     await expect(
       tm.ensureSessionTunnel('sess-a', 'tok', 't1'),
     ).rejects.toThrow(/invalid auth token/);
 
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
   });
 
   test('empty URL returned: treated as retryable error', async () => {
-    mockNgrokConnect
+    mockConnect
       .mockResolvedValueOnce('' as any)
-      .mockResolvedValueOnce('https://ok.ngrok.debugg.ai' as any);
+      .mockResolvedValueOnce('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const info = await tm.ensureSessionTunnel('sess-a', 'tok', 't1');
 
     expect(info.tunnelId).toBe('t1');
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
   });
 
   test('timing: failed attempts actually sleep between them', async () => {
-    mockNgrokConnect
+    mockConnect
       .mockRejectedValueOnce(new Error('fail 1'))
       .mockRejectedValueOnce(new Error('fail 2'))
-      .mockResolvedValueOnce('https://ok.ngrok.debugg.ai' as any);
+      .mockResolvedValueOnce('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
     tm.connectBackoffMs = [50, 50];
 
@@ -589,47 +576,47 @@ describe('bead 42g: DEBUGG_TUNNEL_FAULT_MODE integration', () => {
     else process.env.NODE_ENV = originalNodeEnv;
   });
 
-  test('fail-connect-N:2 forces 2 synthetic failures; succeeds on attempt 3 WITHOUT touching ngrok.connect', async () => {
+  test('fail-connect-N:2 forces 2 synthetic failures; succeeds on attempt 3 WITHOUT touching transport.connect', async () => {
     process.env.NODE_ENV = 'development';
     process.env.DEBUGG_TUNNEL_FAULT_MODE = 'fail-connect-N:2';
-    mockNgrokConnect.mockResolvedValue('https://ok.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const info = await tm.ensureSessionTunnel('sess-a', 'tok', 't1');
 
     expect(info.tunnelId).toBe('t1');
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
   });
 
   test('fail-connect-N:3 exhausts the retry budget and throws the synthetic error', async () => {
     process.env.NODE_ENV = 'development';
     process.env.DEBUGG_TUNNEL_FAULT_MODE = 'fail-connect-N:3';
-    mockNgrokConnect.mockResolvedValue('https://ok.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     await expect(
       tm.ensureSessionTunnel('sess-a', 'tok', 't1'),
     ).rejects.toThrow(/\[fault-inject\] synthetic connect failure/);
 
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(0);
+    expect(mockConnect).toHaveBeenCalledTimes(0);
   });
 
   test('SAFETY: fault injection is inert when NODE_ENV=production', async () => {
     process.env.NODE_ENV = 'production';
     process.env.DEBUGG_TUNNEL_FAULT_MODE = 'fail-connect-N:5';
-    mockNgrokConnect.mockResolvedValue('https://ok.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const info = await tm.ensureSessionTunnel('sess-a', 'tok', 't1');
 
     expect(info.tunnelId).toBe('t1');
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
   });
 
   test('delay-connect:100 adds the delay to each attempt', async () => {
     process.env.NODE_ENV = 'development';
     process.env.DEBUGG_TUNNEL_FAULT_MODE = 'delay-connect:100';
-    mockNgrokConnect.mockResolvedValue('https://ok.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://ok.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const start = Date.now();
@@ -644,14 +631,14 @@ describe('bead 42g: DEBUGG_TUNNEL_FAULT_MODE integration', () => {
 
 describe('markTunnelDead (§2.3: dropped its `port` parameter — no longer port-scoped)', () => {
   test('delegates to stopTunnel', async () => {
-    mockNgrokConnect.mockResolvedValue('https://t1.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://t1.tunnel.debugg.ai' as any);
     const caddy = makeFakeCaddy();
     const tm = freshTm({ caddyFactory: () => caddy });
     await tm.ensureSessionTunnel('sess-a', 'auth', 't1');
 
     await tm.markTunnelDead('t1');
 
-    expect(mockNgrokDisconnect).toHaveBeenCalledWith('https://t1.ngrok.debugg.ai');
+    expect(mockDisconnect).toHaveBeenCalledWith('https://t1.tunnel.debugg.ai');
     expect(caddy.stop).toHaveBeenCalledTimes(1);
     expect(tm.getActiveTunnels()).toHaveLength(0);
   });
@@ -665,82 +652,79 @@ describe('markTunnelDead (§2.3: dropped its `port` parameter — no longer port
 // ── §2.3: acquireDedicatedTunnel — the run_test_suite exception ─────────────
 
 describe('acquireDedicatedTunnel (run_test_suite exception — bypasses Caddy/PortLock entirely)', () => {
-  test('dials ngrok directly at the local app, never touches caddyFactory', async () => {
-    mockNgrokConnect.mockResolvedValue('https://dedicated.ngrok.debugg.ai' as any);
+  test('dials the app directly, never touches caddyFactory', async () => {
+    mockConnect.mockResolvedValue('https://dedicated.tunnel.debugg.ai' as any);
     let caddyFactoryCalls = 0;
     const tm = freshTm({ caddyFactory: () => { caddyFactoryCalls++; return makeFakeCaddy(); } });
 
     const result = await tm.acquireDedicatedTunnel('http://localhost:5005/app', 'auth-token');
 
     expect(caddyFactoryCalls).toBe(0);
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(1);
-    const connectOpts = mockNgrokConnect.mock.calls[0][0] as any;
+    expect(mockConnect).toHaveBeenCalledTimes(1);
     // Bead fhg: explicit IPv4 loopback — the exact matrix caddyProxy.ts's
     // resolveDialAddress() now owns, reused (not re-derived) here.
-    expect(connectOpts.addr).toBe('127.0.0.1:5005');
+    expect(mockConnect.mock.calls[0][0]).toBe('127.0.0.1:5005');
     expect(result.tunnelId).toBeDefined();
-    // The returned URL is path-baked around the freshly-minted tunnelId's
-    // OWN domain (generateTunnelUrl), not whatever domain the mocked
-    // ngrok.connect() happened to return — mirroring today's per-port
-    // createTunnel()'s publicUrl behavior.
-    expect(result.url).toContain(`${result.tunnelId}.ngrok.debugg.ai`);
+    // The returned URL is path-baked around the tunnelId's OWN domain
+    // (generateTunnelUrl), not whatever the mocked transport returned —
+    // mirroring today's per-port createTunnel()'s publicUrl behavior.
+    expect(result.url).toContain(`${result.tunnelId}.tunnel.debugg.ai`);
     expect(result.url).toContain('/app');
   });
 
-  test('https localhost → addr is "https://localhost:<port>" (ngrok addr format, NOT Caddy dial format)', async () => {
-    mockNgrokConnect.mockResolvedValue('https://dedicated.ngrok.debugg.ai' as any);
+  test('https localhost → localAddr is "https://localhost:<port>" (transport addr format, NOT Caddy dial format)', async () => {
+    mockConnect.mockResolvedValue('https://dedicated.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     await tm.acquireDedicatedTunnel('https://localhost:3443', 'auth-token');
 
-    const connectOpts = mockNgrokConnect.mock.calls[0][0] as any;
     // Unlike caddyProxy.ts's resolveDialAddress() (Caddy's `dial` field is
-    // always a bare host:port), ngrok's own `addr` option needs the scheme
+    // always a bare host:port), a transport's `localAddr` needs the scheme
     // prefix for an HTTPS local target — see tunnelManager.ts's comment on
     // why acquireDedicatedTunnel cannot reuse resolveDialAddress().
-    expect(connectOpts.addr).toBe('https://localhost:3443');
+    expect(mockConnect.mock.calls[0][0]).toBe('https://localhost:3443');
   });
 
   test('each call mints its OWN tunnel — no session-key dedup for the dedicated path', async () => {
-    mockNgrokConnect
-      .mockResolvedValueOnce('https://d1.ngrok.debugg.ai' as any)
-      .mockResolvedValueOnce('https://d2.ngrok.debugg.ai' as any);
+    mockConnect
+      .mockResolvedValueOnce('https://d1.tunnel.debugg.ai' as any)
+      .mockResolvedValueOnce('https://d2.tunnel.debugg.ai' as any);
     const tm = freshTm();
 
     const a = await tm.acquireDedicatedTunnel('http://localhost:5005', 'auth');
     const b = await tm.acquireDedicatedTunnel('http://localhost:5005', 'auth');
 
     expect(a.tunnelId).not.toBe(b.tunnelId);
-    expect(mockNgrokConnect).toHaveBeenCalledTimes(2);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
   });
 
   test('throws a clear error when the URL has no parseable port', async () => {
     const tm = freshTm();
     await expect(tm.acquireDedicatedTunnel('https://example.com', 'auth'))
       .rejects.toThrow('could not extract port');
-    expect(mockNgrokConnect).not.toHaveBeenCalled();
+    expect(mockConnect).not.toHaveBeenCalled();
   });
 
   test('a dedicated tunnel can be stopped by tunnelId through the unified stopTunnel API', async () => {
-    mockNgrokConnect.mockResolvedValue('https://dedicated.ngrok.debugg.ai' as any);
+    mockConnect.mockResolvedValue('https://dedicated.tunnel.debugg.ai' as any);
     const tm = freshTm();
     const { tunnelId } = await tm.acquireDedicatedTunnel('http://localhost:5005', 'auth');
 
     await expect(tm.stopTunnel(tunnelId)).resolves.not.toThrow();
-    expect(mockNgrokDisconnect).toHaveBeenCalledWith('https://dedicated.ngrok.debugg.ai');
+    expect(mockDisconnect).toHaveBeenCalledWith('https://dedicated.tunnel.debugg.ai');
   });
 
   test('is included in stopAllTunnels sweep', async () => {
-    mockNgrokConnect
-      .mockResolvedValueOnce('https://session.ngrok.debugg.ai' as any)
-      .mockResolvedValueOnce('https://dedicated.ngrok.debugg.ai' as any);
+    mockConnect
+      .mockResolvedValueOnce('https://session.tunnel.debugg.ai' as any)
+      .mockResolvedValueOnce('https://dedicated.tunnel.debugg.ai' as any);
     const tm = freshTm();
     await tm.ensureSessionTunnel('sess-a', 'auth', 'session-t');
     await tm.acquireDedicatedTunnel('http://localhost:5005', 'auth');
 
     await tm.stopAllTunnels();
 
-    expect(mockNgrokDisconnect).toHaveBeenCalledTimes(2);
+    expect(mockDisconnect).toHaveBeenCalledTimes(2);
     expect(tm.getActiveTunnels()).toHaveLength(0);
   });
 });

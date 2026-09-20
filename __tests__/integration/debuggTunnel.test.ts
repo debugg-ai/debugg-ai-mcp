@@ -23,12 +23,13 @@
  * RED on purpose: the transport and the protocol codec are stubs.
  */
 
+import { jest } from '@jest/globals';
 import { execSync } from 'node:child_process';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { createInMemoryRegistry } from '../../services/ngrok/tunnelRegistry.js';
-import TunnelManager from '../../services/ngrok/tunnelManager.js';
+import { createInMemoryRegistry } from '../../services/tunnel/tunnelRegistry.js';
+import TunnelManager from '../../services/tunnel/tunnelManager.js';
 import { probeTunnelHealth } from '../../utils/localReachability.js';
 import { disposeUnhealthyTunnel } from '../../utils/tunnelDisposition.js';
 import { FakeTunnelServerForTests } from './debuggTunnelServer.js';
@@ -113,11 +114,9 @@ maybeDescribe('debugg tunnel: transport + Caddy + local app', () => {
     tm = new TunnelManager(createInMemoryRegistry());
     tm.connectBackoffMs = [50, 100];
 
-    // Fail fast while the transport seam is missing. Without this guard a red
-    // run falls through to the REAL ngrok agent — spawning a binary and
-    // calling ngrok's API from a test run — instead of reporting the thing
-    // that is actually absent. Harmless once 4.1 lands.
-    expect(typeof (tm as any).transports?.debugg?.connect).toBe('function');
+    // Fail fast if the transport seam ever goes missing, so a red run reports
+    // THAT rather than a pile of downstream confusion.
+    expect(typeof tm.transport?.connect).toBe('function');
   }, 20000);
 
   afterEach(async () => {
@@ -136,7 +135,7 @@ maybeDescribe('debugg tunnel: transport + Caddy + local app', () => {
       TUNNEL_ID,
       'kid-itest',
       undefined,
-      { transport: 'debugg', relayUrl: server.relayUrl, tunnelDomain: TUNNEL_DOMAIN },
+      { relayUrl: server.relayUrl, tunnelDomain: TUNNEL_DOMAIN },
     );
     tunnelId = info.tunnelId;
     const route = await info.portLock.acquire({ port: appPort, isHttpsLocal: false }, { callId: 'itest' });
@@ -258,7 +257,7 @@ maybeDescribe('debugg tunnel: transport + Caddy + local app', () => {
 
       // Caddy answers 502 with no marker when its upstream is dead, so nothing
       // proves the TUNNEL is gone — it must survive, exactly as an
-      // ERR_NGROK_8012 would leave an ngrok tunnel alone.
+      // DEBUGG_TUNNEL_UPSTREAM_REFUSED means the tunnel is alive — leave it alone.
       disposeUnhealthyTunnel({ health, tunnelId, originalUrl: `http://localhost:${appPort}/` });
       await new Promise((r) => setTimeout(r, 50));
 
@@ -300,4 +299,123 @@ maybeDescribe('debugg tunnel: transport + Caddy + local app', () => {
     expect(tm.getTunnelInfo(info.tunnelId)).toBeUndefined();
     expect(await info.caddy.isHealthy()).toBe(false);
   }, 20000);
+
+  // ── The run_test_suite exception (§2.3) ────────────────────────────────────
+  //
+  // acquireDedicatedTunnel had NO end-to-end coverage: every test of it drives
+  // a fake transport, so nothing proved the real transport, the real ingress
+  // and probeTunnelHealth actually line up on this path. It is also the path
+  // with the most to get wrong — it bypasses Caddy, dials the app directly,
+  // builds its own hostname, and must use the tunnel id the BACKEND issued
+  // (a client-minted uuid is not bound to the token and is refused with 401).
+  describe('acquireDedicatedTunnel — dials the app directly, no Caddy', () => {
+    const DEDICATED_ID = 'itest-dedicated';
+    const DEDICATED_HOST = `${DEDICATED_ID}.${TUNNEL_DOMAIN}`;
+    let dedicatedServer: FakeTunnelServerForTests;
+
+    beforeEach(async () => {
+      dedicatedServer = new FakeTunnelServerForTests(DEDICATED_HOST);
+      await dedicatedServer.start();
+    }, 20000);
+
+    afterEach(async () => {
+      await dedicatedServer.stop();
+    }, 20000);
+
+    function dedicatedRequest(path: string): Promise<{ status: number; body: string }> {
+      return new Promise((resolve, reject) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port: dedicatedServer.ingressPort,
+            path,
+            headers: { Host: DEDICATED_HOST, Connection: 'close' },
+          },
+          (res) => {
+            let body = '';
+            res.on('data', (c) => { body += c; });
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+          },
+        );
+        req.on('error', reject);
+        req.end();
+      });
+    }
+
+    test('a browser request reaches the app, and the URL keeps the caller path', async () => {
+      const result = await tm.acquireDedicatedTunnel(
+        `http://localhost:${appPort}/suite-target?run=1`,
+        'tunnel-key-itest',
+        'kid-dedicated',
+        undefined,
+        {
+          relayUrl: dedicatedServer.relayUrl,
+          tunnelDomain: TUNNEL_DOMAIN,
+          tunnelId: DEDICATED_ID,
+        },
+      );
+      tunnelId = result.tunnelId;
+
+      // The BACKEND's id, not a client-minted uuid: the token is bound to it.
+      expect(result.tunnelId).toBe(DEDICATED_ID);
+      expect(result.url).toBe(`https://${DEDICATED_HOST}/suite-target?run=1`);
+      expect(dedicatedServer.connected).toBe(true);
+
+      const res = await dedicatedRequest('/suite-target?run=1');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('app says hello from /suite-target?run=1');
+    }, 20000);
+
+    test('probeTunnelHealth answers over THIS tunnel\'s control channel', async () => {
+      // runTestSuiteHandler probes `dedicated.url`, which acquireDedicatedTunnel
+      // builds with generateTunnelUrl rather than returning the transport's own
+      // origin. If those two ever disagree on the hostname, the probe finds no
+      // control channel and reports DEBUGG_TUNNEL_UNKNOWN — which the
+      // disposition policy treats as proof the endpoint is gone and evicts a
+      // perfectly healthy tunnel. Nothing else pins them together.
+      const result = await tm.acquireDedicatedTunnel(
+        `http://localhost:${appPort}/健康`,
+        'tunnel-key-itest',
+        undefined,
+        undefined,
+        {
+          relayUrl: dedicatedServer.relayUrl,
+          tunnelDomain: TUNNEL_DOMAIN,
+          tunnelId: DEDICATED_ID,
+        },
+      );
+      tunnelId = result.tunnelId;
+
+      const health = await probeTunnelHealth(result.url);
+
+      expect(health.healthy).toBe(true);
+      expect(health.status).toBe(200);
+      expect(health.tunnelErrorCode).toBeUndefined();
+    }, 20000);
+
+    test('stopTunnel closes the control socket and revokes the backend tunnel', async () => {
+      const revokeKey = jest.fn(async () => {});
+      const result = await tm.acquireDedicatedTunnel(
+        `http://localhost:${appPort}/`,
+        'tunnel-key-itest',
+        'kid-dedicated',
+        revokeKey,
+        {
+          relayUrl: dedicatedServer.relayUrl,
+          tunnelDomain: TUNNEL_DOMAIN,
+          tunnelId: DEDICATED_ID,
+        },
+      );
+
+      await tm.stopTunnel(result.tunnelId);
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(dedicatedServer.connected).toBe(false);
+      expect(revokeKey).toHaveBeenCalledTimes(1);
+      // And the probe for that host now finds no control channel at all.
+      const health = await probeTunnelHealth(result.url, { retryBackoffMs: [1, 1] });
+      expect(health.healthy).toBe(false);
+      expect(health.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UNKNOWN');
+    }, 20000);
+  });
 });

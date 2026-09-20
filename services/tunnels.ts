@@ -1,6 +1,6 @@
 /**
  * Tunnels Service
- * Provisions short-lived ngrok keys for MCP-managed tunnel setup.
+ * Provisions short-lived debugg tunnel tokens for MCP-managed tunnel setup.
  * Called before executeWorkflow so the tunnel URL is known before execution starts.
  */
 
@@ -9,25 +9,18 @@ import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 import {
   isValidTunnelDomain,
   registerTunnelDomain,
-  type TunnelTransportKind,
 } from '../utils/tunnelDomains.js';
 
 export interface TunnelProvision {
   tunnelId: string;
   tunnelKey: string;
+  /** The backend's `Tunnel.id` for this provision. */
   keyId: string;
   expiresAt: string;
-  /**
-   * Which tunnel client to use. The backend picks it per request behind a flag,
-   * so rollout and rollback need no MCP release. A response with no `transport`
-   * is an OLD BACKEND and means ngrok — that default is what keeps a new client
-   * working against a backend that has never heard of this field.
-   */
-  transport: TunnelTransportKind;
-  /** debugg only: the control websocket endpoint. */
-  relayUrl?: string;
-  /** debugg only: the hostname suffix the tunnel is served on. */
-  tunnelDomain?: string;
+  /** The control websocket endpoint. */
+  relayUrl: string;
+  /** The hostname suffix the tunnel is served on. */
+  tunnelDomain: string;
 }
 
 export interface ProvisionRetryOptions {
@@ -42,12 +35,8 @@ export interface ProvisionRetryOptions {
 
 export interface TunnelsService {
   provision(purpose?: string): Promise<TunnelProvision>;
-  /**
-   * Revoke a provisioned tunnel through the endpoint its transport uses:
-   * ngrok keys through `api/v1/ngrok/revoke/`, debugg tunnels through
-   * `api/v1/tunnels/<tunnelId>/revoke/`. Call sites do not have to know which.
-   */
-  revoke(provision: Pick<TunnelProvision, 'tunnelId' | 'keyId' | 'transport'>): Promise<void>;
+  /** Revoke a provisioned tunnel through `api/v1/tunnels/<tunnelId>/revoke/`. */
+  revoke(provision: Pick<TunnelProvision, 'tunnelId'>): Promise<void>;
   /**
    * Provision with automatic retry on transient failures (bead 7nx).
    * Retries only when the classified error has retryable:true (5xx, 408, 429,
@@ -57,7 +46,7 @@ export interface TunnelsService {
 }
 
 /**
- * Typed error thrown by provision() when the backend/ngrok path fails.
+ * Typed error thrown by provision() when the backend tunnel path fails.
  * Carries diagnostic fields a retry wrapper (bead 7nx) can use to decide
  * whether to retry, and that handler error messages can surface so users
  * have something actionable to file bug reports against.
@@ -141,8 +130,16 @@ export function classifyProvisionError(err: unknown): TunnelProvisionError {
 const DEFAULT_BACKOFF_MS = [500, 1500, 3000];
 const DEFAULT_MAX_ATTEMPTS = 3;
 
-/** The transports this client can actually drive, best first. */
-export const SUPPORTED_TRANSPORTS: readonly TunnelTransportKind[] = Object.freeze(['debugg', 'ngrok']);
+/**
+ * The transports this client can actually drive.
+ *
+ * KEEP SENDING THIS, even though it is now a list of one. The backend's
+ * negotiation treats a request that offers NOTHING as a pre-negotiation client
+ * and hands it ngrok (design §2), which this client can no longer speak. An
+ * empty or absent `transports` is therefore not a simplification — it is how
+ * you get handed a tunnel you cannot connect to.
+ */
+export const SUPPORTED_TRANSPORTS: readonly string[] = Object.freeze(['debugg']);
 
 /** A relay URL must be wss, except against a loopback backend (local dev, tests). */
 function isAcceptableRelayUrl(relayUrl: string): boolean {
@@ -182,10 +179,27 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
       });
     }
 
-    // No `transport` means an old backend that predates negotiation, which only
-    // ever hands out ngrok keys.
-    const transport = (response.transport ?? 'ngrok') as TunnelTransportKind;
-    if (!SUPPORTED_TRANSPORTS.includes(transport)) {
+    // Every failure below is non-retryable: retrying cannot turn a response
+    // this client cannot use into one it can, and TunnelManager must never be
+    // handed a token with nowhere to send it.
+    //
+    // The backend still negotiates, so it can still answer "ngrok" — to a
+    // client that no longer has an ngrok transport to answer with. That is a
+    // version mismatch, and it gets its own message rather than a generic
+    // "unsupported transport", because it is the only thing the user will see
+    // and the fix is a specific one.
+    if (response.transport === 'ngrok') {
+      throw new TunnelProvisionError({
+        message:
+          'Tunnel provisioning selected the ngrok transport, which this version of ' +
+          '@debugg-ai/debugg-ai-mcp no longer implements (it offered: ' +
+          `${SUPPORTED_TRANSPORTS.join(', ')}). Either the backend has not been moved off ngrok yet, ` +
+          'or this account is still pinned to it. Pin @debugg-ai/debugg-ai-mcp@4.4.1 until the ' +
+          'backend serves debugg tunnels.',
+        retryable: false,
+      });
+    }
+    if (response.transport !== undefined && !SUPPORTED_TRANSPORTS.includes(response.transport)) {
       throw new TunnelProvisionError({
         message:
           `Tunnel provisioning selected transport "${response.transport}", which this client cannot speak ` +
@@ -193,58 +207,49 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
         retryable: false,
       });
     }
+    // A response with no `transport` at all predates negotiation entirely. It
+    // is only usable if it is self-describing — i.e. it carries the debugg
+    // fields anyway. Otherwise it is an ngrok provision in all but name.
+    if (!response.relayUrl || !response.tunnelDomain) {
+      throw new TunnelProvisionError({
+        message:
+          'Tunnel provisioning returned no relayUrl/tunnelDomain, so there is no debugg tunnel to ' +
+          'connect to. This backend predates the debugg tunnel server; pin ' +
+          '@debugg-ai/debugg-ai-mcp@4.4.1 until it is upgraded.',
+        retryable: false,
+      });
+    }
+    if (!isAcceptableRelayUrl(response.relayUrl)) {
+      throw new TunnelProvisionError({
+        message:
+          `Tunnel provisioning returned a relayUrl that is not wss (${response.relayUrl}); ` +
+          'refusing to send the tunnel key over it',
+        retryable: false,
+      });
+    }
+    if (!isValidTunnelDomain(response.tunnelDomain)) {
+      throw new TunnelProvisionError({
+        message: `Tunnel provisioning returned an unusable tunnelDomain (${response.tunnelDomain})`,
+        retryable: false,
+      });
+    }
+    // Registering it here is what stops a tunnel URL leaking: everything that
+    // recognises or rewrites a tunnel hostname reads this same registry, so a
+    // domain the backend moves to is covered the moment it is handed to us.
+    registerTunnelDomain(response.tunnelDomain);
 
-    const result: TunnelProvision = {
+    return {
       tunnelId: response.tunnelId,
       tunnelKey: response.tunnelKey,
       keyId: response.keyId,
       expiresAt: response.expiresAt,
-      transport,
+      relayUrl: response.relayUrl,
+      tunnelDomain: response.tunnelDomain,
     };
-
-    if (transport === 'debugg') {
-      // Every one of these is non-retryable: retrying cannot turn a malformed
-      // response into a usable one, and TunnelManager must never be handed a
-      // debugg token with nowhere to send it.
-      if (!response.relayUrl || !response.tunnelDomain) {
-        throw new TunnelProvisionError({
-          message: 'Tunnel provisioning selected the debugg transport but omitted relayUrl or tunnelDomain',
-          retryable: false,
-        });
-      }
-      if (!isAcceptableRelayUrl(response.relayUrl)) {
-        throw new TunnelProvisionError({
-          message:
-            `Tunnel provisioning returned a relayUrl that is not wss (${response.relayUrl}); ` +
-            'refusing to send the tunnel key over it',
-          retryable: false,
-        });
-      }
-      if (!isValidTunnelDomain(response.tunnelDomain)) {
-        throw new TunnelProvisionError({
-          message: `Tunnel provisioning returned an unusable tunnelDomain (${response.tunnelDomain})`,
-          retryable: false,
-        });
-      }
-      // Registering it here is what stops a tunnel URL leaking: everything that
-      // recognises or rewrites a tunnel hostname reads this same registry, so a
-      // domain the backend moves to is covered the moment it is handed to us.
-      registerTunnelDomain(response.tunnelDomain, 'debugg');
-      result.relayUrl = response.relayUrl;
-      result.tunnelDomain = response.tunnelDomain;
-    }
-
-    return result;
   }
 
-  async function revoke(
-    provisionInfo: Pick<TunnelProvision, 'tunnelId' | 'keyId' | 'transport'>,
-  ): Promise<void> {
-    if (provisionInfo.transport === 'debugg') {
-      await tx.post(`api/v1/tunnels/${provisionInfo.tunnelId}/revoke/`, {});
-      return;
-    }
-    await tx.post('api/v1/ngrok/revoke/', { ngrokKeyId: provisionInfo.keyId });
+  async function revoke(provisionInfo: Pick<TunnelProvision, 'tunnelId'>): Promise<void> {
+    await tx.post(`api/v1/tunnels/${provisionInfo.tunnelId}/revoke/`, {});
   }
 
   async function provisionWithRetry(opts: ProvisionRetryOptions = {}): Promise<TunnelProvision> {

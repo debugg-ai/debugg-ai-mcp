@@ -15,7 +15,7 @@
  *   1. probeLocalPort(port) → reachable:true (TCP connects)
  *   2. provision tunnel → OK
  *   3. probeTunnelHealth(tunnelUrl) → fetch times out after 5s
- *      OR ngrok returns 502/504 with an ERR_NGROK marker
+ *      OR the tunnel returns 502/504 with a DEBUGG_TUNNEL_* marker
  *   4. handler returns {error:'TunnelTrafficBlocked', isError:true}
  *   5. tunnelManager.stopTunnel is fired (fire-and-forget, no await)
  *
@@ -23,7 +23,7 @@
  * running the browser agent. A zombie server must not trigger a multi-
  * minute false-pass.
  *
- * Tagged 'tunnel' — uses real ngrok provision path, but no browser agent,
+ * Tagged 'tunnel' — uses the real tunnel provision path, but no browser agent,
  * so ~10-15s not minutes.
  */
 
@@ -31,8 +31,8 @@ import { createServer as createNetServer } from 'node:net';
 
 const VALID_HEALTH_FAIL_CODES = new Set([
   'TIMEOUT',       // fetch aborted after 5s waiting for HTTP response
-  'NGROK_ERROR',   // ngrok detected upstream didn't respond → ERR_NGROK_*
-  'BAD_GATEWAY',   // ngrok returned 502/504 without an error marker
+  'TUNNEL_ERROR',  // the tunnel server served a DEBUGG_TUNNEL_* marker
+  'BAD_GATEWAY',   // the tunnel returned 502/504 without an error marker
   'NETWORK_ERROR', // underlying fetch failed (less likely but valid)
 ]);
 
@@ -42,7 +42,7 @@ export const flow = {
   description: 'Zombie server (TCP-accept + never-respond) triggers TunnelTrafficBlocked via post-tunnel health probe, no browser agent runs',
   async run({ client, step, assert, writeArtifact }) {
     // Raw TCP server that accepts but never writes. Holds sockets open so
-    // ngrok's dial succeeds — we want the failure to surface at the HTTP
+    // the tunnel's dial succeeds — we want the failure to surface at the HTTP
     // layer, not the TCP layer (flow 28 already covers TCP-refused).
     const heldSockets = [];
     const server = createNetServer((socket) => {
@@ -105,8 +105,8 @@ export const flow = {
         );
 
         // Classify the failure reason — any of the known fail codes is valid
-        // because ngrok's exact behavior for "upstream accepts TCP but no HTTP"
-        // depends on ngrok internals (may 504, may ERR_NGROK_3200, may just
+        // because the exact behaviour for "upstream accepts TCP but no HTTP"
+        // depends on the tunnel server (may 504, may DEBUGG_TUNNEL_OFFLINE, may just
         // hang until our 5s timeout). Lock the contract, not the specific code.
         assert(
           VALID_HEALTH_FAIL_CODES.has(body.detail?.code),

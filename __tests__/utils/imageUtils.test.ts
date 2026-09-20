@@ -198,7 +198,7 @@ describe('artifactResourceLinks', () => {
     expect(byName['recording.gif'].uri).toBe('https://s3/run.gif');
   });
 
-  test('skips ngrok/tunnel URLs and non-objects', () => {
+  test('skips tunnel URLs and non-objects', () => {
     expect(artifactResourceLinks({ x: 'https://abc.ngrok.io/y.har' })).toEqual([]);
     expect(artifactResourceLinks(null)).toEqual([]);
     expect(artifactResourceLinks(undefined)).toEqual([]);

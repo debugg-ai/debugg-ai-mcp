@@ -19,7 +19,7 @@ import {
   getRegistryFilePath,
   getLegacyRegistryFilePath,
   type RegistryEntry,
-} from '../../services/ngrok/tunnelRegistry.js';
+} from '../../services/tunnel/tunnelRegistry.js';
 
 const ORIGINAL_OVERRIDE = process.env.DEBUGG_AI_TUNNEL_REGISTRY;
 let workdir: string;
@@ -28,8 +28,8 @@ function entry(over: Partial<RegistryEntry> = {}): RegistryEntry {
   return {
     tunnelId: 't1',
     sessionKey: 'stdio',
-    publicUrl: 'https://t1.ngrok.debugg.ai',
-    tunnelUrl: 'https://t1.ngrok.debugg.ai',
+    publicUrl: 'https://t1.tunnel.debugg.ai',
+    tunnelUrl: 'https://t1.tunnel.debugg.ai',
     caddyAdminPort: 41000,
     ownerPid: process.pid,
     lastAccessedAt: Date.now(),

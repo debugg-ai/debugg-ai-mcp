@@ -330,7 +330,7 @@ function safeLog(level: 'info' | 'error' | 'warn', message: string, meta?: any):
  */
 async function gracefulShutdown(signal: string): Promise<void> {
   safeLog('info', `Received ${signal}, shutting down gracefully`);
-  const { tunnelManager } = await import('./services/ngrok/tunnelManager.js');
+  const { tunnelManager } = await import('./services/tunnel/tunnelManager.js');
   await tunnelManager.stopAllTunnels().catch((err) =>
     safeLog('warn', 'stopAllTunnels failed during shutdown', { error: String(err) }),
   );

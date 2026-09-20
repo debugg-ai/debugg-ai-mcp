@@ -210,17 +210,17 @@ export const HandshakeError = Object.freeze({
 // ── Server error markers (server emits, client parses) ───────────────────────
 
 export const TunnelErrorMarker = Object.freeze({
-  /** No client connected — the ERR_NGROK_3200 analogue. */
+  /** No client connected — 404, matching what the retired ngrok edge served. */
   OFFLINE: 'DEBUGG_TUNNEL_OFFLINE',
   /** Unknown or revoked tunnel id. */
   UNKNOWN: 'DEBUGG_TUNNEL_UNKNOWN',
-  /** The client could not dial the local app — the ERR_NGROK_8012 analogue. */
+  /** The client could not dial the local app — 502. */
   UPSTREAM_REFUSED: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED',
 } as const);
 
 export type TunnelErrorMarkerValue = (typeof TunnelErrorMarker)[keyof typeof TunnelErrorMarker];
 
-/** HTTP status each marker is served with, chosen to match the ngrok codes they replace. */
+/** HTTP status each marker is served with, chosen to match the codes they replaced. */
 export const MARKER_HTTP_STATUS: Readonly<Record<TunnelErrorMarkerValue, number>> = Object.freeze({
   [TunnelErrorMarker.OFFLINE]: 404,
   [TunnelErrorMarker.UNKNOWN]: 404,

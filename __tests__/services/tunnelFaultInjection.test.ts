@@ -12,7 +12,7 @@ import {
   getFaultModeFromEnv,
   FaultInjector,
   TunnelTrace,
-} from '../../services/ngrok/tunnelFaultInjection.js';
+} from '../../services/tunnel/tunnelFaultInjection.js';
 
 describe('parseFaultMode', () => {
   test('empty / undefined → null', () => {
@@ -37,25 +37,13 @@ describe('parseFaultMode', () => {
     expect(mode).toEqual({ failConnectN: 2, delayConnectMs: 100 });
   });
 
-  // ── Bead lc62: inspector modes, so the re-adoption path can be exercised
-  //    end to end without provisioning a real, billable tunnel. ──────────────
-  test('single mode: inspector-unreachable', () => {
-    expect(parseFaultMode('inspector-unreachable:1')).toEqual({ inspectorUnreachable: true });
-  });
-
-  test('inspector-unreachable:0 explicitly turns it OFF', () => {
-    expect(parseFaultMode('inspector-unreachable:0')).toEqual({ inspectorUnreachable: false });
-  });
-
-  test('single mode: inspector-adopt carries the port', () => {
-    expect(parseFaultMode('inspector-adopt:3011')).toEqual({ inspectorAdoptPort: 3011 });
-  });
-
-  test('inspector modes combine with the connect modes', () => {
-    expect(parseFaultMode('inspector-adopt:3000,fail-connect-N:2')).toEqual({
-      inspectorAdoptPort: 3000,
-      failConnectN: 2,
-    });
+  // The `inspector-unreachable` / `inspector-adopt` modes went with the ngrok
+  // agent inspector they drove. A mode name the parser no longer knows must be
+  // dropped like any other unknown token, not silently half-parsed.
+  test('the retired ngrok inspector modes are now unknown tokens', () => {
+    expect(parseFaultMode('inspector-unreachable:1')).toBeNull();
+    expect(parseFaultMode('inspector-adopt:3011')).toBeNull();
+    expect(parseFaultMode('inspector-adopt:3000,fail-connect-N:2')).toEqual({ failConnectN: 2 });
   });
 
   test('unknown token is ignored but valid tokens still parse', () => {

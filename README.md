@@ -13,9 +13,10 @@ AI-powered browser testing via the [Model Context Protocol](https://modelcontext
 **Testing `http://localhost:...` URLs requires the `caddy` binary** — `check_app_in_browser`,
 `probe_page`, and `trigger_crawl` tunnel localhost targets through a local Caddy reverse proxy.
 This installs automatically: the `@radically-straightforward/caddy` npm dependency downloads a
-pinned Caddy release for your platform during `npm install`/`npx`, same as this project already
-does for the `ngrok` binary — nothing to install yourself in the normal case. If that download
-never ran (`npm install --ignore-scripts`, an offline/air-gapped install), point `CADDY_BIN` at
+pinned Caddy release for your platform during `npm install`/`npx` — nothing to install yourself in
+the normal case. It is now the **only** binary this package downloads; the tunnel client itself is
+pure TypeScript — it replaced the `ngrok` package, which fetched the ngrok agent.
+If that download never ran (`npm install --ignore-scripts`, an offline/air-gapped install), point `CADDY_BIN` at
 your own install (`brew install caddy` / `apt install caddy` / see
 [caddyserver.com/docs/install](https://caddyserver.com/docs/install)) — missing it surfaces as a
 clear error on the first localhost-URL call, not a silent hang. Public-URL calls, every
@@ -63,7 +64,7 @@ The server exposes **8** tools: three **Browser** tools plus one **action-based*
 
 #### `check_app_in_browser`
 
-Runs an AI browser agent against your app. The agent navigates, interacts, and reports back with screenshots. Localhost URLs are auto-tunneled via ngrok.
+Runs an AI browser agent against your app. The agent navigates, interacts, and reports back with screenshots. Localhost URLs are auto-tunneled through the debugg tunnel server.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -254,7 +255,8 @@ clients without resource support keep using the tools.
 ### Security invariants
 
 - Passwords are write-only. They never appear in any response body from any tool.
-- Tunnel URLs (`*.ngrok.debugg.ai`) are stripped from all browser-agent responses, including agent-authored text.
+- Tunnel URLs (`*.tunnel.debugg.ai`, and the retired `*.ngrok.debugg.ai` that historical runs still
+  reference) are stripped from all browser-agent responses, including agent-authored text.
 - 404s from the backend surface as `isError: true` with `{error: 'NotFound', ...}`, never as thrown exceptions.
 - Missing `DEBUGGAI_API_KEY` surfaces as a structured tool error on first invocation — the server still registers and lists tools normally.
 
@@ -341,11 +343,11 @@ flow against the advertised authorization server. The bearer is request-scoped �
 
 stdio installs need none of these.
 
-**Multi-replica deployments (go/no-go before rollout):** tunnel state (the ngrok session tunnel,
+**Multi-replica deployments (go/no-go before rollout):** tunnel state (the session tunnel,
 its Caddy instance, and its port-route lock) is in-process, keyed per caller by a hash of the
 bearer token — there is no cross-process coordination. Running several replicas behind a plain
 round-robin load balancer means one caller's calls can land on different replicas and mint one
-tunnel **per replica they hit** instead of one for the whole session (extra ngrok cost, bounded by
+tunnel **per replica they hit** instead of one for the whole session (bounded by
 replica count, self-healing via the existing 55-minute idle auto-shutoff — never a cross-session
 correctness bug, since any single tool call stays on one replica for its whole duration). To get
 the intended "one tunnel per session" behavior on a multi-replica HTTP deployment, configure

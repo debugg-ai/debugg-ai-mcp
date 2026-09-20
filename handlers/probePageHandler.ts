@@ -147,7 +147,7 @@ export async function probePageHandler(
   // Tunnel keys we provisioned this call (for cleanup if creation fails after key acquired).
   // The provisions this call acquired, in target order. Provisions rather than
   // bare key ids because revoking follows the transport the backend picked
-  // (ngrok keys and debugg tunnels have different endpoints).
+  // (it routes to the tunnel's own revoke endpoint).
   const acquiredProvisions: TunnelProvision[] = [];
 
   // Progress budget: 1 pre-flight + 1 template + 1 execute + N per-target captures + 1 done
@@ -320,7 +320,7 @@ export async function probePageHandler(
               detail: {
                 code: health.code,
                 status: health.status,
-                ngrokErrorCode: health.ngrokErrorCode,
+                tunnelErrorCode: health.tunnelErrorCode,
                 elapsedMs: health.elapsedMs,
               },
             };

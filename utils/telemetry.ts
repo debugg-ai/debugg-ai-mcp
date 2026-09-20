@@ -76,15 +76,15 @@ export const TelemetryEvents = {
   TUNNEL_PROVISIONED: 'tunnel.provisioned',
   TUNNEL_PROVISION_RETRY: 'tunnel.provision_retry',
   TUNNEL_STOPPED: 'tunnel.stopped',
-  // services/ngrok/tunnelManager.ts — the session tunnel's Caddy instance
+  // services/tunnel/tunnelManager.ts — the session tunnel's Caddy instance
   // crash-respawned onto a DIFFERENT local proxy port (sticky-port reclaim
-  // failed). The existing ngrok tunnel is now dialing a dead port, so the
+  // failed). The existing tunnel is now dialing a dead port, so the
   // whole session tunnel is evicted and must be recreated on the next call
   // (see docs/local-tunnel-multiplexer-architecture-2026-07-31.md §2.3).
   TUNNEL_EVICTED_PORT_CHANGED: 'tunnel.evicted_port_changed',
-  // services/ngrok/tunnelManager.ts — stopTunnel()'s unconditional-removal
+  // services/tunnel/tunnelManager.ts — stopTunnel()'s unconditional-removal
   // contract (§2.3): map state is always removed before cleanup I/O runs, so
-  // a partial failure here (ngrok disconnect / caddy.stop() / key revoke)
+  // a partial failure here (tunnel disconnect / caddy.stop() / key revoke)
   // never leaves stale-but-discoverable state. Fired once per failed step.
   TUNNEL_TEARDOWN_PARTIAL_FAILURE: 'tunnel.teardown_partial_failure',
   TEMPLATE_LOOKUP: 'template.lookup',

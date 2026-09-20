@@ -180,7 +180,7 @@ export const flow = {
         for (const { inst, response } of results) {
           assert(!response.isError, `Instance ${inst.idx} (${inst.marker}): ${response.content?.[0]?.text?.slice(0, 400)}`);
           const text = response.content[0].text;
-          assert(!text.includes('ngrok.debugg.ai'), `Instance ${inst.idx}: tunnel URL leak`);
+          assert(!/\.(?:tunnel|ngrok)\.debugg\.ai/.test(text), `Instance ${inst.idx}: tunnel URL leak`);
 
           const body = JSON.parse(text);
           assert(body.targetUrl === inst.url,

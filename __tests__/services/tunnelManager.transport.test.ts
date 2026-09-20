@@ -1,59 +1,28 @@
 /**
- * TunnelManager picks a transport from the provision response
+ * TunnelManager drives the tunnel through the TunnelTransport seam
  * (bead debugg_ai_mcp-xkoh.5.3, requirements xkoh.5.2 R2/R3/R5/R10).
  *
  * Everything above the transport is unchanged: the same Caddy instance per
  * session key, the same retry ladder, the same idle timer, the same
- * stopTunnel ordering. Only the connect/disconnect step is swapped.
+ * stopTunnel ordering. Only the connect/disconnect step lives below it.
  *
- * This file NEVER exercises the ngrok path, which is what lets it assert the
- * strongest requirement of the arc: on a debugg tunnel the `ngrok` package is
- * never even imported, so no binary is downloaded and no agent is spawned.
- * The module factory below counts loads; ESM caches it, so one count covers
- * the whole file.
- *
- * RED on purpose: TunnelManager has no transport seam yet — it calls
- * ngrok.connect() directly, and ensureInitialized()/ensureAgentSession() run
- * on every path.
+ * This file used to also assert "the `ngrok` package is never imported on the
+ * debugg path", by counting loads of a mocked `ngrok` module. That assertion
+ * moved to __tests__/services/ngrokRemoved.test.ts, which proves it STATICALLY
+ * over the whole shipped tree instead of dynamically over the one code path
+ * this file happens to exercise.
  */
 
 import { jest } from '@jest/globals';
 import type { CaddyProxy, UpstreamTarget } from '../../services/caddy/caddyProxy.js';
-
-let ngrokModuleLoads = 0;
-const mockNgrokConnect = jest.fn<() => Promise<string>>();
-
-jest.unstable_mockModule('ngrok', () => {
-  ngrokModuleLoads++;
-  return {
-    connect: mockNgrokConnect,
-    disconnect: jest.fn(),
-    getApi: jest.fn(),
-    default: { connect: mockNgrokConnect, disconnect: jest.fn(), getApi: jest.fn() },
-  };
-});
-
-const mockStartAgentSession = jest.fn(async (opts: any) => { opts.onStatusChange('connected'); });
-jest.unstable_mockModule('../../services/ngrok/ngrokAgentSession.js', () => ({
-  startAgentSession: mockStartAgentSession,
-}));
-
-let TunnelManagerClass: typeof import('../../services/ngrok/tunnelManager.js').default;
-let createInMemoryRegistry: typeof import('../../services/ngrok/tunnelRegistry.js').createInMemoryRegistry;
-let Telemetry: typeof import('../../utils/telemetry.js').Telemetry;
-let TelemetryEvents: typeof import('../../utils/telemetry.js').TelemetryEvents;
-
-beforeAll(async () => {
-  ({ default: TunnelManagerClass } = await import('../../services/ngrok/tunnelManager.js'));
-  ({ createInMemoryRegistry } = await import('../../services/ngrok/tunnelRegistry.js'));
-  ({ Telemetry, TelemetryEvents } = await import('../../utils/telemetry.js'));
-});
+import TunnelManagerClass from '../../services/tunnel/tunnelManager.js';
+import { createInMemoryRegistry } from '../../services/tunnel/tunnelRegistry.js';
+import { Telemetry, TelemetryEvents } from '../../utils/telemetry.js';
 
 const ORIGINAL_DOCKER = process.env.DOCKER_CONTAINER;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockNgrokConnect.mockResolvedValue('https://should-never-be-used.ngrok.debugg.ai' as any);
 });
 
 afterEach(() => {
@@ -103,22 +72,20 @@ function freshTm(transport: FakeTransport, caddy: CaddyProxy = makeFakeCaddy()) 
   const tm = new TunnelManagerClass(createInMemoryRegistry());
   tm.connectBackoffMs = [1, 1];
   tm.caddyFactory = () => caddy;
-  // The transport seam: a map of kind -> implementation, in the same style as
-  // caddyFactory / agentSessionStarter.
-  (tm as any).transports = { debugg: transport };
+  // The transport seam, injected in the same style as caddyFactory.
+  tm.transport = transport as any;
   return tm;
 }
 
 const DEBUGG = {
-  transport: 'debugg' as const,
   relayUrl: 'wss://api.debugg.ai/tunnel/v1/connect',
   tunnelDomain: 'tunnel.debugg.ai',
 };
 
 // ── Session tunnels ──────────────────────────────────────────────────────────
 
-describe('a debugg provision drives the debugg transport', () => {
-  test('connect gets Caddy loopback, the debugg hostname, the tunnel key and the relay URL', async () => {
+describe('a provision drives the transport', () => {
+  test('connect gets Caddy loopback, the tunnel hostname, the tunnel key and the relay URL', async () => {
     const transport = makeFakeDebuggTransport();
     const tm = freshTm(transport);
 
@@ -132,17 +99,6 @@ describe('a debugg provision drives the debugg transport', () => {
     expect(opts).toMatchObject({ tunnelId: 'my-id', relayUrl: DEBUGG.relayUrl });
     expect(info.tunnelUrl).toBe('https://my-id.tunnel.debugg.ai');
     expect(tm.getSessionTunnelInfo('sess-a')).toBe(info);
-  });
-
-  test('the ngrok package is never imported and the agent is never pre-warmed', async () => {
-    const transport = makeFakeDebuggTransport();
-    const tm = freshTm(transport);
-
-    await (tm as any).ensureSessionTunnel('sess-b', 'tunnel-key-1', 'my-id', undefined, undefined, DEBUGG);
-
-    expect(ngrokModuleLoads).toBe(0);
-    expect(mockNgrokConnect).not.toHaveBeenCalled();
-    expect(mockStartAgentSession).not.toHaveBeenCalled();
   });
 
   test('in Docker the session tunnel still dials the in-container Caddy loopback', async () => {
@@ -172,7 +128,7 @@ describe('a debugg provision drives the debugg transport', () => {
 
 // ── The dedicated (test_suite run) path ──────────────────────────────────────
 
-describe('the dedicated tunnel path under debugg', () => {
+describe('the dedicated tunnel path', () => {
   test('uses the PROVISIONED tunnel id — a client-minted uuid is not bound to the token', async () => {
     const transport = makeFakeDebuggTransport();
     const tm = freshTm(transport);
@@ -208,7 +164,7 @@ describe('the dedicated tunnel path under debugg', () => {
 // ── Errors ───────────────────────────────────────────────────────────────────
 
 describe('connect failures', () => {
-  test('a 401 is not retried and surfaces as today invalid-auth-token error', async () => {
+  test('a 401 is not retried and surfaces as the invalid-auth-token error', async () => {
     const transport = makeFakeDebuggTransport(async () => {
       throw Object.assign(new Error('debugg tunnel rejected the authtoken (HTTP 401)'), { retryable: false });
     });
@@ -248,7 +204,6 @@ describe('connect failures', () => {
 
     expect(attempts).toBe(3);
     expect(info.tunnelUrl).toBe('https://my-id.tunnel.debugg.ai');
-    expect(mockStartAgentSession).not.toHaveBeenCalled();
   });
 });
 
@@ -267,7 +222,6 @@ describe('teardown', () => {
     expect(revokeKey).toHaveBeenCalledTimes(1);
     expect(tm.getTunnelInfo('my-id')).toBeUndefined();
     expect(tm.getSessionTunnelInfo('sess-h')).toBeUndefined();
-    expect(ngrokModuleLoads).toBe(0);
   });
 
   test('a transport that reports permanent death evicts the tunnel, so the next call re-provisions', async () => {

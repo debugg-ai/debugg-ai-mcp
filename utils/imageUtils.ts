@@ -87,7 +87,8 @@ function titleize(key: string): string {
  * Build resource_link blocks for every (presigned) artifact URL found one level
  * deep in `source` (e.g. an execution's browserSession: HAR, console log, run
  * recording). Defensive about exact field names — it links any https value and
- * skips tunnel/ngrok hosts. Returns [] for nullish/empty input.
+ * skips tunnel hosts (including historical `*.ngrok.debugg.ai` ones).
+ * Returns [] for nullish/empty input.
  */
 export function artifactResourceLinks(
   source: unknown,

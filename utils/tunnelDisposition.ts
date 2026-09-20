@@ -1,74 +1,68 @@
 /**
  * What to do with a tunnel whose health probe just failed.
  *
- * ngrok bills a MINIMUM OF ONE HOUR PER TUNNEL, so tearing one down and standing
- * a replacement up costs TWO billed hours. A teardown therefore has to be backed
- * by proof that the tunnel is already gone — not by a probe result that a
- * transient edge flake produces just as readily as a real death.
+ * A teardown has to be backed by PROOF that the tunnel is already gone — not
+ * by a probe result that a transient flake produces just as readily as a real
+ * death. Tearing down a live tunnel is not free: the next call has to
+ * re-provision, re-handshake and re-point Caddy, and it does that while the
+ * user's actual problem (a dev server that is down, bound to the wrong
+ * interface, or still starting) is untouched. It converts "your app isn't
+ * answering" into "your app isn't answering AND your tunnel churned".
+ *
+ * (Under ngrok the same rule had a sharper edge — its minimum billing unit was
+ * one hour per tunnel, so a needless teardown cost two billed hours. We own
+ * the tunnel server now, so the cost is latency and churn rather than money.
+ * The policy is unchanged; only the size of the bill is.)
  *
  * All four tool handlers probe tunnel health before handing the URL to the remote
- * browser, and all four used to gate eviction on `health.ngrokErrorCode` being
- * set AT ALL, falling back to stopTunnel() otherwise. Both halves were wrong:
+ * browser, and all four used to gate eviction on the error code being set AT ALL,
+ * falling back to stopTunnel() otherwise. Both halves were wrong:
  *
- *   - `ngrokErrorCode` is not a verdict. ERR_NGROK_8012 means the tunnel is ALIVE
+ *   - an error code is not a verdict. UPSTREAM_REFUSED means the tunnel is ALIVE
  *     and its upstream refused the connection — the tunnel is literally what
- *     served us that error. Evicting on it orphans a live, billing tunnel and
- *     makes the next call provision a replacement: two billed hours spent on a
- *     dev server that was the actual problem.
+ *     served us that error. Evicting on it orphans a working tunnel and makes
+ *     the next call provision a replacement, to work around a dev server that
+ *     was the actual problem.
  *   - the stopTunnel() fallback tore down an OWNED tunnel on ANY probe failure,
- *     including the transient HTTP/2 GOAWAY the ngrok edge sends to undici
- *     (bead k6yq — measured at roughly 1 run in 5 before the retry ladder landed,
- *     and still reachable whenever that ladder exhausts).
+ *     including a transient connection-level flake (bead k6yq — measured at
+ *     roughly 1 run in 5 before the retry ladder landed, and still reachable
+ *     whenever that ladder exhausts).
  *
  * Hence an explicit allowlist of codes that prove the ENDPOINT ITSELF is gone.
  * Everything else leaves both the tunnel and the shared registry entry completely
  * untouched and just reports TunnelTrafficBlocked: the user fixes their dev
- * server and the next call reuses the same tunnel for free.
- *
- * Bead kmzb, confirmed live on 2026-07-27: probeTunnelHealth cannot currently
- * produce ANY ngrokErrorCode against this edge. `curl` and a raw node:https
- * request both get `404 + ERR_NGROK_3200` from a hostname ngrok no longer routes,
- * but undici's fetch negotiates HTTP/2 and the edge answers with a GOAWAY, which
- * surfaces as UND_ERR_SOCKET / NETWORK_ERROR with no code at all. So in practice
- * every probe failure takes the leave-it-alone branch today. The allowlist is the
- * policy that governs the moment a code CAN be produced — whether that is kmzb
- * forcing HTTP/1.1 for the probe, or a caller passing the marker recorded by a
- * run's own evidence (bead 4bui, the one live-confirmed source of ERR_NGROK_*).
+ * server and the next call reuses the same tunnel.
  */
 
-import { tunnelManager } from '../services/ngrok/tunnelManager.js';
+import { tunnelManager } from '../services/tunnel/tunnelManager.js';
 import { Logger } from './logger.js';
 import type { TunnelHealthProbeResult } from './localReachability.js';
 
 const logger = new Logger({ module: 'tunnelDisposition' });
 
 /**
- * ngrok error codes that PROVE the endpoint no longer exists, so evicting it
- * costs nothing and re-borrowing it costs everyone a failed run (bead k34o).
+ * Tunnel-server error markers that PROVE the endpoint no longer exists, so
+ * evicting it costs nothing and keeping it costs the next call a failed run.
  *
- * Inclusion criterion — the code must be served BY THE EDGE ABOUT A HOSTNAME IT
- * NO LONGER ROUTES, i.e. it is impossible to receive it from a tunnel that is
- * still up. Anything describing the upstream, the agent, or the connection is a
- * live tunnel reporting on something else, and must NOT be here.
+ * Inclusion criterion — the marker must be served BY THE EDGE ABOUT A TUNNEL IT
+ * CANNOT ROUTE, i.e. it is impossible to receive it from a tunnel that is still
+ * up. Anything describing the upstream, the client, or the connection is a live
+ * tunnel reporting on something else, and must NOT be here.
  *
- * Verify a candidate before adding it — the check is free and creates no tunnel:
- *   curl -s https://<random-uuid>.ngrok.debugg.ai/ | grep -o 'ERR_NGROK_[0-9]*'
- * (use curl or node:https, NOT fetch — see the kmzb note above).
- *
- *   ERR_NGROK_3200 — "not found". Verified live 2026-07-27: a GET to a
- *   nonexistent *.ngrok.debugg.ai host returns 404 with this code in the body.
- *   The endpoint is definitively gone; nothing is billing for it.
+ *   DEBUGG_TUNNEL_OFFLINE — no client is connected. Confirmed across
+ *     probeTunnelHealth's retry ladder before it gets here, because the server
+ *     renders it after a 5s grace window that a slow reconnect can outlast.
+ *   DEBUGG_TUNNEL_UNKNOWN — unknown or revoked tunnel id. Definitive.
  *
  * Deliberately EXCLUDED, and the sharpest case of all:
  *
- *   ERR_NGROK_8012 — the agent could not dial the upstream (connection refused).
- *   The TUNNEL IS ALIVE; it is the thing that generated the error page. Evicting
- *   on 8012 orphans a paid-for tunnel and buys a duplicate — two billed hours —
- *   to work around a dev server that is down, bound to the wrong interface, or
- *   still starting up. Leave it be; it will serve the very next request once the
- *   user's server is back.
+ *   DEBUGG_TUNNEL_UPSTREAM_REFUSED — the client could not dial the local app.
+ *   The TUNNEL IS ALIVE; it is the thing that generated the error page.
+ *   Evicting on it throws away a working tunnel to work around a dev server
+ *   that is down, bound to the wrong interface, or still starting up. Leave it
+ *   be; it will serve the very next request once the user's server is back.
  *
- * This set is pinned by a test. Adding a code has to be a deliberate act with
+ * This set is pinned by a test. Adding a marker has to be a deliberate act with
  * evidence behind it, not a silent default to teardown.
  *
  * The frozen ARRAY is the source of truth, not a frozen Set: Object.freeze does
@@ -77,33 +71,21 @@ const logger = new Logger({ module: 'tunnelDisposition' });
  * guarantee; the lookup Set is derived from it and kept private.
  */
 const ENDPOINT_GONE_CODES = Object.freeze([
-  'ERR_NGROK_3200',
-  // The debugg tunnel server's equivalents (bead debugg_ai_mcp-xkoh.1.2 §10).
-  // Both are served BY THE EDGE ABOUT A HOSTNAME IT DOES NOT ROUTE, which is
-  // the inclusion criterion above:
-  //   DEBUGG_TUNNEL_OFFLINE — no client is connected. Confirmed across
-  //     probeTunnelHealth's retry ladder before it gets here, because the
-  //     server renders it after a 5s grace window that a slow reconnect can
-  //     outlast.
-  //   DEBUGG_TUNNEL_UNKNOWN — unknown or revoked tunnel id. Definitive.
-  // DEBUGG_TUNNEL_UPSTREAM_REFUSED is deliberately absent: like ERR_NGROK_8012
-  // it means the TUNNEL served us that page and is alive, while the user's dev
-  // server is what refused.
   'DEBUGG_TUNNEL_OFFLINE',
   'DEBUGG_TUNNEL_UNKNOWN',
 ]);
 const ENDPOINT_GONE_LOOKUP = new Set<string>(ENDPOINT_GONE_CODES);
 
 /** The allowlist, as an immutable list. Read-only by construction. */
-export const ENDPOINT_GONE_NGROK_CODES: readonly string[] = ENDPOINT_GONE_CODES;
+export const ENDPOINT_GONE_TUNNEL_CODES: readonly string[] = ENDPOINT_GONE_CODES;
 
 /**
- * True only when the code proves the endpoint is gone. Unset / unknown codes are
+ * True only when the marker proves the endpoint is gone. Unset / unknown codes are
  * NOT proof of anything, so they answer false: the default is always to keep the
- * tunnel we are already paying for.
+ * tunnel we already have.
  */
-export function isEndpointGone(ngrokErrorCode?: string): boolean {
-  return !!ngrokErrorCode && ENDPOINT_GONE_LOOKUP.has(ngrokErrorCode);
+export function isEndpointGone(tunnelErrorCode?: string): boolean {
+  return !!tunnelErrorCode && ENDPOINT_GONE_LOOKUP.has(tunnelErrorCode);
 }
 
 /**
@@ -121,8 +103,8 @@ export function isEndpointGone(ngrokErrorCode?: string): boolean {
  *                         tunnel half retired along with cross-process borrowing.
  * Anything else         → nothing at all. The caller still returns
  *                         TunnelTrafficBlocked, so the user is told; we simply do
- *                         not spend two billed hours acting on a verdict this
- *                         probe cannot actually deliver.
+ *                         not tear down a tunnel on a verdict this probe cannot
+ *                         actually deliver.
  *
  * Never throws and never awaits the eviction: a cleanup decision must not be able
  * to fail or slow down the error response the caller is about to return.
@@ -140,17 +122,17 @@ export function disposeUnhealthyTunnel(args: {
   const { health, tunnelId, originalUrl } = args;
   if (!tunnelId) return;
 
-  if (!isEndpointGone(health.ngrokErrorCode)) {
+  if (!isEndpointGone(health.tunnelErrorCode)) {
     logger.info(
-      `Tunnel ${tunnelId} failed its health probe (${health.code}${health.ngrokErrorCode ? ` ${health.ngrokErrorCode}` : ''}) ` +
-      'but nothing proves the endpoint is gone — keeping it. Tearing down a live tunnel costs two billed hours ' +
-      '(1-hour minimum down, another up) and the next call reuses this one for free.',
+      `Tunnel ${tunnelId} failed its health probe (${health.code}${health.tunnelErrorCode ? ` ${health.tunnelErrorCode}` : ''}) ` +
+      'but nothing proves the endpoint is gone — keeping it. Tearing down a live tunnel makes the next ' +
+      'call re-provision and re-handshake for nothing, while the next call can reuse this one as is.',
     );
     return;
   }
 
   logger.warn(
-    `Tunnel ${tunnelId} (${originalUrl}) reported ${health.ngrokErrorCode} — the endpoint is gone, evicting it.`,
+    `Tunnel ${tunnelId} (${originalUrl}) reported ${health.tunnelErrorCode} — the endpoint is gone, evicting it.`,
   );
   tunnelManager.markTunnelDead(tunnelId).catch((err) =>
     logger.warn(`Failed to evict dead tunnel ${tunnelId}: ${err}`),

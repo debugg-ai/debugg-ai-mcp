@@ -4,17 +4,17 @@ describe('replaceTunnelUrls', () => {
   const origin = 'http://localhost:4001';
 
   test('replaces tunnel origin in a plain string, preserving path', () => {
-    expect(replaceTunnelUrls('https://abc-123.ngrok.debugg.ai/dashboard', origin))
+    expect(replaceTunnelUrls('https://abc-123.tunnel.debugg.ai/dashboard', origin))
       .toBe('http://localhost:4001/dashboard');
   });
 
   test('preserves query string and hash after replacement', () => {
-    expect(replaceTunnelUrls('https://abc.ngrok.debugg.ai/page?foo=bar#section', origin))
+    expect(replaceTunnelUrls('https://abc.tunnel.debugg.ai/page?foo=bar#section', origin))
       .toBe('http://localhost:4001/page?foo=bar#section');
   });
 
   test('replaces multiple tunnel URLs in the same string', () => {
-    const input = 'First: https://aaa.ngrok.debugg.ai/x, Second: https://bbb.ngrok.debugg.ai/y';
+    const input = 'First: https://aaa.tunnel.debugg.ai/x, Second: https://bbb.tunnel.debugg.ai/y';
     expect(replaceTunnelUrls(input, origin))
       .toBe('First: http://localhost:4001/x, Second: http://localhost:4001/y');
   });
@@ -23,10 +23,18 @@ describe('replaceTunnelUrls', () => {
     expect(replaceTunnelUrls('https://example.com/page', origin)).toBe('https://example.com/page');
   });
 
+  // The ngrok transport is gone, but a backend response about a HISTORICAL run
+  // can still carry one of its hostnames, and an unrecognised tunnel hostname
+  // leaks verbatim. See the box in utils/tunnelDomains.ts.
+  test('still replaces a historical ngrok tunnel URL', () => {
+    expect(replaceTunnelUrls('https://abc-123.ngrok.debugg.ai/dashboard', origin))
+      .toBe('http://localhost:4001/dashboard');
+  });
+
   test('replaces tunnel URLs in an object recursively', () => {
     const input = {
-      finalUrl: 'https://abc-123.ngrok.debugg.ai/dashboard',
-      agentResponse: 'Redirected to https://abc-123.ngrok.debugg.ai/dashboard successfully',
+      finalUrl: 'https://abc-123.tunnel.debugg.ai/dashboard',
+      agentResponse: 'Redirected to https://abc-123.tunnel.debugg.ai/dashboard successfully',
       stepsTaken: 5,
     };
     const result = replaceTunnelUrls(input, origin) as Record<string, any>;
@@ -36,13 +44,13 @@ describe('replaceTunnelUrls', () => {
   });
 
   test('replaces tunnel URLs in nested objects', () => {
-    const input = { outer: { inner: { url: 'https://x.ngrok.debugg.ai/path' } } };
+    const input = { outer: { inner: { url: 'https://x.tunnel.debugg.ai/path' } } };
     const result = replaceTunnelUrls(input, origin) as any;
     expect(result.outer.inner.url).toBe('http://localhost:4001/path');
   });
 
   test('replaces tunnel URLs in arrays', () => {
-    const input = ['https://a.ngrok.debugg.ai/one', 'https://b.ngrok.debugg.ai/two'];
+    const input = ['https://a.tunnel.debugg.ai/one', 'https://b.tunnel.debugg.ai/two'];
     const result = replaceTunnelUrls(input, origin) as string[];
     expect(result[0]).toBe('http://localhost:4001/one');
     expect(result[1]).toBe('http://localhost:4001/two');
@@ -55,7 +63,7 @@ describe('replaceTunnelUrls', () => {
   });
 
   test('strips trailing slash from localhostOrigin before replacing', () => {
-    expect(replaceTunnelUrls('https://abc.ngrok.debugg.ai/path', 'http://localhost:4001/'))
+    expect(replaceTunnelUrls('https://abc.tunnel.debugg.ai/path', 'http://localhost:4001/'))
       .toBe('http://localhost:4001/path');
   });
 });
@@ -131,40 +139,45 @@ describe('isLocalhostUrl — edge cases', () => {
 });
 
 describe('generateTunnelUrl / extractLocalhostPort', () => {
+  // The tunnel domain is a REQUIRED argument. It used to default to
+  // 'ngrok.debugg.ai', which is how a caller that forgot to pass the
+  // provision's domain silently minted a hostname on the wrong domain
+  // (design §5's "generateTunnelUrl already takes a domain parameter, so its
+  // caller is the bug"). There is no default to be wrong about now.
   test('generateTunnelUrl produces correct URL', () => {
-    expect(generateTunnelUrl('http://localhost:3000/app', 'my-tunnel-id'))
-      .toBe('https://my-tunnel-id.ngrok.debugg.ai/app');
+    expect(generateTunnelUrl('http://localhost:3000/app', 'my-tunnel-id', 'tunnel.debugg.ai'))
+      .toBe('https://my-tunnel-id.tunnel.debugg.ai/app');
   });
 
   test('generateTunnelUrl works for 0.0.0.0', () => {
-    expect(generateTunnelUrl('http://0.0.0.0:3000/app', 'my-tunnel-id'))
-      .toBe('https://my-tunnel-id.ngrok.debugg.ai/app');
+    expect(generateTunnelUrl('http://0.0.0.0:3000/app', 'my-tunnel-id', 'tunnel.debugg.ai'))
+      .toBe('https://my-tunnel-id.tunnel.debugg.ai/app');
   });
 
   // Bead zmc9: reuse composes the reused tunnel's ORIGIN with the CURRENT request's path.
   describe('retargetTunnelUrl', () => {
-    const ORIGIN = 'https://abc123.ngrok.debugg.ai';
+    const ORIGIN = 'https://abc123.tunnel.debugg.ai';
 
     test('uses the caller path, discarding any path baked into publicUrl', () => {
       // ORIGIN here is the path-free tunnelUrl; the creator path is irrelevant.
       expect(retargetTunnelUrl(ORIGIN, 'http://localhost:3011/dashboard'))
-        .toBe('https://abc123.ngrok.debugg.ai/dashboard');
+        .toBe('https://abc123.tunnel.debugg.ai/dashboard');
     });
 
     test('root-path caller gets the bare root (the exact zmc9 repro)', () => {
       expect(retargetTunnelUrl(ORIGIN, 'http://localhost:3011/'))
-        .toBe('https://abc123.ngrok.debugg.ai/');
+        .toBe('https://abc123.tunnel.debugg.ai/');
     });
 
     test('preserves search and hash', () => {
       expect(retargetTunnelUrl(ORIGIN, 'http://localhost:3011/p?q=1&x=2#frag'))
-        .toBe('https://abc123.ngrok.debugg.ai/p?q=1&x=2#frag');
+        .toBe('https://abc123.tunnel.debugg.ai/p?q=1&x=2#frag');
     });
 
     test('a stale origin that itself carries a path is stripped to origin + caller path', () => {
       // Defensive: even if handed a path-bearing string, only its origin is used.
-      expect(retargetTunnelUrl('https://abc123.ngrok.debugg.ai/OLD/creator/path', 'http://localhost:3011/new'))
-        .toBe('https://abc123.ngrok.debugg.ai/new');
+      expect(retargetTunnelUrl('https://abc123.tunnel.debugg.ai/OLD/creator/path', 'http://localhost:3011/new'))
+        .toBe('https://abc123.tunnel.debugg.ai/new');
     });
 
     test('invalid tunnel origin falls back to the origin string, never a foreign path', () => {

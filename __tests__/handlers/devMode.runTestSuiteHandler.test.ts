@@ -22,14 +22,12 @@ jest.unstable_mockModule('../../config/index.js', () => ({
 const mockInit = jest.fn<() => Promise<void>>();
 const mockRunTestSuite = jest.fn<(...args: any[]) => Promise<any>>();
 const mockProvisionWithRetry = jest.fn<(...args: any[]) => Promise<any>>();
-const mockRevokeNgrokKey = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
 
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
     init: mockInit,
     runTestSuite: mockRunTestSuite,
     tunnels: { provisionWithRetry: mockProvisionWithRetry },
-    revokeNgrokKey: mockRevokeNgrokKey,
   })),
 }));
 
@@ -60,7 +58,7 @@ jest.unstable_mockModule('../../services/tunnels.js', () => ({
   TunnelProvisionError: class TunnelProvisionError extends Error {},
 }));
 
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
 }));
 

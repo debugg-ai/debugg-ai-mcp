@@ -22,7 +22,7 @@ const mockGetTunnelInfo = jest.fn<(tunnelId: string) => any>();
 const mockTouchTunnel = jest.fn<(tunnelId: string) => void>();
 const mockGetSessionKey = jest.fn<() => string>(() => 'sess-fixed');
 
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: {
     ensureSessionTunnel: mockEnsureSessionTunnel,
     stopTunnel: mockStopTunnel,
@@ -107,14 +107,14 @@ describe('findExistingTunnel', () => {
     const ctx = buildContext('http://localhost:3000');
     mockGetSessionTunnelInfo.mockReturnValueOnce({
       tunnelId: 'existing-t1',
-      tunnelUrl: 'https://existing-t1.ngrok.debugg.ai',
+      tunnelUrl: 'https://existing-t1.tunnel.debugg.ai',
     });
 
     const result = findExistingTunnel(ctx);
 
     expect(result).not.toBeNull();
     expect(result!.tunnelId).toBe('existing-t1');
-    expect(result!.targetUrl).toBe('https://existing-t1.ngrok.debugg.ai/');
+    expect(result!.targetUrl).toBe('https://existing-t1.tunnel.debugg.ai/');
     expect(result!.isLocalhost).toBe(true);
     expect(result!.originalUrl).toBe('http://localhost:3000');
     expect(mockTouchTunnel).toHaveBeenCalledWith('existing-t1');
@@ -126,25 +126,25 @@ describe('findExistingTunnel', () => {
     const ctx = buildContext('http://localhost:3011/dashboard?tab=1#top');
     mockGetSessionTunnelInfo.mockReturnValueOnce({
       tunnelId: 'abc123',
-      tunnelUrl: 'https://abc123.ngrok.debugg.ai',
+      tunnelUrl: 'https://abc123.tunnel.debugg.ai',
     });
 
     const result = findExistingTunnel(ctx);
 
     expect(result!.tunnelId).toBe('abc123');
-    expect(result!.targetUrl).toBe('https://abc123.ngrok.debugg.ai/dashboard?tab=1#top');
+    expect(result!.targetUrl).toBe('https://abc123.tunnel.debugg.ai/dashboard?tab=1#top');
   });
 
   test('zmc9: a root-path caller does not inherit any deep path from a previous caller', () => {
     const ctx = buildContext('http://localhost:3011/');
     mockGetSessionTunnelInfo.mockReturnValueOnce({
       tunnelId: 'abc123',
-      tunnelUrl: 'https://abc123.ngrok.debugg.ai',
+      tunnelUrl: 'https://abc123.tunnel.debugg.ai',
     });
 
     const result = findExistingTunnel(ctx);
 
-    expect(result!.targetUrl).toBe('https://abc123.ngrok.debugg.ai/');
+    expect(result!.targetUrl).toBe('https://abc123.tunnel.debugg.ai/');
   });
 });
 
@@ -162,17 +162,18 @@ describe('ensureTunnel', () => {
     const ctx = buildContext('http://localhost:3000');
     mockEnsureSessionTunnel.mockResolvedValueOnce({
       tunnelId: 'tid-1',
-      tunnelUrl: 'https://tid-1.ngrok.debugg.ai',
+      tunnelUrl: 'https://tid-1.tunnel.debugg.ai',
     });
 
     const result = await ensureTunnel(ctx, 'key-1', 'tid-1');
-    // The trailing argument is the provision's transport selection; omitted
-    // here, which is what "no transport in the response" (ngrok) looks like.
+    // The trailing argument is the provision's connect details; omitted here,
+    // which is what a caller that forgot to pass the provision looks like —
+    // guarded at the source level by tunnelSelectionWiring.test.ts.
     expect(mockEnsureSessionTunnel).toHaveBeenCalledWith(
       'sess-fixed', 'key-1', 'tid-1', undefined, undefined, undefined
     );
     expect(result.tunnelId).toBe('tid-1');
-    expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai/');
+    expect(result.targetUrl).toBe('https://tid-1.tunnel.debugg.ai/');
     expect(result.originalUrl).toBe('http://localhost:3000');
     expect(result.isLocalhost).toBe(true);
   });
@@ -181,16 +182,16 @@ describe('ensureTunnel', () => {
     const ctx = buildContext('http://localhost:3000/api/widgets');
     mockEnsureSessionTunnel.mockResolvedValueOnce({
       tunnelId: 'tid-1',
-      tunnelUrl: 'https://tid-1.ngrok.debugg.ai',
+      tunnelUrl: 'https://tid-1.tunnel.debugg.ai',
     });
 
     const result = await ensureTunnel(ctx, 'key-1', 'tid-1');
-    expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai/api/widgets');
+    expect(result.targetUrl).toBe('https://tid-1.tunnel.debugg.ai/api/widgets');
   });
 
   test('forwards keyId and revokeKey to ensureSessionTunnel', async () => {
     const ctx = buildContext('http://localhost:3000');
-    mockEnsureSessionTunnel.mockResolvedValueOnce({ tunnelId: 'tid-1', tunnelUrl: 'https://tid-1.ngrok.debugg.ai' });
+    mockEnsureSessionTunnel.mockResolvedValueOnce({ tunnelId: 'tid-1', tunnelUrl: 'https://tid-1.tunnel.debugg.ai' });
     const revokeKey = jest.fn();
 
     await ensureTunnel(ctx, 'key-1', 'tid-1', 'kid-1', revokeKey);
@@ -228,7 +229,7 @@ describe('acquirePortRoute', () => {
 
   test('localhost ctx with a tunnelId: looks up TunnelInfo and acquires its portLock for this port', async () => {
     const ctx = buildContext('http://localhost:3000');
-    const withTunnel = { ...ctx, tunnelId: 'tid-1', targetUrl: 'https://tid-1.ngrok.debugg.ai/' };
+    const withTunnel = { ...ctx, tunnelId: 'tid-1', targetUrl: 'https://tid-1.tunnel.debugg.ai/' };
     const mockHandle = { port: 3000, callId: 'call-1', release: jest.fn() };
     const mockAcquire = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(mockHandle);
     mockGetTunnelInfo.mockReturnValueOnce({ tunnelId: 'tid-1', portLock: { acquire: mockAcquire } });
@@ -243,7 +244,7 @@ describe('acquirePortRoute', () => {
     expect(result.routeLock).toBe(mockHandle);
     // Original ctx fields preserved.
     expect(result.tunnelId).toBe('tid-1');
-    expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai/');
+    expect(result.targetUrl).toBe('https://tid-1.tunnel.debugg.ai/');
   });
 
   test('https localhost ctx: passes isHttpsLocal:true through to portLock.acquire', async () => {
@@ -323,7 +324,7 @@ describe('releaseTunnel', () => {
     const ctx = buildContext('http://localhost:3000');
     mockEnsureSessionTunnel.mockResolvedValueOnce({
       tunnelId: 'tid-1',
-      tunnelUrl: 'https://tid-1.ngrok.debugg.ai',
+      tunnelUrl: 'https://tid-1.tunnel.debugg.ai',
     });
     const enriched = await ensureTunnel(ctx, 'key-1', 'tid-1');
 
@@ -338,13 +339,13 @@ describe('releaseTunnel', () => {
 describe('sanitizeResponseUrls', () => {
   test('non-localhost ctx: returns value unchanged', () => {
     const ctx = buildContext('https://example.com');
-    const value = 'Visit https://abc.ngrok.debugg.ai/page';
+    const value = 'Visit https://abc.tunnel.debugg.ai/page';
     expect(sanitizeResponseUrls(value, ctx)).toBe(value);
   });
 
-  test('localhost ctx: replaces ngrok URL with localhost origin in string', () => {
+  test('localhost ctx: replaces the tunnel URL with the localhost origin in a string', () => {
     const ctx = buildContext('http://localhost:3000');
-    const value = 'Visit https://abc.ngrok.debugg.ai/page for details';
+    const value = 'Visit https://abc.tunnel.debugg.ai/page for details';
     const result = sanitizeResponseUrls(value, ctx);
     expect(result).toBe('Visit http://localhost:3000/page for details');
   });
@@ -352,9 +353,9 @@ describe('sanitizeResponseUrls', () => {
   test('localhost ctx: handles nested object', () => {
     const ctx = buildContext('http://localhost:3000');
     const value = {
-      url: 'https://xyz.ngrok.debugg.ai/api',
+      url: 'https://xyz.tunnel.debugg.ai/api',
       nested: {
-        link: 'https://xyz.ngrok.debugg.ai/other',
+        link: 'https://xyz.tunnel.debugg.ai/other',
       },
     };
     const result = sanitizeResponseUrls(value, ctx) as any;
@@ -364,7 +365,7 @@ describe('sanitizeResponseUrls', () => {
 
   test('localhost ctx: handles array values', () => {
     const ctx = buildContext('http://localhost:3000');
-    const value = ['https://abc.ngrok.debugg.ai', 'plain text'];
+    const value = ['https://abc.tunnel.debugg.ai', 'plain text'];
     const result = sanitizeResponseUrls(value, ctx) as string[];
     expect(result[0]).toBe('http://localhost:3000');
     expect(result[1]).toBe('plain text');
@@ -389,7 +390,7 @@ describe('retargetAuxiliaryUrl (bead go1m)', () => {
     originalUrl: 'http://localhost:3011/projects/x/validation',
     isLocalhost: true,
     tunnelId: 'tid-abc',
-    targetUrl: 'https://tid-abc.ngrok.debugg.ai/projects/x/validation',
+    targetUrl: 'https://tid-abc.tunnel.debugg.ai/projects/x/validation',
   };
 
   test('localhost entryUrl is retargeted to the TUNNEL host, never 127.0.0.1', () => {
@@ -398,11 +399,11 @@ describe('retargetAuxiliaryUrl (bead go1m)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('unreachable');
     expect(result.rewritten).toBe(true);
-    expect(new URL(result.url).host).toBe('tid-abc.ngrok.debugg.ai');
+    expect(new URL(result.url).host).toBe('tid-abc.tunnel.debugg.ai');
     // The regression itself: no form of loopback may survive into what the
     // remote browser is told to navigate.
     expect(result.url).not.toMatch(/localhost|127\.0\.0\.1/);
-    expect(result.url).toBe('https://tid-abc.ngrok.debugg.ai/login');
+    expect(result.url).toBe('https://tid-abc.tunnel.debugg.ai/login');
   });
 
   test('127.0.0.1 entryUrl is retargeted too (same defect, other spelling)', () => {
@@ -410,7 +411,7 @@ describe('retargetAuxiliaryUrl (bead go1m)', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('unreachable');
-    expect(new URL(result.url).host).toBe('tid-abc.ngrok.debugg.ai');
+    expect(new URL(result.url).host).toBe('tid-abc.tunnel.debugg.ai');
     expect(result.url).not.toMatch(/localhost|127\.0\.0\.1/);
   });
 
@@ -423,7 +424,7 @@ describe('retargetAuxiliaryUrl (bead go1m)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('unreachable');
     const parsed = new URL(result.url);
-    expect(parsed.host).toBe('tid-abc.ngrok.debugg.ai');
+    expect(parsed.host).toBe('tid-abc.tunnel.debugg.ai');
     expect(parsed.pathname).toBe('/projects/p1/validation');
     // Every supplied param has to reach the browser — dropping one silently
     // verifies a different page than the caller asked for (cf. bead zf4g).

@@ -579,15 +579,6 @@ export class DebuggAIServerClient  {
     };
   }
 
-  /**
-   * Revoke an ngrok API key by its key ID.
-   * Call this after workflow execution completes to clean up the short-lived key.
-   */
-  public async revokeNgrokKey(ngrokKeyId: string): Promise<void> {
-    if (!this.tx) throw new Error('Client not initialized — call init() first');
-    await this.tx.post('api/v1/ngrok/revoke/', { ngrokKeyId });
-  }
-
   // ── E2E Suite Management ──────────────────────────────────────────────────
 
   public async createTestSuite(input: {
