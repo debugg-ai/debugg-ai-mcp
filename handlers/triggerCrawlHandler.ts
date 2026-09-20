@@ -21,7 +21,7 @@ import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
-import { TunnelProvisionError } from '../services/tunnels.js';
+import { TunnelProvisionError, type TunnelProvision } from '../services/tunnels.js';
 import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
@@ -82,7 +82,7 @@ export async function triggerCrawlHandler(
 
   const originalUrl = resolveTargetUrl(input);
   let ctx = buildContext(originalUrl);
-  let keyId: string | undefined;
+  let provision: TunnelProvision | undefined;
 
   // Bead 56kd.7: cancellation is driven by the MCP request/transport lifecycle
   // (context.signal), NOT process.stdin. The SDK aborts context.signal when the
@@ -147,13 +147,14 @@ export async function triggerCrawlHandler(
               `(Detail: ${msg})${diag}`,
             );
           }
-          keyId = tunnel.keyId;
+          provision = tunnel;
           ctx = await ensureTunnel(
             ctx,
             tunnel.tunnelKey,
             tunnel.tunnelId,
             tunnel.keyId,
-            () => client.revokeNgrokKey(tunnel.keyId),
+            () => client.tunnels!.revoke(tunnel),
+            tunnel,
           );
         }
 
@@ -201,7 +202,7 @@ export async function triggerCrawlHandler(
             // owned path already revokes it; if we kept the tunnel, the key is that
             // live tunnel's own credential and revoking it would kill what we just
             // decided to preserve.
-            keyId = undefined;
+            provision = undefined;
             return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
           }
         }
@@ -401,9 +402,10 @@ export async function triggerCrawlHandler(
     releasePortRoute(ctx);
     // Tunnel intentionally NOT torn down (reuse path per bead vwd).
     // If tunnel creation failed after key provision, revoke the orphaned key.
-    if (!ctx.tunnelId && keyId) {
-      client.revokeNgrokKey(keyId).catch(err =>
-        logger.warn(`Failed to revoke unused ngrok key ${keyId}: ${err}`),
+    if (!ctx.tunnelId && provision) {
+      const orphan = provision;
+      client.tunnels!.revoke(orphan).catch(err =>
+        logger.warn(`Failed to revoke unused tunnel ${orphan.tunnelId}: ${err}`),
       );
     }
   }

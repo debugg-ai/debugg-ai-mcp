@@ -1,0 +1,266 @@
+{
+  "$format": "Every vector here must make decodeFrame throw ProtocolError (code PROTOCOL_ERROR). Same byte encoding as frames.json.",
+  "protocolVersion": 1,
+  "spec": "bead debugg_ai_mcp-xkoh.1.2",
+  "vectors": [
+    {
+      "name": "empty message",
+      "hex": "",
+      "error": "PROTOCOL_ERROR",
+      "why": "shorter than the 5 byte header"
+    },
+    {
+      "name": "header truncated to 4 bytes",
+      "hex": "01000000",
+      "error": "PROTOCOL_ERROR",
+      "why": "shorter than the 5 byte header"
+    },
+    {
+      "name": "type 0x00",
+      "hex": "000000000100",
+      "error": "PROTOCOL_ERROR",
+      "why": "type 0 is reserved"
+    },
+    {
+      "name": "unknown type 0x0b",
+      "hex": "0b0000000100",
+      "error": "PROTOCOL_ERROR",
+      "why": "unknown frame type"
+    },
+    {
+      "name": "unknown type 0xff",
+      "hex": "ff0000000100",
+      "error": "PROTOCOL_ERROR",
+      "why": "unknown frame type"
+    },
+    {
+      "name": "DATA with empty payload",
+      "hex": "0200000001",
+      "error": "PROTOCOL_ERROR",
+      "why": "DATA carries 1..65536 bytes"
+    },
+    {
+      "name": "DATA on stream 0",
+      "hex": "020000000000",
+      "error": "PROTOCOL_ERROR",
+      "why": "stream id 0 is reserved"
+    },
+    {
+      "name": "END with a payload",
+      "hex": "030000000100",
+      "error": "PROTOCOL_ERROR",
+      "why": "END has no payload"
+    },
+    {
+      "name": "END on stream 0",
+      "hex": "0300000000",
+      "error": "PROTOCOL_ERROR",
+      "why": "stream id 0 is reserved"
+    },
+    {
+      "name": "RST payload too short",
+      "hex": "040000000101",
+      "error": "PROTOCOL_ERROR",
+      "why": "RST is exactly 2 bytes"
+    },
+    {
+      "name": "RST payload too long",
+      "hex": "0400000001000102",
+      "error": "PROTOCOL_ERROR",
+      "why": "RST is exactly 2 bytes"
+    },
+    {
+      "name": "RST on stream 0",
+      "hex": "04000000000002",
+      "error": "PROTOCOL_ERROR",
+      "why": "stream id 0 is reserved"
+    },
+    {
+      "name": "WINDOW increment 0",
+      "hex": "050000000100000000",
+      "error": "PROTOCOL_ERROR",
+      "why": "a zero increment grants nothing"
+    },
+    {
+      "name": "WINDOW increment above 2^31-1",
+      "hex": "050000000180000000",
+      "error": "PROTOCOL_ERROR",
+      "why": "increment exceeds MAX_WINDOW"
+    },
+    {
+      "name": "WINDOW payload too short",
+      "hex": "0500000001000001",
+      "error": "PROTOCOL_ERROR",
+      "why": "WINDOW is exactly 4 bytes"
+    },
+    {
+      "name": "WINDOW on stream 0",
+      "hex": "050000000000000001",
+      "error": "PROTOCOL_ERROR",
+      "why": "stream id 0 is reserved"
+    },
+    {
+      "name": "PING payload too short",
+      "hex": "060000000001020304050607",
+      "error": "PROTOCOL_ERROR",
+      "why": "PING nonce is exactly 8 bytes"
+    },
+    {
+      "name": "PING on a stream id",
+      "hex": "06000000010102030405060708",
+      "error": "PROTOCOL_ERROR",
+      "why": "PING is a session frame: stream id must be 0"
+    },
+    {
+      "name": "PONG payload too long",
+      "hex": "0700000000010203040506070809",
+      "error": "PROTOCOL_ERROR",
+      "why": "PONG nonce is exactly 8 bytes"
+    },
+    {
+      "name": "GOAWAY payload too short",
+      "hex": "080000000000",
+      "error": "PROTOCOL_ERROR",
+      "why": "GOAWAY starts with a u16 code"
+    },
+    {
+      "name": "GOAWAY on a stream id",
+      "hex": "08000000010005",
+      "error": "PROTOCOL_ERROR",
+      "why": "GOAWAY is a session frame: stream id must be 0"
+    },
+    {
+      "name": "GOAWAY reason is not valid UTF-8",
+      "hex": "08000000000005ff",
+      "error": "PROTOCOL_ERROR",
+      "why": "reason must be UTF-8"
+    },
+    {
+      "name": "OPEN on stream 0",
+      "hex": "01000000007b226b696e64223a2268747470227d",
+      "error": "PROTOCOL_ERROR",
+      "why": "stream id 0 is reserved"
+    },
+    {
+      "name": "OPEN with empty payload",
+      "hex": "0100000001",
+      "error": "PROTOCOL_ERROR",
+      "why": "OPEN carries a JSON object"
+    },
+    {
+      "name": "OPEN with malformed JSON",
+      "hex": "01000000017b",
+      "error": "PROTOCOL_ERROR",
+      "why": "payload must parse as JSON"
+    },
+    {
+      "name": "OPEN with a JSON array",
+      "hex": "01000000015b5d",
+      "error": "PROTOCOL_ERROR",
+      "why": "payload must be a JSON object"
+    },
+    {
+      "name": "OPEN with JSON null",
+      "hex": "01000000016e756c6c",
+      "error": "PROTOCOL_ERROR",
+      "why": "payload must be a JSON object"
+    },
+    {
+      "name": "OPEN with a non-string kind",
+      "hex": "01000000017b226b696e64223a317d",
+      "error": "PROTOCOL_ERROR",
+      "why": "a known field with the wrong type is fatal"
+    },
+    {
+      "name": "OPEN with an over-long requestId",
+      "hex": "01000000017b226b696e64223a2268747470222c22726571756573744964223a22727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272727272227d",
+      "error": "PROTOCOL_ERROR",
+      "why": "requestId is at most 128 chars"
+    },
+    {
+      "name": "OPEN payload is not valid UTF-8",
+      "hex": "0100000001ff",
+      "error": "PROTOCOL_ERROR",
+      "why": "payload must be UTF-8"
+    },
+    {
+      "name": "PROBE on stream 0",
+      "hex": "09000000007b2270617468223a222f227d",
+      "error": "PROTOCOL_ERROR",
+      "why": "probe id 0 is reserved"
+    },
+    {
+      "name": "PROBE without a path",
+      "hex": "09000000017b7d",
+      "error": "PROTOCOL_ERROR",
+      "why": "path is required"
+    },
+    {
+      "name": "PROBE with an absolute URL instead of a path",
+      "hex": "09000000017b2270617468223a22687474703a2f2f3136392e3235342e3136392e3235342f6c61746573742f6d6574612d646174612f227d",
+      "error": "PROTOCOL_ERROR",
+      "why": "path must start with \"/\" — a probe can never be pointed elsewhere"
+    },
+    {
+      "name": "PROBE_RESULT without elapsedMs",
+      "hex": "0a000000017b22737461747573223a3230307d",
+      "error": "PROTOCOL_ERROR",
+      "why": "elapsedMs is required"
+    },
+    {
+      "name": "PROBE_RESULT with a status below 100",
+      "hex": "0a000000017b22737461747573223a39392c22656c61707365644d73223a317d",
+      "error": "PROTOCOL_ERROR",
+      "why": "status must be 100..599"
+    },
+    {
+      "name": "PROBE_RESULT with a status above 599",
+      "hex": "0a000000017b22737461747573223a3630302c22656c61707365644d73223a317d",
+      "error": "PROTOCOL_ERROR",
+      "why": "status must be 100..599"
+    },
+    {
+      "name": "PROBE_RESULT with a negative elapsedMs",
+      "hex": "0a000000017b22656c61707365644d73223a2d317d",
+      "error": "PROTOCOL_ERROR",
+      "why": "elapsedMs must be a finite number >= 0"
+    },
+    {
+      "name": "PROBE_RESULT on stream 0",
+      "hex": "0a000000007b22656c61707365644d73223a317d",
+      "error": "PROTOCOL_ERROR",
+      "why": "probe id 0 is reserved"
+    },
+    {
+      "name": "DATA one byte over the payload limit",
+      "hexPrefix": "0200000001",
+      "fill": {
+        "byte": "ab",
+        "count": 65537
+      },
+      "error": "PROTOCOL_ERROR",
+      "why": "MAX_DATA_PAYLOAD is 65536"
+    },
+    {
+      "name": "GOAWAY reason one byte over the limit",
+      "hexPrefix": "08000000000005",
+      "fill": {
+        "byte": "61",
+        "count": 1025
+      },
+      "error": "PROTOCOL_ERROR",
+      "why": "MAX_GOAWAY_REASON_BYTES is 1024"
+    },
+    {
+      "name": "OPEN JSON one byte over the limit",
+      "hexPrefix": "01000000017b22706164223a22",
+      "fill": {
+        "byte": "78",
+        "count": 16375
+      },
+      "hexSuffix": "227d",
+      "error": "PROTOCOL_ERROR",
+      "why": "MAX_JSON_PAYLOAD is 16384; 8 + 16375 + 2 = 16385"
+    }
+  ]
+}

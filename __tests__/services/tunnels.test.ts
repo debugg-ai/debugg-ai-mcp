@@ -36,12 +36,20 @@ describe('provision()', () => {
 
     const result = await service.provision();
 
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', { purpose: 'workflow' });
+    // The body also advertises the transports this client speaks, and the
+    // result carries the transport the backend picked. A response with no
+    // `transport` is an old backend and means ngrok — see
+    // __tests__/services/tunnels.transport.test.ts (bead debugg_ai_mcp-xkoh.5).
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+      purpose: 'workflow',
+      transports: ['debugg', 'ngrok'],
+    });
     expect(result).toEqual({
       tunnelId: 'tun-123',
       tunnelKey: 'key-abc',
       keyId: 'kid-456',
       expiresAt: '2026-03-01T00:00:00Z',
+      transport: 'ngrok',
     });
   });
 
@@ -50,7 +58,10 @@ describe('provision()', () => {
 
     await service.provision('live_session');
 
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', { purpose: 'live_session' });
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+      purpose: 'live_session',
+      transports: ['debugg', 'ngrok'],
+    });
   });
 
   test('no args: defaults to "workflow" purpose', async () => {
@@ -58,7 +69,10 @@ describe('provision()', () => {
 
     await service.provision();
 
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', { purpose: 'workflow' });
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+      purpose: 'workflow',
+      transports: ['debugg', 'ngrok'],
+    });
   });
 
   test('response missing tunnelId: throws TunnelProvisionError with retryable:false', async () => {
@@ -318,8 +332,14 @@ describe('provisionWithRetry()', () => {
       backoffMs: [1],
     });
 
-    expect(mockPost).toHaveBeenNthCalledWith(1, 'api/v1/tunnels/', { purpose: 'live_session' });
-    expect(mockPost).toHaveBeenNthCalledWith(2, 'api/v1/tunnels/', { purpose: 'live_session' });
+    expect(mockPost).toHaveBeenNthCalledWith(1, 'api/v1/tunnels/', {
+      purpose: 'live_session',
+      transports: ['debugg', 'ngrok'],
+    });
+    expect(mockPost).toHaveBeenNthCalledWith(2, 'api/v1/tunnels/', {
+      purpose: 'live_session',
+      transports: ['debugg', 'ngrok'],
+    });
   });
 
   test('backoff: attempts sleep with the i-th backoff value (500ms default schedule)', async () => {

@@ -11,6 +11,7 @@
 import { tunnelManager, getSessionKey } from '../services/ngrok/tunnelManager.js';
 import { isLocalhostUrl, replaceTunnelUrls, retargetTunnelUrl, extractLocalhostPort } from './urlParser.js';
 import type { PortRouteHandle, PortWaitInfo } from '../services/caddy/portLock.js';
+import type { TunnelTransportSelection } from '../services/tunnel/transport.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -85,7 +86,10 @@ export function findExistingTunnel(ctx: TunnelContext): TunnelContext | null {
  * @param tunnelId  - ID to use as the ngrok subdomain (only takes effect the
  *                    first time this session creates a tunnel)
  * @param keyId     - Backend key ID; stored on the tunnel so it is revoked on stop
- * @param revokeKey - Callback that revokes the backend key (called when tunnel stops)
+ * @param revokeKey - Callback that revokes the backend tunnel (called when tunnel stops)
+ * @param selection - The provision response's transport fields. Omitted means
+ *                    ngrok, which is what an old backend implies, so every
+ *                    existing caller keeps its meaning.
  */
 export async function ensureTunnel(
   ctx: TunnelContext,
@@ -93,10 +97,13 @@ export async function ensureTunnel(
   tunnelId: string,
   keyId?: string,
   revokeKey?: () => Promise<void>,
+  selection?: TunnelTransportSelection,
 ): Promise<TunnelContext> {
   if (!ctx.isLocalhost) return ctx;
 
-  const info = await tunnelManager.ensureSessionTunnel(getSessionKey(), tunnelKey, tunnelId, keyId, revokeKey);
+  const info = await tunnelManager.ensureSessionTunnel(
+    getSessionKey(), tunnelKey, tunnelId, keyId, revokeKey, selection,
+  );
   return { ...ctx, tunnelId: info.tunnelId, targetUrl: retargetTunnelUrl(info.tunnelUrl, ctx.originalUrl) };
 }
 

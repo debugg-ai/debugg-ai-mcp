@@ -166,8 +166,10 @@ describe('ensureTunnel', () => {
     });
 
     const result = await ensureTunnel(ctx, 'key-1', 'tid-1');
+    // The trailing argument is the provision's transport selection; omitted
+    // here, which is what "no transport in the response" (ngrok) looks like.
     expect(mockEnsureSessionTunnel).toHaveBeenCalledWith(
-      'sess-fixed', 'key-1', 'tid-1', undefined, undefined
+      'sess-fixed', 'key-1', 'tid-1', undefined, undefined, undefined
     );
     expect(result.tunnelId).toBe('tid-1');
     expect(result.targetUrl).toBe('https://tid-1.ngrok.debugg.ai/');
@@ -194,7 +196,7 @@ describe('ensureTunnel', () => {
     await ensureTunnel(ctx, 'key-1', 'tid-1', 'kid-1', revokeKey);
 
     expect(mockEnsureSessionTunnel).toHaveBeenCalledWith(
-      'sess-fixed', 'key-1', 'tid-1', 'kid-1', revokeKey
+      'sess-fixed', 'key-1', 'tid-1', 'kid-1', revokeKey, undefined
     );
   });
 

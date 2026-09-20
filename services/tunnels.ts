@@ -6,12 +6,28 @@
 
 import { AxiosTransport } from '../utils/axiosTransport.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import {
+  isValidTunnelDomain,
+  registerTunnelDomain,
+  type TunnelTransportKind,
+} from '../utils/tunnelDomains.js';
 
 export interface TunnelProvision {
   tunnelId: string;
   tunnelKey: string;
   keyId: string;
   expiresAt: string;
+  /**
+   * Which tunnel client to use. The backend picks it per request behind a flag,
+   * so rollout and rollback need no MCP release. A response with no `transport`
+   * is an OLD BACKEND and means ngrok — that default is what keeps a new client
+   * working against a backend that has never heard of this field.
+   */
+  transport: TunnelTransportKind;
+  /** debugg only: the control websocket endpoint. */
+  relayUrl?: string;
+  /** debugg only: the hostname suffix the tunnel is served on. */
+  tunnelDomain?: string;
 }
 
 export interface ProvisionRetryOptions {
@@ -26,6 +42,12 @@ export interface ProvisionRetryOptions {
 
 export interface TunnelsService {
   provision(purpose?: string): Promise<TunnelProvision>;
+  /**
+   * Revoke a provisioned tunnel through the endpoint its transport uses:
+   * ngrok keys through `api/v1/ngrok/revoke/`, debugg tunnels through
+   * `api/v1/tunnels/<tunnelId>/revoke/`. Call sites do not have to know which.
+   */
+  revoke(provision: Pick<TunnelProvision, 'tunnelId' | 'keyId' | 'transport'>): Promise<void>;
   /**
    * Provision with automatic retry on transient failures (bead 7nx).
    * Retries only when the classified error has retryable:true (5xx, 408, 429,
@@ -119,6 +141,23 @@ export function classifyProvisionError(err: unknown): TunnelProvisionError {
 const DEFAULT_BACKOFF_MS = [500, 1500, 3000];
 const DEFAULT_MAX_ATTEMPTS = 3;
 
+/** The transports this client can actually drive, best first. */
+export const SUPPORTED_TRANSPORTS: readonly TunnelTransportKind[] = Object.freeze(['debugg', 'ngrok']);
+
+/** A relay URL must be wss, except against a loopback backend (local dev, tests). */
+function isAcceptableRelayUrl(relayUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(relayUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol === 'wss:') return true;
+  if (url.protocol !== 'ws:') return false;
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
 export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
   async function provision(purpose = 'workflow'): Promise<TunnelProvision> {
     let response;
@@ -128,7 +167,10 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
         tunnelKey: string;
         keyId: string;
         expiresAt: string;
-      }>('api/v1/tunnels/', { purpose });
+        transport?: string;
+        relayUrl?: string;
+        tunnelDomain?: string;
+      }>('api/v1/tunnels/', { purpose, transports: [...SUPPORTED_TRANSPORTS] });
     } catch (err) {
       throw classifyProvisionError(err);
     }
@@ -140,12 +182,69 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
       });
     }
 
-    return {
+    // No `transport` means an old backend that predates negotiation, which only
+    // ever hands out ngrok keys.
+    const transport = (response.transport ?? 'ngrok') as TunnelTransportKind;
+    if (!SUPPORTED_TRANSPORTS.includes(transport)) {
+      throw new TunnelProvisionError({
+        message:
+          `Tunnel provisioning selected transport "${response.transport}", which this client cannot speak ` +
+          `(it offered ${SUPPORTED_TRANSPORTS.join(', ')}). Update @debugg-ai/debugg-ai-mcp.`,
+        retryable: false,
+      });
+    }
+
+    const result: TunnelProvision = {
       tunnelId: response.tunnelId,
       tunnelKey: response.tunnelKey,
       keyId: response.keyId,
       expiresAt: response.expiresAt,
+      transport,
     };
+
+    if (transport === 'debugg') {
+      // Every one of these is non-retryable: retrying cannot turn a malformed
+      // response into a usable one, and TunnelManager must never be handed a
+      // debugg token with nowhere to send it.
+      if (!response.relayUrl || !response.tunnelDomain) {
+        throw new TunnelProvisionError({
+          message: 'Tunnel provisioning selected the debugg transport but omitted relayUrl or tunnelDomain',
+          retryable: false,
+        });
+      }
+      if (!isAcceptableRelayUrl(response.relayUrl)) {
+        throw new TunnelProvisionError({
+          message:
+            `Tunnel provisioning returned a relayUrl that is not wss (${response.relayUrl}); ` +
+            'refusing to send the tunnel key over it',
+          retryable: false,
+        });
+      }
+      if (!isValidTunnelDomain(response.tunnelDomain)) {
+        throw new TunnelProvisionError({
+          message: `Tunnel provisioning returned an unusable tunnelDomain (${response.tunnelDomain})`,
+          retryable: false,
+        });
+      }
+      // Registering it here is what stops a tunnel URL leaking: everything that
+      // recognises or rewrites a tunnel hostname reads this same registry, so a
+      // domain the backend moves to is covered the moment it is handed to us.
+      registerTunnelDomain(response.tunnelDomain, 'debugg');
+      result.relayUrl = response.relayUrl;
+      result.tunnelDomain = response.tunnelDomain;
+    }
+
+    return result;
+  }
+
+  async function revoke(
+    provisionInfo: Pick<TunnelProvision, 'tunnelId' | 'keyId' | 'transport'>,
+  ): Promise<void> {
+    if (provisionInfo.transport === 'debugg') {
+      await tx.post(`api/v1/tunnels/${provisionInfo.tunnelId}/revoke/`, {});
+      return;
+    }
+    await tx.post('api/v1/ngrok/revoke/', { ngrokKeyId: provisionInfo.keyId });
   }
 
   async function provisionWithRetry(opts: ProvisionRetryOptions = {}): Promise<TunnelProvision> {
@@ -193,5 +292,5 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
     });
   }
 
-  return { provision, provisionWithRetry };
+  return { provision, provisionWithRetry, revoke };
 };

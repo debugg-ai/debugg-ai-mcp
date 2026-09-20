@@ -25,7 +25,7 @@ import { config } from '../config/index.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
-import { TunnelProvisionError } from '../services/tunnels.js';
+import { TunnelProvisionError, type TunnelProvision } from '../services/tunnels.js';
 import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
@@ -145,7 +145,10 @@ export async function probePageHandler(
   // Per-target tunnel contexts. Index aligns with input.targets[].
   const targetContexts: TunnelContext[] = [];
   // Tunnel keys we provisioned this call (for cleanup if creation fails after key acquired).
-  const acquiredKeyIds: string[] = [];
+  // The provisions this call acquired, in target order. Provisions rather than
+  // bare key ids because revoking follows the transport the backend picked
+  // (ngrok keys and debugg tunnels have different endpoints).
+  const acquiredProvisions: TunnelProvision[] = [];
 
   // Progress budget: 1 pre-flight + 1 template + 1 execute + N per-target captures + 1 done
   const TOTAL_STEPS = 3 + input.targets.length + 1;
@@ -202,7 +205,7 @@ export async function probePageHandler(
                 `(Detail: ${msg})${diag}`
               );
             }
-            acquiredKeyIds.push(tunnel.keyId);
+            acquiredProvisions.push(tunnel);
             let tunneled: TunnelContext;
             try {
               tunneled = await ensureTunnel(
@@ -210,7 +213,8 @@ export async function probePageHandler(
                 tunnel.tunnelKey,
                 tunnel.tunnelId,
                 tunnel.keyId,
-                () => client.revokeNgrokKey(tunnel.keyId),
+                () => client.tunnels!.revoke(tunnel),
+                tunnel,
               );
             } catch (tunnelError) {
               const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
@@ -533,12 +537,16 @@ export async function probePageHandler(
     // Tunnels intentionally NOT torn down — reuse pattern (bead vwd) +
     // 55-min idle auto-shutoff. Revoke only orphaned keys (we acquired the
     // key but tunnel creation failed before ensureTunnel completed).
-    for (let i = 0; i < acquiredKeyIds.length; i++) {
-      const keyId = acquiredKeyIds[i];
+    // NOTE (bead debugg_ai_mcp-xkoh.9): `tc` is undefined when ensureTunnel
+    // threw, so this condition does not fire on the very path it describes.
+    // That is a pre-existing defect with its own bead and is deliberately NOT
+    // fixed here; only the endpoint the revoke goes to changed.
+    for (let i = 0; i < acquiredProvisions.length; i++) {
+      const provision = acquiredProvisions[i];
       const tc = targetContexts[i];
-      if (tc && !tc.tunnelId && keyId) {
-        client.revokeNgrokKey(keyId).catch(err =>
-          logger.warn(`Failed to revoke unused ngrok key ${keyId}: ${err}`),
+      if (tc && !tc.tunnelId && provision) {
+        client.tunnels!.revoke(provision).catch(err =>
+          logger.warn(`Failed to revoke unused tunnel ${provision.tunnelId}: ${err}`),
         );
       }
     }

@@ -1,0 +1,342 @@
+{
+  "$format": "Conformance vectors for the debugg tunnel wire protocol. Bytes are \"hex\", or \"hexPrefix\" + \"fill\" {byte,count} + optional \"hexSuffix\" for large frames. \"frame\" is the decoded form: DATA payloads appear as \"dataHex\" or \"dataFill\", PING/PONG nonces as decimal strings. encodeFrame must produce exactly these bytes and decodeFrame must produce exactly this frame, except where \"decodeOnly\" is true (bytes a conforming peer may send that do not re-encode identically).",
+  "protocolVersion": 1,
+  "spec": "bead debugg_ai_mcp-xkoh.1.2",
+  "vectors": [
+    {
+      "name": "OPEN browser stream",
+      "frame": {
+        "type": "OPEN",
+        "streamId": 1,
+        "metadata": {
+          "kind": "http"
+        }
+      },
+      "hex": "01000000017b226b696e64223a2268747470227d"
+    },
+    {
+      "name": "OPEN with requestId",
+      "frame": {
+        "type": "OPEN",
+        "streamId": 2,
+        "metadata": {
+          "kind": "http",
+          "requestId": "req-7f3a"
+        }
+      },
+      "hex": "01000000027b226b696e64223a2268747470222c22726571756573744964223a227265712d37663361227d"
+    },
+    {
+      "name": "OPEN probe stream",
+      "frame": {
+        "type": "OPEN",
+        "streamId": 3,
+        "metadata": {
+          "kind": "probe"
+        }
+      },
+      "hex": "01000000037b226b696e64223a2270726f6265227d"
+    },
+    {
+      "name": "OPEN empty metadata",
+      "frame": {
+        "type": "OPEN",
+        "streamId": 4,
+        "metadata": {}
+      },
+      "hex": "01000000047b7d"
+    },
+    {
+      "name": "OPEN max stream id",
+      "frame": {
+        "type": "OPEN",
+        "streamId": 4294967295,
+        "metadata": {
+          "kind": "http"
+        }
+      },
+      "hex": "01ffffffff7b226b696e64223a2268747470227d"
+    },
+    {
+      "name": "DATA hello",
+      "frame": {
+        "type": "DATA",
+        "streamId": 1,
+        "dataHex": "68656c6c6f"
+      },
+      "hex": "020000000168656c6c6f"
+    },
+    {
+      "name": "DATA single zero byte",
+      "frame": {
+        "type": "DATA",
+        "streamId": 3,
+        "dataHex": "00"
+      },
+      "hex": "020000000300"
+    },
+    {
+      "name": "DATA HTTP request head",
+      "frame": {
+        "type": "DATA",
+        "streamId": 7,
+        "dataHex": "474554202f20485454502f312e310d0a486f73743a206162632e74756e6e656c2e6465627567672e61690d0a0d0a"
+      },
+      "hex": "0200000007474554202f20485454502f312e310d0a486f73743a206162632e74756e6e656c2e6465627567672e61690d0a0d0a"
+    },
+    {
+      "name": "END",
+      "frame": {
+        "type": "END",
+        "streamId": 1
+      },
+      "hex": "0300000001"
+    },
+    {
+      "name": "RST REFUSED",
+      "frame": {
+        "type": "RST",
+        "streamId": 1,
+        "code": 1
+      },
+      "hex": "04000000010001"
+    },
+    {
+      "name": "RST RESET",
+      "frame": {
+        "type": "RST",
+        "streamId": 2,
+        "code": 2
+      },
+      "hex": "04000000020002"
+    },
+    {
+      "name": "RST UPSTREAM_UNREACHABLE",
+      "frame": {
+        "type": "RST",
+        "streamId": 9,
+        "code": 6
+      },
+      "hex": "04000000090006"
+    },
+    {
+      "name": "RST unknown code is legal on the wire",
+      "frame": {
+        "type": "RST",
+        "streamId": 5,
+        "code": 65535
+      },
+      "hex": "0400000005ffff"
+    },
+    {
+      "name": "WINDOW initial window",
+      "frame": {
+        "type": "WINDOW",
+        "streamId": 1,
+        "increment": 262144
+      },
+      "hex": "050000000100040000"
+    },
+    {
+      "name": "WINDOW smallest increment",
+      "frame": {
+        "type": "WINDOW",
+        "streamId": 1,
+        "increment": 1
+      },
+      "hex": "050000000100000001"
+    },
+    {
+      "name": "WINDOW max increment",
+      "frame": {
+        "type": "WINDOW",
+        "streamId": 1,
+        "increment": 2147483647
+      },
+      "hex": "05000000017fffffff"
+    },
+    {
+      "name": "PING zero nonce",
+      "frame": {
+        "type": "PING",
+        "streamId": 0,
+        "nonce": "0"
+      },
+      "hex": "06000000000000000000000000"
+    },
+    {
+      "name": "PING nonce",
+      "frame": {
+        "type": "PING",
+        "streamId": 0,
+        "nonce": "72623859790382856"
+      },
+      "hex": "06000000000102030405060708"
+    },
+    {
+      "name": "PONG max nonce",
+      "frame": {
+        "type": "PONG",
+        "streamId": 0,
+        "nonce": "18446744073709551615"
+      },
+      "hex": "0700000000ffffffffffffffff"
+    },
+    {
+      "name": "GOAWAY going away with reason",
+      "frame": {
+        "type": "GOAWAY",
+        "streamId": 0,
+        "code": 5,
+        "reason": "deploy"
+      },
+      "hex": "080000000000056465706c6f79"
+    },
+    {
+      "name": "GOAWAY protocol error, no reason",
+      "frame": {
+        "type": "GOAWAY",
+        "streamId": 0,
+        "code": 4,
+        "reason": ""
+      },
+      "hex": "08000000000004"
+    },
+    {
+      "name": "GOAWAY revoked, non-ascii reason",
+      "frame": {
+        "type": "GOAWAY",
+        "streamId": 0,
+        "code": 7,
+        "reason": "révoqué"
+      },
+      "hex": "0800000000000772c3a9766f7175c3a9"
+    },
+    {
+      "name": "PROBE root",
+      "frame": {
+        "type": "PROBE",
+        "streamId": 1,
+        "request": {
+          "path": "/"
+        }
+      },
+      "hex": "09000000017b2270617468223a222f227d"
+    },
+    {
+      "name": "PROBE path",
+      "frame": {
+        "type": "PROBE",
+        "streamId": 2,
+        "request": {
+          "path": "/health?deep=1"
+        }
+      },
+      "hex": "09000000027b2270617468223a222f6865616c74683f646565703d31227d"
+    },
+    {
+      "name": "PROBE_RESULT ok",
+      "frame": {
+        "type": "PROBE_RESULT",
+        "streamId": 1,
+        "result": {
+          "status": 200,
+          "elapsedMs": 12
+        }
+      },
+      "hex": "0a000000017b22737461747573223a3230302c22656c61707365644d73223a31327d"
+    },
+    {
+      "name": "PROBE_RESULT upstream refused",
+      "frame": {
+        "type": "PROBE_RESULT",
+        "streamId": 2,
+        "result": {
+          "status": 502,
+          "marker": "DEBUGG_TUNNEL_UPSTREAM_REFUSED",
+          "elapsedMs": 41
+        }
+      },
+      "hex": "0a000000027b22737461747573223a3530322c226d61726b6572223a224445425547475f54554e4e454c5f555053545245414d5f52454655534544222c22656c61707365644d73223a34317d"
+    },
+    {
+      "name": "PROBE_RESULT offline",
+      "frame": {
+        "type": "PROBE_RESULT",
+        "streamId": 3,
+        "result": {
+          "status": 404,
+          "marker": "DEBUGG_TUNNEL_OFFLINE",
+          "elapsedMs": 5003
+        }
+      },
+      "hex": "0a000000037b22737461747573223a3430342c226d61726b6572223a224445425547475f54554e4e454c5f4f46464c494e45222c22656c61707365644d73223a353030337d"
+    },
+    {
+      "name": "PROBE_RESULT timeout",
+      "frame": {
+        "type": "PROBE_RESULT",
+        "streamId": 4,
+        "result": {
+          "error": "TIMEOUT",
+          "elapsedMs": 5000
+        }
+      },
+      "hex": "0a000000047b226572726f72223a2254494d454f5554222c22656c61707365644d73223a353030307d"
+    },
+    {
+      "name": "DATA max payload",
+      "frame": {
+        "type": "DATA",
+        "streamId": 1,
+        "dataFill": {
+          "byte": "ab",
+          "count": 65536
+        }
+      },
+      "hexPrefix": "0200000001",
+      "fill": {
+        "byte": "ab",
+        "count": 65536
+      }
+    },
+    {
+      "name": "OPEN drops unknown fields, including anything address-shaped",
+      "frame": {
+        "type": "OPEN",
+        "streamId": 1,
+        "metadata": {
+          "kind": "http"
+        }
+      },
+      "hex": "01000000017b226b696e64223a2268747470222c22746172676574223a2231302e302e302e353a3232222c2261646472223a223136392e3235342e3136392e323534222c22706f7274223a32327d",
+      "decodeOnly": true,
+      "note": "SSRF boundary: the decoder whitelists kind/requestId, so no address can reach the dialling code."
+    },
+    {
+      "name": "OPEN tolerates JSON whitespace",
+      "frame": {
+        "type": "OPEN",
+        "streamId": 2,
+        "metadata": {
+          "kind": "http"
+        }
+      },
+      "hex": "01000000027b20226b696e6422203a20226874747022207d",
+      "decodeOnly": true
+    },
+    {
+      "name": "PROBE_RESULT drops unknown fields",
+      "frame": {
+        "type": "PROBE_RESULT",
+        "streamId": 1,
+        "result": {
+          "status": 200,
+          "elapsedMs": 9
+        }
+      },
+      "hex": "0a000000017b22737461747573223a3230302c22656c61707365644d73223a392c226465627567223a2278227d",
+      "decodeOnly": true
+    }
+  ]
+}
