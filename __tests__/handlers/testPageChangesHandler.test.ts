@@ -739,13 +739,18 @@ describe('testPageChangesHandler — full handler flow', () => {
     const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
     expect(contextData.targetUrl).toBe('https://tid-abc.ngrok.debugg.ai/');
 
-    // ensureTunnel called with keyId and revokeKey
+    // ensureTunnel called with keyId, revokeKey AND the provision, which is
+    // the transport selection. This assertion pinned the 5-argument form
+    // until 2026-09-19, which is exactly how check_app_in_browser shipped
+    // ignoring the debugg transport: the handler kept the old call, the test
+    // kept agreeing with it, and every other handler had moved on.
     expect(mockEnsureTunnel).toHaveBeenCalledWith(
       expect.objectContaining({ isLocalhost: true }),
       'tkey-abc',
       'tid-abc',
       'kid-abc',
       expect.any(Function),
+      expect.objectContaining({ tunnelId: 'tid-abc', tunnelKey: 'tkey-abc' }),
     );
   });
 
