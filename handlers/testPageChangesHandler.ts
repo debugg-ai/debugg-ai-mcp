@@ -288,7 +288,13 @@ async function testPageChangesHandlerInner(
               tunnel.tunnelKey,
               tunnel.tunnelId,
               tunnel.keyId,
-              () => client.revokeNgrokKey(tunnel.keyId),
+              () => client.tunnels!.revoke(tunnel),
+              // The provision IS the transport selection. Omitting it here is
+              // not a no-op: ensureTunnel falls back to ngrok, so the flagship
+              // tool would keep using ngrok however the backend answered, and
+              // would revoke through the ngrok endpoint. The other three
+              // handlers pass it; this one was missed.
+              tunnel,
             );
           } catch (tunnelError) {
             const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
