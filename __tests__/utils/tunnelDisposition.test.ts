@@ -45,11 +45,21 @@ const LOCALHOST = 'http://localhost:3011/dashboard';
 
 describe('ENDPOINT_GONE_NGROK_CODES', () => {
   // Deliberately an exact-membership assertion, not a `has()` spot check. A new
-  // ngrok code must fail this test and force a decision, because the default for
+  // code must fail this test and force a decision, because the default for
   // an unrecognised code is "keep the tunnel" and getting that backwards costs
   // two billed hours per occurrence.
+  //
+  // Updated for the debugg transport (bead debugg_ai_mcp-xkoh.5.7), which is
+  // exactly the deliberate act this assertion exists to demand. The two added
+  // codes meet the inclusion criterion — served by the edge about a hostname it
+  // does not route — and the third marker, DEBUGG_TUNNEL_UPSTREAM_REFUSED, is
+  // left out for the same reason ERR_NGROK_8012 is.
   test('contains exactly the codes that PROVE the endpoint is gone', () => {
-    expect([...ENDPOINT_GONE_NGROK_CODES].sort()).toEqual(['ERR_NGROK_3200']);
+    expect([...ENDPOINT_GONE_NGROK_CODES].sort()).toEqual([
+      'DEBUGG_TUNNEL_OFFLINE',
+      'DEBUGG_TUNNEL_UNKNOWN',
+      'ERR_NGROK_3200',
+    ]);
   });
 
   test('ERR_NGROK_8012 is NOT in the allowlist — that code means the tunnel is ALIVE', () => {

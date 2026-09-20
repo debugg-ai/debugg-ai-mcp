@@ -2,7 +2,7 @@ import { RunTestSuiteInput, ToolContext, ToolResponse } from '../types/index.js'
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
-import { TunnelProvisionError } from '../services/tunnels.js';
+import { TunnelProvisionError, type TunnelProvision } from '../services/tunnels.js';
 import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
@@ -27,7 +27,7 @@ export async function runTestSuiteHandler(
   const client = new DebuggAIServerClient(config.api.key);
   await client.init();
 
-  let acquiredKeyId: string | null = null;
+  let acquiredProvision: TunnelProvision | null = null;
   let tunnelId: string | undefined;
   // Used ONLY to scope the defensive sanitizeResponseUrls call below (bead
   // debugg_ai_mcp-6cfv.7) — never fed into acquirePortRoute/PortLock. This
@@ -96,7 +96,7 @@ export async function runTestSuiteHandler(
               `Failed to provision tunnel for ${input.targetUrl}. (Detail: ${msg})${diag}`,
             );
           }
-          acquiredKeyId = tunnel.keyId;
+          acquiredProvision = tunnel;
 
           let dedicated;
           try {
@@ -104,7 +104,8 @@ export async function runTestSuiteHandler(
               ctx.originalUrl,
               tunnel.tunnelKey,
               tunnel.keyId,
-              () => client.revokeNgrokKey(tunnel.keyId),
+              () => client.tunnels!.revoke(tunnel),
+              tunnel,
             );
           } catch (tunnelError) {
             const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
@@ -173,9 +174,10 @@ export async function runTestSuiteHandler(
   } finally {
     // Tunnels are NOT torn down — reuse pattern + 55-min idle auto-shutoff.
     // Only revoke an orphaned key (acquired but tunnel creation failed).
-    if (acquiredKeyId && !tunnelId) {
-      client.revokeNgrokKey(acquiredKeyId).catch((err) =>
-        logger.warn(`Failed to revoke unused ngrok key ${acquiredKeyId}: ${err}`),
+    if (acquiredProvision && !tunnelId) {
+      const orphan = acquiredProvision;
+      client.tunnels!.revoke(orphan).catch((err) =>
+        logger.warn(`Failed to revoke unused tunnel ${orphan.tunnelId}: ${err}`),
       );
     }
   }

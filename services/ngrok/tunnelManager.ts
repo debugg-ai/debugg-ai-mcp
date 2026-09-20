@@ -31,6 +31,7 @@
  */
 
 import { Logger } from '../../utils/logger.js';
+import { config } from '../../config/index.js';
 import { Telemetry, TelemetryEvents } from '../../utils/telemetry.js';
 import { extractLocalhostPort, generateTunnelUrl } from '../../utils/urlParser.js';
 import { currentApiKey } from '../../utils/requestContext.js';
@@ -41,34 +42,35 @@ import {
   RegistryStore,
   getDefaultRegistry,
 } from './tunnelRegistry.js';
-import { startAgentSession, AgentSessionStarter } from './ngrokAgentSession.js';
+import { AgentSessionStarter } from './ngrokAgentSession.js';
 import {
   createCaddyProxy,
   isDockerEnv,
   type CaddyProxy,
 } from '../caddy/caddyProxy.js';
 import { PortLock } from '../caddy/portLock.js';
-
-let ngrokModule: any = null;
-
-async function getNgrok() {
-  if (!ngrokModule) {
-    try {
-      ngrokModule = await import('ngrok');
-    } catch (error) {
-      throw new Error(`Failed to load ngrok module: ${error}`);
-    }
-  }
-  return ngrokModule;
-}
+import {
+  createNgrokTransport,
+  type NgrokTransport,
+} from '../tunnel/ngrokTransport.js';
+import { createDebuggTransport } from '../tunnel/debuggTransport.js';
+import type {
+  TunnelTransport,
+  TunnelTransportError,
+  TunnelTransportSelection,
+} from '../tunnel/transport.js';
+import {
+  extractTunnelIdFromHost,
+  isTunnelHost,
+  type TunnelTransportKind,
+} from '../../utils/tunnelDomains.js';
 
 /**
- * Reset the cached ngrok module so the next connect() bootstraps a fresh agent.
- * Called when the last tunnel is disconnected and the agent process may have died.
+ * The hostname suffix a tunnel gets when the provision response does not name
+ * one — i.e. the ngrok path, which is every tunnel until the backend starts
+ * selecting the debugg transport.
  */
-function resetNgrokModule(): void {
-  ngrokModule = null;
-}
+const DEFAULT_TUNNEL_DOMAIN = 'ngrok.debugg.ai';
 
 const logger = new Logger({ module: 'tunnelManager' });
 
@@ -129,7 +131,9 @@ export interface TunnelInfo {
   createdAt: number;
   lastAccessedAt: number;
   autoShutoffTimer?: NodeJS.Timeout;
-  /** Backend ngrok API key ID — revoked when this tunnel stops. */
+  /** Which transport carries this tunnel. Routes disconnect, probe and telemetry. */
+  transport: TunnelTransportKind;
+  /** Backend key / tunnel ID — revoked when this tunnel stops. */
   keyId?: string;
   /** Callback to revoke the backend key on stop. */
   revokeKey?: () => Promise<void>;
@@ -149,6 +153,7 @@ export interface TunnelInfo {
  */
 interface DirectTunnelInfo {
   tunnelId: string;
+  transport: TunnelTransportKind;
   tunnelUrl: string;
   createdAt: number;
   lastAccessedAt: number;
@@ -168,7 +173,6 @@ class TunnelManager {
    *  session key join one creation instead of each minting their own (§2.3's
    *  cold-start TOCTOU fix — see ensureSessionTunnel()). */
   private pendingSessionTunnels = new Map<string, Promise<TunnelInfo>>();
-  private initialized = false;
 
   /**
    * Idle window before a tunnel auto-shuts-off. Public so timer tests can run
@@ -183,29 +187,54 @@ class TunnelManager {
    */
   public connectBackoffMs: number[] = [500, 1500];
   /**
+   * The transport implementations, keyed by the kind a provision response can
+   * select. Public and mutable in the same spirit as `caddyFactory`: a test
+   * drives a fake transport instead of a real agent or websocket.
+   *
+   * A provision response with no `transport` means ngrok, so an old backend
+   * and a new client keep working together.
+   */
+  public transports: Record<TunnelTransportKind, TunnelTransport> = {
+    ngrok: createNgrokTransport(),
+    debugg: createDebuggTransport({ clientVersion: `debugg-ai-mcp/${config.server.version}` }),
+  };
+
+  /**
    * Bead pqgj: how the ngrok agent gets started + how we learn its client
    * session is live. Overridable so tests can drive a fake agent instead of
    * spawning a real ngrok process.
+   *
+   * The pre-warm itself moved into ngrokTransport (it is ngrok-only, and the
+   * debugg path must never touch the `ngrok` package), but the seam stays here
+   * because it is public API the existing suites drive.
    */
-  public agentSessionStarter: AgentSessionStarter = startAgentSession;
+  public get agentSessionStarter(): AgentSessionStarter {
+    return (this.transports.ngrok as NgrokTransport).agentSessionStarter;
+  }
+
+  public set agentSessionStarter(starter: AgentSessionStarter) {
+    (this.transports.ngrok as NgrokTransport).agentSessionStarter = starter;
+  }
+
   /**
    * Cap on waiting for "client session established". Measured live at ~293ms;
    * this is a generous ceiling, not an expected wait. On expiry we tunnel
    * anyway and let the retry ladder handle it — a slow session must not become
    * a hang.
    */
-  public agentSessionTimeoutMs = 5000;
+  public get agentSessionTimeoutMs(): number {
+    return (this.transports.ngrok as NgrokTransport).agentSessionTimeoutMs;
+  }
+
+  public set agentSessionTimeoutMs(ms: number) {
+    (this.transports.ngrok as NgrokTransport).agentSessionTimeoutMs = ms;
+  }
   /**
    * §2.2/§2.3: one fresh `CaddyProxy` instance PER SESSION KEY, never a
    * process-wide singleton. Overridable so tests drive a fake proxy instead
    * of spawning a real `caddy` process.
    */
   public caddyFactory: () => CaddyProxy = createCaddyProxy;
-
-  /** Whether the ngrok agent's client session is established (bead pqgj). */
-  private agentSessionReady = false;
-  /** In-flight session bootstrap, so concurrent tunnels wait on one spawn. */
-  private agentSessionPromise: Promise<void> | null = null;
 
   constructor(private readonly reg: RegistryStore = getDefaultRegistry()) {
     // Bead `mdp`: sweep dead-owner entries on startup so the (now purely
@@ -247,6 +276,7 @@ class TunnelManager {
     specificTunnelId?: string,
     keyId?: string,
     revokeKey?: () => Promise<void>,
+    selection?: TunnelTransportSelection,
   ): Promise<TunnelInfo> {
     // 1. Fast path: a fully-created tunnel already exists for this session key.
     const existingId = this.sessionTunnels.get(sessionKey);
@@ -264,7 +294,7 @@ class TunnelManager {
     if (inFlight) return inFlight;
 
     // 3. First caller for this session key: claim the slot BEFORE any await.
-    const creation = this.createSessionTunnel(sessionKey, authToken, specificTunnelId, keyId, revokeKey)
+    const creation = this.createSessionTunnel(sessionKey, authToken, specificTunnelId, keyId, revokeKey, selection)
       .finally(() => { this.pendingSessionTunnels.delete(sessionKey); });
     this.pendingSessionTunnels.set(sessionKey, creation);
     return creation;
@@ -310,16 +340,21 @@ class TunnelManager {
     authToken: string,
     keyId?: string,
     revokeKey?: () => Promise<void>,
+    selection?: TunnelTransportSelection,
   ): Promise<{ url: string; tunnelId: string }> {
-    await this.ensureInitialized();
-
     const port = extractLocalhostPort(url);
     if (!port) {
       throw new Error(`acquireDedicatedTunnel: could not extract port from localhost URL: ${url}`);
     }
 
-    const tunnelId = uuidv4();
-    const tunnelDomain = `${tunnelId}.ngrok.debugg.ai`;
+    const transportKind = selection?.transport ?? 'ngrok';
+    // The ngrok path mints its own id, as it always has — an ngrok key is not
+    // bound to a hostname. A debugg token IS bound to its Tunnel record, so a
+    // client-minted uuid would be rejected with 401 and the id the backend
+    // issued must be used instead.
+    const tunnelId = selection?.tunnelId ?? uuidv4();
+    const domain = selection?.tunnelDomain ?? DEFAULT_TUNNEL_DOMAIN;
+    const tunnelDomain = `${tunnelId}.${domain}`;
     const isHttpsLocal = url.startsWith('https:');
     const inDocker = isDockerEnv();
     // NOTE: this intentionally does NOT reuse caddyProxy.ts's
@@ -352,10 +387,21 @@ class TunnelManager {
     trace.emit('acquireDedicatedTunnel.start', { port, tunnelId, hasFaultMode: !!faultMode });
 
     try {
-      const tunnelUrl = await this.connectWithRetry(localAddr, tunnelDomain, authToken, trace, faults);
+      const tunnelUrl = await this.connectWithRetry(
+        localAddr, tunnelDomain, authToken, trace, faults,
+        {
+          transport: transportKind,
+          tunnelId,
+          relayUrl: selection?.relayUrl,
+          onDead: (reason: string) => {
+            logger.error(`Dedicated tunnel ${tunnelId} reported dead by its transport (${reason}) — evicting`);
+            void this.stopTunnel(tunnelId);
+          },
+        },
+      );
       const now = Date.now();
       const info: DirectTunnelInfo = {
-        tunnelId, tunnelUrl, createdAt: now, lastAccessedAt: now, keyId, revokeKey,
+        tunnelId, transport: transportKind, tunnelUrl, createdAt: now, lastAccessedAt: now, keyId, revokeKey,
       };
       this.directTunnels.set(tunnelId, info);
       this.writeRegistryEntry(tunnelId, `dedicated:${tunnelId}`, tunnelUrl, -1);
@@ -363,8 +409,10 @@ class TunnelManager {
 
       trace.emit('acquireDedicatedTunnel.success', { tunnelId, tunnelUrl });
       logger.info(`Dedicated tunnel created: ${tunnelUrl} -> localhost:${port}`);
-      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { tunnelId, how: 'created-dedicated' });
-      return { url: generateTunnelUrl(url, tunnelId), tunnelId };
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, {
+        tunnelId, how: 'created-dedicated', transport: transportKind,
+      });
+      return { url: generateTunnelUrl(url, tunnelId, domain), tunnelId };
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       trace.emit('acquireDedicatedTunnel.fail', { message: msg.slice(0, 200) });
@@ -451,13 +499,13 @@ class TunnelManager {
     }
   }
 
+  /** True for a hostname on ANY known tunnel domain (utils/tunnelDomains.ts). */
   isTunnelUrl(url: string): boolean {
-    return url.includes('.ngrok.debugg.ai');
+    return isTunnelHost(url);
   }
 
   extractTunnelId(url: string): string | null {
-    const match = url.match(/https?:\/\/([^.]+)\.ngrok\.debugg\.ai/);
-    return match ? match[1] : null;
+    return extractTunnelIdFromHost(url);
   }
 
   getTunnelStatus(tunnelId: string): {
@@ -495,11 +543,13 @@ class TunnelManager {
     specificTunnelId?: string,
     keyId?: string,
     revokeKey?: () => Promise<void>,
+    selection?: TunnelTransportSelection,
   ): Promise<TunnelInfo> {
-    await this.ensureInitialized();
-
+    const transportKind = selection?.transport ?? 'ngrok';
     const tunnelId = specificTunnelId ?? uuidv4();
-    const tunnelDomain = `${tunnelId}.ngrok.debugg.ai`; // UNCHANGED scheme, minted ONCE per session now
+    // The hostname comes from the provision response for a debugg tunnel, and
+    // is ngrok's for everything else — minted ONCE per session either way.
+    const tunnelDomain = `${tunnelId}.${selection?.tunnelDomain ?? DEFAULT_TUNNEL_DOMAIN}`;
     const caddy = this.caddyFactory(); // NEW instance per session key — never a process-wide singleton
     const { localOrigin, adminPort } = await caddy.ensureStarted();
 
@@ -517,7 +567,21 @@ class TunnelManager {
       // no HTTPS/Docker complexity on this leg at all (Caddy runs in the same
       // host/container as the MCP server). That matrix moved entirely into
       // caddyProxy.setUpstream(), invoked per-dispatch, not per-tunnel-creation.
-      const tunnelUrl = await this.connectWithRetry(localOrigin, tunnelDomain, authToken, trace, faults);
+      const tunnelUrl = await this.connectWithRetry(
+        localOrigin, tunnelDomain, authToken, trace, faults,
+        {
+          transport: transportKind,
+          tunnelId,
+          relayUrl: selection?.relayUrl,
+          // A transport that reports the tunnel permanently gone (revoked, or
+          // auth refused on reconnect) must not leave a corpse behind for the
+          // next call to reuse: evict it exactly like a port change does.
+          onDead: (reason: string) => {
+            logger.error(`Tunnel ${tunnelId} reported dead by its transport (${reason}) — evicting`);
+            void this.stopTunnel(tunnelId);
+          },
+        },
+      );
 
       const now = Date.now();
       const portLock = new PortLock((t) => caddy.setUpstream(t));
@@ -529,12 +593,14 @@ class TunnelManager {
         // call. stopTunnel() never throws (its unconditional-removal
         // contract, above), so this needs no defensive .catch() of its own.
         logger.error(`Caddy proxy port changed under session ${sessionKey} — evicting tunnel ${tunnelId}`);
-        Telemetry.capture(TelemetryEvents.TUNNEL_EVICTED_PORT_CHANGED, { tunnelId, sessionKey });
+        Telemetry.capture(TelemetryEvents.TUNNEL_EVICTED_PORT_CHANGED, {
+          tunnelId, sessionKey, transport: transportKind,
+        });
         void this.stopTunnel(tunnelId);
       });
 
       const info: TunnelInfo = {
-        tunnelId, sessionKey, tunnelUrl, createdAt: now, lastAccessedAt: now,
+        tunnelId, sessionKey, transport: transportKind, tunnelUrl, createdAt: now, lastAccessedAt: now,
         keyId, revokeKey, caddy, portLock,
       };
       this.activeTunnels.set(tunnelId, info);
@@ -544,7 +610,7 @@ class TunnelManager {
 
       trace.emit('createSessionTunnel.success', { tunnelId, tunnelUrl });
       logger.info(`Session tunnel created: ${tunnelUrl} (session ${sessionKey})`);
-      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { tunnelId, how: 'created' });
+      Telemetry.capture(TelemetryEvents.TUNNEL_PROVISIONED, { tunnelId, how: 'created', transport: transportKind });
       return info;
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -586,22 +652,36 @@ class TunnelManager {
     authToken: string,
     trace: TunnelTrace,
     faults: FaultInjector,
+    connectSpec: {
+      transport: TunnelTransportKind;
+      tunnelId: string;
+      relayUrl?: string;
+      onDead?: (reason: string) => void;
+    },
   ): Promise<string> {
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     const BACKOFF_MS = this.connectBackoffMs; // bead ixh: test-overridable
     const MAX_ATTEMPTS = BACKOFF_MS.length + 1; // N sleeps between N+1 attempts
+    const transport = this.transports[connectSpec.transport];
+    if (!transport) {
+      throw new Error(`No tunnel transport registered for "${connectSpec.transport}"`);
+    }
+    // Telemetry stage: the ngrok path keeps its existing value so dashboards
+    // built on it stay continuous.
+    const connectStage = transport.kind === 'ngrok' ? 'ngrok_connect' : 'debugg_connect';
     const connectOpts = {
-      proto: 'http' as const,
-      addr: localAddr,
-      hostname: tunnelDomain,
-      authtoken: authToken,
+      tunnelId: connectSpec.tunnelId,
+      relayUrl: connectSpec.relayUrl,
+      onDead: connectSpec.onDead,
     };
 
-    // Bead pqgj: pre-warm the agent session so attempt 1 doesn't race the
+    // Bead pqgj: pre-warm the agent session so attempt 1 doesn't race the ngrok
     // agent's ~293ms not-ready window (which poisons the tunnel name via
     // ngrok's own name-reusing internal retry and surfaces as
-    // "invalid tunnel configuration").
-    await this.ensureAgentSession(authToken, trace);
+    // "invalid tunnel configuration"). Transport-specific and a no-op for
+    // debugg, which has no agent to warm.
+    await transport.prepare?.(authToken);
+    trace.emit('transport.prepared', { transport: transport.kind });
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -613,24 +693,26 @@ class TunnelManager {
         await sleep(delayMs);
       }
       try {
-        const ngrok = await getNgrok();
-        // Fault-inject a synthetic failure BEFORE ngrok.connect runs so we
-        // can simulate connect-layer failures without hitting the real API.
+        // Fault-inject a synthetic failure BEFORE the transport runs so we can
+        // simulate connect-layer failures without hitting a real API.
         if (faults.shouldFailConnect()) {
           trace.emit('connect.fault.inject', { attempt, mode: 'fail-connect-N' });
           throw new Error(`[fault-inject] synthetic connect failure (attempt ${attempt})`);
         }
-        const url = faults.shouldReturnEmptyUrl() ? '' : await ngrok.connect(connectOpts);
+        const url = faults.shouldReturnEmptyUrl()
+          ? ''
+          : await transport.connect(localAddr, tunnelDomain, authToken, connectOpts);
         if (!url) {
           trace.emit('connect.attempt.empty-url', { attempt });
-          throw new Error(`ngrok.connect() returned empty URL (attempt ${attempt})`);
+          throw new Error(`${transport.kind} transport returned empty URL (attempt ${attempt})`);
         }
         trace.emit('connect.attempt.success', { attempt });
         if (attempt > 1) {
           Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
             attempt,
             outcome: 'success',
-            stage: 'ngrok_connect',
+            stage: connectStage,
+            transport: transport.kind,
           });
         }
         return url;
@@ -639,15 +721,21 @@ class TunnelManager {
         const msg = err instanceof Error ? err.message : String(err);
         trace.emit('connect.attempt.fail', { attempt, message: msg.slice(0, 200) });
 
-        // Auth-class errors are non-retryable — retrying with the same token
-        // would loop. Let the outer catch classify the message.
-        if (/authtoken|unauthorized|\b401\b|\b403\b/i.test(msg)) {
-          trace.emit('connect.giving-up', { reason: 'auth-error' });
+        // Non-retryable by construction: a transport says so for the cases
+        // where looping cannot help (401 bad/expired key, 400 bad id, 426 this
+        // build is too old). Retrying those sends the identical request.
+        const declaredTerminal = (err as TunnelTransportError)?.retryable === false;
+        // Auth-class errors are non-retryable for the same reason. Kept as a
+        // message test as well, because ngrok only ever reports them that way.
+        if (declaredTerminal || /authtoken|unauthorized|\b401\b|\b403\b/i.test(msg)) {
+          const reason = declaredTerminal ? 'transport-terminal' : 'auth-error';
+          trace.emit('connect.giving-up', { reason });
           Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
             attempt,
             outcome: 'giving-up',
-            stage: 'ngrok_connect',
-            reason: 'auth-error',
+            stage: connectStage,
+            transport: transport.kind,
+            reason,
           });
           throw err;
         }
@@ -656,7 +744,8 @@ class TunnelManager {
         Telemetry.capture(TelemetryEvents.TUNNEL_PROVISION_RETRY, {
           attempt,
           outcome: isLastAttempt ? 'giving-up' : 'will-retry',
-          stage: 'ngrok_connect',
+          stage: connectStage,
+          transport: transport.kind,
         });
 
         if (isLastAttempt) {
@@ -664,17 +753,16 @@ class TunnelManager {
           throw err;
         }
 
-        // Between attempt 1→2, do an agent-reset (covers the "agent died"
-        // failure mode that used to be the only retried case). Between 2→3,
-        // just wait — the reset already happened.
+        // Between attempt 1→2, let the transport reset itself — for ngrok that
+        // is the agent reset that covers the "agent died" failure mode, which
+        // used to be the only retried case. Between 2→3, just wait: the reset
+        // already happened. A transport with nothing to reset does nothing.
         if (attempt === 1) {
-          logger.warn(`ngrok.connect() failed (attempt 1/${MAX_ATTEMPTS}), resetting agent: ${msg}`);
+          logger.warn(`${transport.kind} connect failed (attempt 1/${MAX_ATTEMPTS}), resetting transport: ${msg}`);
           trace.emit('agent.reset');
-          resetNgrokModule();
-          this.initialized = false;
-          await this.ensureInitialized();
+          await transport.resetAfterFailedAttempt?.();
         } else {
-          logger.warn(`ngrok.connect() failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
+          logger.warn(`${transport.kind} connect failed (attempt ${attempt}/${MAX_ATTEMPTS}), will retry: ${msg}`);
         }
         const backoffMs = BACKOFF_MS[attempt - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1];
         trace.emit('connect.backoff', { attempt, backoffMs });
@@ -699,7 +787,7 @@ class TunnelManager {
     this.removeRegistryEntry(info.tunnelId);
 
     const results = await Promise.allSettled([
-      this.disconnectNgrok(info.tunnelUrl),
+      this.transports[info.transport].disconnect(info.tunnelUrl),
       info.caddy.stop(),
       info.revokeKey ? info.revokeKey() : Promise.resolve(),
     ]);
@@ -712,9 +800,11 @@ class TunnelManager {
       }
     });
 
-    this.maybeResetNgrokModule();
+    this.notifyIfNoTunnelsRemain(info.transport);
     logger.info(`Cleaned up session tunnel: ${info.tunnelUrl}`);
-    Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { tunnelId: info.tunnelId, reason: 'stopped' });
+    Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, {
+      tunnelId: info.tunnelId, reason: 'stopped', transport: info.transport,
+    });
   }
 
   private async stopDirectTunnel(info: DirectTunnelInfo): Promise<void> {
@@ -724,7 +814,7 @@ class TunnelManager {
     this.removeRegistryEntry(info.tunnelId);
 
     const results = await Promise.allSettled([
-      this.disconnectNgrok(info.tunnelUrl),
+      this.transports[info.transport].disconnect(info.tunnelUrl),
       info.revokeKey ? info.revokeKey() : Promise.resolve(),
     ]);
     results.forEach((r, i) => {
@@ -734,25 +824,28 @@ class TunnelManager {
       }
     });
 
-    this.maybeResetNgrokModule();
+    this.notifyIfNoTunnelsRemain(info.transport);
     logger.info(`Cleaned up dedicated tunnel: ${info.tunnelUrl}`);
-    Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, { tunnelId: info.tunnelId, reason: 'stopped' });
+    Telemetry.capture(TelemetryEvents.TUNNEL_STOPPED, {
+      tunnelId: info.tunnelId, reason: 'stopped', transport: info.transport,
+    });
   }
 
-  private async disconnectNgrok(tunnelUrl: string): Promise<void> {
-    const ngrok = await getNgrok();
-    await ngrok.disconnect(tunnelUrl);
-  }
-
-  /** If no tunnels of any kind remain, the ngrok agent process may have
-   *  exited. Reset module + init state so the next connect() bootstraps a
-   *  fresh agent. */
-  private maybeResetNgrokModule(): void {
-    if (this.activeTunnels.size === 0 && this.directTunnels.size === 0) {
-      logger.info('No tunnels remain — resetting ngrok module for fresh init on next request');
-      resetNgrokModule();
-      this.initialized = false;
-    }
+  /**
+   * Tell a transport when the last tunnel OF ITS KIND is gone. ngrok uses it to
+   * reset its module and init state, because the agent process may have exited
+   * with it; debugg has nothing process-wide to reset.
+   *
+   * Counted per transport, not globally: while both are in play, a debugg
+   * tunnel shutting down must not make the ngrok transport throw away a live
+   * agent that another tunnel is still using.
+   */
+  private notifyIfNoTunnelsRemain(transport: TunnelTransportKind): void {
+    const remaining = [...this.activeTunnels.values(), ...this.directTunnels.values()]
+      .some((t) => t.transport === transport);
+    if (remaining) return;
+    logger.info(`No ${transport} tunnels remain — notifying its transport`);
+    this.transports[transport].onAllTunnelsStopped?.();
   }
 
   // ── Idle timer (KEPT — minus the retired cross-process extension branch) ───
@@ -823,73 +916,6 @@ class TunnelManager {
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
-  /**
-   * Bead pqgj: make sure the ngrok agent's client session is established before
-   * we ask it for a tunnel, so attempt 1 lands on a ready agent instead of the
-   * ~293ms not-ready window that made every single run fail its first connect.
-   *
-   * Never throws: if the agent can't be pre-warmed (ngrok internals moved, slow
-   * session, dead token) we fall through and let connectWithRetry's ladder do
-   * what it did before this fix. The ladder stays a genuine safety net.
-   */
-  private async ensureAgentSession(authtoken: string, trace?: TunnelTrace): Promise<void> {
-    if (this.agentSessionReady) return;
-
-    if (!this.agentSessionPromise) {
-      this.agentSessionPromise = (async () => {
-        let markEstablished!: () => void;
-        const established = new Promise<void>((resolve) => { markEstablished = resolve; });
-
-        await this.agentSessionStarter({
-          authtoken,
-          onStatusChange: (status: string) => {
-            if (status === 'connected') {
-              this.agentSessionReady = true;
-              markEstablished();
-            } else if (status === 'closed') {
-              this.agentSessionReady = false;
-            }
-          },
-          onTerminated: () => {
-            // Agent process died — next tunnel must re-warm.
-            this.agentSessionReady = false;
-            this.agentSessionPromise = null;
-          },
-        });
-
-        let capTimer: NodeJS.Timeout | undefined;
-        const cap = new Promise<void>((resolve) => {
-          capTimer = setTimeout(resolve, this.agentSessionTimeoutMs);
-        });
-        try {
-          await Promise.race([established, cap]);
-        } finally {
-          if (capTimer) clearTimeout(capTimer);
-        }
-      })().catch((err) => {
-        // Pre-warm unavailable — not fatal, the ladder covers it.
-        this.agentSessionPromise = null;
-        const msg = err instanceof Error ? err.message : String(err);
-        trace?.emit('agent.session.prewarm-failed', { message: msg.slice(0, 200) });
-        logger.debug(`ngrok agent pre-warm unavailable, relying on connect retry ladder: ${msg}`);
-      });
-    }
-
-    await this.agentSessionPromise;
-    trace?.emit('agent.session.ready', { ready: this.agentSessionReady });
-  }
-
-  private async ensureInitialized(): Promise<void> {
-    if (!this.initialized) {
-      try {
-        const ngrok = await getNgrok();
-        ngrok.getApi();
-      } catch {
-        // ignore — let connect surface real errors
-      }
-      this.initialized = true;
-    }
-  }
 }
 
 const tunnelManager = new TunnelManager();

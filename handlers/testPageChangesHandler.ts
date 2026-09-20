@@ -18,7 +18,7 @@ import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResou
 import { DebuggAIServerClient } from '../services/index.js';
 import { getEvalTemplateSlug } from '../services/workflows.js';
 import { adaptVerdict, credentialSubstitutions } from '../services/verdictAdapter.js';
-import { TunnelProvisionError } from '../services/tunnels.js';
+import { TunnelProvisionError, type TunnelProvision } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
   buildContext,
@@ -163,7 +163,7 @@ async function testPageChangesHandlerInner(
 
   const originalUrl = resolveTargetUrl(input);
   let ctx = buildContext(originalUrl);
-  let keyId: string | undefined;
+  let provision: TunnelProvision | undefined;
 
   // Cancellation is driven by the MCP request/transport lifecycle, not
   // process.stdin. The SDK aborts context.signal when the client cancels the
@@ -281,7 +281,7 @@ async function testPageChangesHandlerInner(
               `(Detail: ${msg})${diag}`
             );
           }
-          keyId = tunnel.keyId;
+          provision = tunnel;
           try {
             ctx = await ensureTunnel(
               ctx,
@@ -350,7 +350,7 @@ async function testPageChangesHandlerInner(
             // owned path already revokes it; if we kept the tunnel, the key is that
             // live tunnel's own credential and revoking it would kill what we just
             // decided to preserve.
-            keyId = undefined;
+            provision = undefined;
             return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
           }
         }
@@ -1064,10 +1064,12 @@ async function testPageChangesHandlerInner(
     // subsequent calls to the same port and auto-shutoffs after 55 min idle.
     // Process-exit cleanup happens via stopAllTunnels() in the SIGINT/SIGTERM
     // handlers in index.ts.
-    if (!ctx.tunnelId && keyId) {
-      // Provisioned a key but tunnel creation failed — revoke the orphaned key.
-      client.revokeNgrokKey(keyId).catch(err =>
-        logger.warn(`Failed to revoke unused ngrok key ${keyId}: ${err}`)
+    if (!ctx.tunnelId && provision) {
+      // Provisioned a tunnel but creation failed — revoke it, through whichever
+      // endpoint its transport uses.
+      const orphan = provision;
+      client.tunnels!.revoke(orphan).catch(err =>
+        logger.warn(`Failed to revoke unused tunnel ${orphan.tunnelId}: ${err}`)
       );
     }
   }

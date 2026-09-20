@@ -459,6 +459,8 @@ const mockFindTemplate = jest.fn<() => Promise<any>>();
 const mockExecute = jest.fn<() => Promise<any>>();
 const mockPoll = jest.fn<() => Promise<any>>();
 const mockRevokeKey = jest.fn<() => Promise<void>>();
+/** Revoking now follows the provision's transport (ngrok key vs debugg tunnel). */
+const mockRevokeTunnel = jest.fn<(provision: any) => Promise<void>>();
 const mockInit = jest.fn<() => Promise<void>>();
 const mockFindProject = jest.fn<(repo: string) => Promise<any>>();
 
@@ -481,7 +483,7 @@ const mockImageContentBlock = jest.fn<(...args: any[]) => any>();
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
     init: mockInit,
-    tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
+    tunnels: { provision: mockProvision, provisionWithRetry: mockProvision, revoke: mockRevokeTunnel },
     workflows: {
       findEvaluationTemplate: mockFindTemplate,
       executeWorkflow: mockExecute,
@@ -608,6 +610,7 @@ function setupHappyPath(options: { isLocalhost: boolean; reuseExisting?: boolean
   mockExecute.mockResolvedValue(EXECUTE_RESPONSE);
   mockPoll.mockResolvedValue(COMPLETED_EXECUTION);
   mockRevokeKey.mockResolvedValue(undefined);
+  mockRevokeTunnel.mockResolvedValue(undefined);
   // project_id is required (bead 56kd.5) — happy path resolves a linked project.
   mockFindProject.mockResolvedValue({ uuid: 'proj-xyz', name: 'Test Project' });
 
@@ -808,11 +811,11 @@ describe('testPageChangesHandler — full handler flow', () => {
     await testPageChangesHandler(localhostInput, defaultContext);
 
     // Tunnel stays alive for reuse — handler does not tear it down
-    expect(mockRevokeKey).not.toHaveBeenCalled();
+    expect(mockRevokeTunnel).not.toHaveBeenCalled();
   });
 
-  // Test 4: provision() throws before tunnel is created — no revokeNgrokKey (keyId never set)
-  test('provision throws: revokeNgrokKey NOT called (keyId never set)', async () => {
+  // Test 4: provision() throws before tunnel is created — nothing to revoke
+  test('provision throws: revoke NOT called (no provision to revoke)', async () => {
     setupHappyPath({ isLocalhost: true });
     mockProvision.mockRejectedValue(new Error('provision failed'));
 
@@ -820,11 +823,12 @@ describe('testPageChangesHandler — full handler flow', () => {
       testPageChangesHandler(localhostInput, defaultContext)
     ).rejects.toThrow();
 
-    expect(mockRevokeKey).not.toHaveBeenCalled();
+    expect(mockRevokeTunnel).not.toHaveBeenCalled();
   });
 
-  // Test 4b: ensureTunnel throws after provision — unused key is revoked immediately
-  test('ensureTunnel throws after provision: unused key is revoked', async () => {
+  // Test 4b: ensureTunnel throws after provision — the unused tunnel is revoked
+  // immediately, through the endpoint ITS transport uses.
+  test('ensureTunnel throws after provision: unused tunnel is revoked', async () => {
     setupHappyPath({ isLocalhost: true });
     mockEnsureTunnel.mockRejectedValue(new Error('ngrok connect failed'));
 
@@ -832,8 +836,11 @@ describe('testPageChangesHandler — full handler flow', () => {
       testPageChangesHandler(localhostInput, defaultContext)
     ).rejects.toThrow();
 
-    // keyId was provisioned but tunnel was never created (ctx.tunnelId not set)
-    expect(mockRevokeKey).toHaveBeenCalledWith('kid-abc');
+    // A tunnel was provisioned but never created (ctx.tunnelId not set), so the
+    // whole provision is handed to revoke(), which routes by transport.
+    expect(mockRevokeTunnel).toHaveBeenCalledWith(
+      expect.objectContaining({ tunnelId: 'tid-abc', keyId: 'kid-abc' }),
+    );
   });
 
   // Test 5: Template not found — error thrown

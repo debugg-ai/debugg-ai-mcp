@@ -76,7 +76,22 @@ const logger = new Logger({ module: 'tunnelDisposition' });
  * a "frozen" Set still succeeds silently. Freezing the array is a real runtime
  * guarantee; the lookup Set is derived from it and kept private.
  */
-const ENDPOINT_GONE_CODES = Object.freeze(['ERR_NGROK_3200']);
+const ENDPOINT_GONE_CODES = Object.freeze([
+  'ERR_NGROK_3200',
+  // The debugg tunnel server's equivalents (bead debugg_ai_mcp-xkoh.1.2 §10).
+  // Both are served BY THE EDGE ABOUT A HOSTNAME IT DOES NOT ROUTE, which is
+  // the inclusion criterion above:
+  //   DEBUGG_TUNNEL_OFFLINE — no client is connected. Confirmed across
+  //     probeTunnelHealth's retry ladder before it gets here, because the
+  //     server renders it after a 5s grace window that a slow reconnect can
+  //     outlast.
+  //   DEBUGG_TUNNEL_UNKNOWN — unknown or revoked tunnel id. Definitive.
+  // DEBUGG_TUNNEL_UPSTREAM_REFUSED is deliberately absent: like ERR_NGROK_8012
+  // it means the TUNNEL served us that page and is alive, while the user's dev
+  // server is what refused.
+  'DEBUGG_TUNNEL_OFFLINE',
+  'DEBUGG_TUNNEL_UNKNOWN',
+]);
 const ENDPOINT_GONE_LOOKUP = new Set<string>(ENDPOINT_GONE_CODES);
 
 /** The allowlist, as an immutable list. Read-only by construction. */

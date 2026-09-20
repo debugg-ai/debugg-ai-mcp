@@ -1,0 +1,257 @@
+{
+  "$format": "Conformance vectors for the debugg tunnel websocket handshake. `requestHeaders` are as node delivers them (lowercase names). `expect` is exactly what validateHandshakeRequest must return. Check order is version (426) -> tunnel id (400) -> authorization (401).",
+  "protocolVersion": 1,
+  "supported": [1],
+  "spec": "bead debugg_ai_mcp-xkoh.1.2",
+  "vectors": [
+    {
+      "name": "valid handshake",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "3f1c8a12-1f0e-4a5b-9d33-2a6f0b7c4e11",
+        "x-debugg-tunnel-protocol": "1",
+        "x-debugg-tunnel-client-version": "debugg-ai-mcp/4.3.0"
+      },
+      "expect": {
+        "ok": true,
+        "version": 1,
+        "tunnelId": "3f1c8a12-1f0e-4a5b-9d33-2a6f0b7c4e11",
+        "tunnelKey": "tk_live_9f3a",
+        "clientVersion": "debugg-ai-mcp/4.3.0",
+        "responseHeaders": { "X-Debugg-Tunnel-Protocol": "1" }
+      }
+    },
+    {
+      "name": "valid without the optional client version",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": true,
+        "version": 1,
+        "tunnelId": "abc123",
+        "tunnelKey": "tk_live_9f3a",
+        "responseHeaders": { "X-Debugg-Tunnel-Protocol": "1" }
+      }
+    },
+    {
+      "name": "a newer client offering 2 then 1 gets 1",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "2, 1"
+      },
+      "expect": {
+        "ok": true,
+        "version": 1,
+        "tunnelId": "abc123",
+        "tunnelKey": "tk_live_9f3a",
+        "responseHeaders": { "X-Debugg-Tunnel-Protocol": "1" }
+      }
+    },
+    {
+      "name": "whitespace and unknown versions in the offer list are tolerated",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "  3 ,  1  "
+      },
+      "expect": {
+        "ok": true,
+        "version": 1,
+        "tunnelId": "abc123",
+        "tunnelKey": "tk_live_9f3a",
+        "responseHeaders": { "X-Debugg-Tunnel-Protocol": "1" }
+      }
+    },
+    {
+      "name": "the bearer scheme is case insensitive",
+      "requestHeaders": {
+        "authorization": "bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": true,
+        "version": 1,
+        "tunnelId": "abc123",
+        "tunnelKey": "tk_live_9f3a",
+        "responseHeaders": { "X-Debugg-Tunnel-Protocol": "1" }
+      }
+    },
+    {
+      "name": "unsupported version only",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "2"
+      },
+      "expect": {
+        "ok": false,
+        "status": 426,
+        "error": "UNSUPPORTED_PROTOCOL_VERSION",
+        "responseHeaders": {
+          "X-Debugg-Tunnel-Supported": "1",
+          "Content-Type": "application/json"
+        },
+        "body": { "error": "UNSUPPORTED_PROTOCOL_VERSION", "supported": [1] }
+      }
+    },
+    {
+      "name": "missing version header",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123"
+      },
+      "expect": {
+        "ok": false,
+        "status": 426,
+        "error": "UNSUPPORTED_PROTOCOL_VERSION",
+        "responseHeaders": {
+          "X-Debugg-Tunnel-Supported": "1",
+          "Content-Type": "application/json"
+        },
+        "body": { "error": "UNSUPPORTED_PROTOCOL_VERSION", "supported": [1] }
+      }
+    },
+    {
+      "name": "non-numeric version",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "v1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 426,
+        "error": "UNSUPPORTED_PROTOCOL_VERSION",
+        "responseHeaders": {
+          "X-Debugg-Tunnel-Supported": "1",
+          "Content-Type": "application/json"
+        },
+        "body": { "error": "UNSUPPORTED_PROTOCOL_VERSION", "supported": [1] }
+      }
+    },
+    {
+      "name": "version is checked before the token, so an old client is told to upgrade",
+      "requestHeaders": {
+        "x-debugg-tunnel-protocol": "9"
+      },
+      "expect": {
+        "ok": false,
+        "status": 426,
+        "error": "UNSUPPORTED_PROTOCOL_VERSION",
+        "responseHeaders": {
+          "X-Debugg-Tunnel-Supported": "1",
+          "Content-Type": "application/json"
+        },
+        "body": { "error": "UNSUPPORTED_PROTOCOL_VERSION", "supported": [1] }
+      }
+    },
+    {
+      "name": "missing tunnel id",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 400,
+        "error": "BAD_TUNNEL_ID",
+        "responseHeaders": { "Content-Type": "application/json" },
+        "body": { "error": "BAD_TUNNEL_ID" }
+      }
+    },
+    {
+      "name": "tunnel id is not a DNS label (uppercase)",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "ABC123",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 400,
+        "error": "BAD_TUNNEL_ID",
+        "responseHeaders": { "Content-Type": "application/json" },
+        "body": { "error": "BAD_TUNNEL_ID" }
+      }
+    },
+    {
+      "name": "tunnel id is not a DNS label (dot)",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc.123",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 400,
+        "error": "BAD_TUNNEL_ID",
+        "responseHeaders": { "Content-Type": "application/json" },
+        "body": { "error": "BAD_TUNNEL_ID" }
+      }
+    },
+    {
+      "name": "tunnel id longer than a DNS label",
+      "requestHeaders": {
+        "authorization": "Bearer tk_live_9f3a",
+        "x-debugg-tunnel-id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 400,
+        "error": "BAD_TUNNEL_ID",
+        "responseHeaders": { "Content-Type": "application/json" },
+        "body": { "error": "BAD_TUNNEL_ID" }
+      }
+    },
+    {
+      "name": "missing authorization",
+      "requestHeaders": {
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 401,
+        "error": "UNAUTHORIZED",
+        "responseHeaders": { "Content-Type": "application/json" },
+        "body": { "error": "UNAUTHORIZED" }
+      }
+    },
+    {
+      "name": "authorization is not a bearer token",
+      "requestHeaders": {
+        "authorization": "Token tk_live_9f3a",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 401,
+        "error": "UNAUTHORIZED",
+        "responseHeaders": { "Content-Type": "application/json" },
+        "body": { "error": "UNAUTHORIZED" }
+      }
+    },
+    {
+      "name": "empty bearer token",
+      "requestHeaders": {
+        "authorization": "Bearer ",
+        "x-debugg-tunnel-id": "abc123",
+        "x-debugg-tunnel-protocol": "1"
+      },
+      "expect": {
+        "ok": false,
+        "status": 401,
+        "error": "UNAUTHORIZED",
+        "responseHeaders": { "Content-Type": "application/json" },
+        "body": { "error": "UNAUTHORIZED" }
+      }
+    }
+  ]
+}

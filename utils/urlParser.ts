@@ -3,6 +3,8 @@
  * Helper functions for parsing and validating URLs, specifically for detecting localhost URLs
  */
 
+import { tunnelUrlPattern } from './tunnelDomains.js';
+
 /**
  * Represents a parsed URL with localhost detection
  */
@@ -105,13 +107,18 @@ export function isLocalhostUrl(urlString: string): boolean {
 }
 
 /**
- * Replace ngrok tunnel URLs with the original localhost origin in any string/object.
+ * Replace tunnel URLs with the original localhost origin in any string/object.
  * Used to sanitize backend responses that contain internal tunnel URLs before
  * returning them to callers who only know the original localhost address.
+ *
+ * Covers EVERY known tunnel domain (utils/tunnelDomains.ts), not just ngrok's:
+ * during the migration one session can hold an ngrok tunnel and another a
+ * debugg tunnel, and a domain this does not know is a hostname that leaks to
+ * the caller.
  */
 export function replaceTunnelUrls(value: unknown, localhostOrigin: string): unknown {
   if (typeof value === 'string') {
-    return value.replace(/https?:\/\/[^\s/"]+\.ngrok\.debugg\.ai/g, localhostOrigin.replace(/\/$/, ''));
+    return value.replace(tunnelUrlPattern(), localhostOrigin.replace(/\/$/, ''));
   }
   if (Array.isArray(value)) {
     return value.map(item => replaceTunnelUrls(item, localhostOrigin));

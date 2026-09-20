@@ -18,6 +18,9 @@ import { createConnection } from 'node:net';
 import { request as httpRequest, type IncomingMessage, type RequestOptions } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { Readable } from 'node:stream';
+import { tunnelDomainFor } from './tunnelDomains.js';
+import { getControlProbe } from '../services/tunnel/probeRegistry.js';
+import type { ProbeResult } from '../services/tunnel/protocol/index.js';
 
 // ─ Local port probe ──────────────────────────────────────────────────────────
 
@@ -158,7 +161,16 @@ const TRANSIENT_CAUSE_CODES = new Set([
  * other, and coupling them would make this module depend on policy it has no
  * business knowing.
  */
-const ENDPOINT_NOT_FOUND_CODES = new Set(['ERR_NGROK_3200']);
+const ENDPOINT_NOT_FOUND_CODES = new Set([
+  'ERR_NGROK_3200',
+  // The debugg analogue. The server already holds a browser request for
+  // RECONNECT_GRACE_MS (5s) while a client reconnects before rendering this,
+  // but a reconnect that outlasts the grace window would otherwise evict a
+  // tunnel that is about to come back, so confirm it across the ladder too.
+  // DEBUGG_TUNNEL_UNKNOWN is deliberately NOT here: the id is gone, and
+  // re-probing cannot change that answer.
+  'DEBUGG_TUNNEL_OFFLINE',
+]);
 
 // ─ HTTP/1.1 probe transport (bead kmzb) ──────────────────────────────────────
 
@@ -326,6 +338,18 @@ async function probeOnce(
   started: number,
 ): Promise<{ result: TunnelHealthProbeResult; retryable: boolean }> {
   const timeoutMs = opts.timeoutMs ?? 5000;
+
+  // A debugg tunnel hostname resolves only inside our VPC, so it cannot be
+  // fetched from the user's machine at all. Its health question goes over the
+  // tunnel's own control websocket instead, and the server answers it by
+  // making a REAL request through the public ingress path — same ALB, same
+  // nginx, same routing a browser takes. Everything below this branch (the
+  // retry ladder, the confirm-across-retries rule, the result shape the
+  // handlers render) is shared by both transports.
+  if (tunnelDomainFor(tunnelUrl)?.transport === 'debugg') {
+    return probeOverControlChannel(tunnelUrl, timeoutMs, started);
+  }
+
   // Bead kmzb: HTTP/1.1, not the global fetch — see http1Fetch.
   const fetchImpl = opts.fetchFn ?? http1Fetch;
   const controller = new AbortController();
@@ -434,6 +458,130 @@ async function probeOnce(
   }
 }
 
+// ─ Control-channel probe (debugg transport) ──────────────────────────────────
+
+/**
+ * Ask the tunnel server to fetch `path` back through this tunnel and report
+ * what it got. Maps PROBE_RESULT onto the same TunnelHealthProbeResult the
+ * HTTP path produces — the mapping is pinned on bead debugg_ai_mcp-xkoh.1.2 §9
+ * and must not be re-derived here.
+ */
+async function probeOverControlChannel(
+  tunnelUrl: string,
+  timeoutMs: number,
+  started: number,
+): Promise<{ result: TunnelHealthProbeResult; retryable: boolean }> {
+  const elapsed = () => Date.now() - started;
+  const probe = getControlProbe(tunnelUrl);
+
+  if (!probe) {
+    // No live control channel in this process for that hostname, and the URL
+    // is unreachable any other way. The tunnel is not coming back on its own,
+    // so report it gone and let the disposition policy clear the leftovers.
+    return {
+      retryable: false,
+      result: {
+        healthy: false,
+        code: 'NGROK_ERROR',
+        ngrokErrorCode: 'DEBUGG_TUNNEL_UNKNOWN',
+        detail: 'no live debugg tunnel session in this process for this hostname',
+        elapsedMs: elapsed(),
+      },
+    };
+  }
+
+  let probeResult: ProbeResult;
+  try {
+    probeResult = await probe(probePathOf(tunnelUrl), { timeoutMs });
+  } catch (err) {
+    // The probe API's contract is that it never throws. Belt and braces: a
+    // probe we could not run is not evidence of a fault.
+    return {
+      retryable: true,
+      result: {
+        healthy: false,
+        code: 'NETWORK_ERROR',
+        detail: err instanceof Error ? err.message : String(err),
+        elapsedMs: elapsed(),
+      },
+    };
+  }
+
+  const { status, marker, error } = probeResult;
+
+  if (marker) {
+    const notFound = ENDPOINT_NOT_FOUND_CODES.has(marker);
+    return {
+      retryable: notFound,
+      result: {
+        healthy: false,
+        status,
+        code: 'NGROK_ERROR',
+        ngrokErrorCode: marker,
+        detail: notFound
+          ? `the tunnel server returned ${marker} — no client is connected for this tunnel`
+          : `the tunnel server returned ${marker} — tunnel established but traffic could not reach the dev server`,
+        elapsedMs: elapsed(),
+      },
+    };
+  }
+
+  if (status !== undefined) {
+    if (status === 502 || status === 504) {
+      return {
+        retryable: false,
+        result: {
+          healthy: false,
+          status,
+          code: 'BAD_GATEWAY',
+          detail: `tunnel returned ${status} without an error marker — gateway is rejecting upstream`,
+          elapsedMs: elapsed(),
+        },
+      };
+    }
+    // Any other status means traffic reached the dev server, which is healthy
+    // from the TUNNEL's point of view. A user's own 404 is a user concern.
+    return { retryable: false, result: { healthy: true, status, elapsedMs: elapsed() } };
+  }
+
+  if (error === 'TIMEOUT') {
+    // Not retried, for the same reason the HTTP path does not: a hanging
+    // tunnel must not cost three times the timeout budget.
+    return {
+      retryable: false,
+      result: {
+        healthy: false,
+        code: 'TIMEOUT',
+        detail: `tunnel health probe timed out after ${timeoutMs}ms`,
+        elapsedMs: elapsed(),
+      },
+    };
+  }
+
+  // Anything else (RESET, CLOSED, ...) is a connection-level failure. It is
+  // retried, because a session that is mid-reconnect reports exactly this and
+  // recovers within the ladder.
+  return {
+    retryable: true,
+    result: {
+      healthy: false,
+      code: 'NETWORK_ERROR',
+      detail: `tunnel control channel reported ${error ?? 'an unknown failure'}`,
+      elapsedMs: elapsed(),
+    },
+  };
+}
+
+/** The path (with search) a probe should request, defaulting to root. */
+function probePathOf(tunnelUrl: string): string {
+  try {
+    const url = new URL(tunnelUrl);
+    return `${url.pathname}${url.search}` || '/';
+  } catch {
+    return '/';
+  }
+}
+
 // ─ helpers ───────────────────────────────────────────────────────────────────
 
 async function readCapped(res: Response, maxBytes: number): Promise<string> {
@@ -463,8 +611,34 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
   return out;
 }
 
+/**
+ * The debugg tunnel server's error markers, spelled out rather than matched by
+ * a `DEBUGG_TUNNEL_[A-Z_]+` pattern.
+ *
+ * A pattern would also match this repo's own `DEBUGG_TUNNEL_FAULT_MODE` env var
+ * (services/ngrok/tunnelFaultInjection.ts). This function is used on RUN
+ * EVIDENCE as well as on response bodies (testPageChangesHandler's
+ * findNgrokErrorMarker), so a log line mentioning that variable would otherwise
+ * be read as proof that the browser hit our error page, and a genuine UI
+ * failure would be reclassified as an infrastructure fault.
+ */
+const DEBUGG_TUNNEL_MARKERS = Object.freeze([
+  'DEBUGG_TUNNEL_OFFLINE',
+  'DEBUGG_TUNNEL_UNKNOWN',
+  'DEBUGG_TUNNEL_UPSTREAM_REFUSED',
+]);
+
+const MARKER_PATTERN = new RegExp(`ERR_NGROK_\\d+|${DEBUGG_TUNNEL_MARKERS.join('|')}`);
+
+/**
+ * The stable error marker a tunnel put in front of the user's app, from either
+ * transport: ngrok's `ERR_NGROK_*` or the debugg server's `DEBUGG_TUNNEL_*`.
+ *
+ * Name kept (and with it `TunnelHealthProbeResult.ngrokErrorCode` and
+ * `code: 'NGROK_ERROR'`) because handlers echo these into tool output;
+ * renaming them is part of deleting ngrok, not of adding a transport.
+ */
 export function extractNgrokErrorCode(body: string): string | undefined {
-  // ngrok error pages surface codes like "ERR_NGROK_8012", "ERR_NGROK_3200", etc.
-  const match = body.match(/ERR_NGROK_\d+/);
+  const match = body.match(MARKER_PATTERN);
   return match ? match[0] : undefined;
 }

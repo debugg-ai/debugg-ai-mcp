@@ -168,8 +168,12 @@ describe('runTestSuiteHandler', () => {
 
       expect(mockProbeLocalPort).toHaveBeenCalledWith(3011);
       expect(mockProvisionWithRetry).toHaveBeenCalled();
+      // The provision is passed through as the transport selection: a debugg
+      // tunnel's token is bound to the id the backend issued, so this path can
+      // no longer mint its own.
       expect(mockAcquireDedicatedTunnel).toHaveBeenCalledWith(
         'http://localhost:3011', 'key', 'kid', expect.any(Function),
+        expect.objectContaining({ tunnelId: 'tid' }),
       );
       expect(mockRunTestSuite).toHaveBeenCalledWith(
         SUITE_UUID,
