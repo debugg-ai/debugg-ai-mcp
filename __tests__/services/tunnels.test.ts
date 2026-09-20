@@ -29,6 +29,9 @@ describe('provision()', () => {
     tunnelKey: 'key-abc',
     keyId: 'kid-456',
     expiresAt: '2026-03-01T00:00:00Z',
+    transport: 'debugg',
+    relayUrl: 'wss://api.debugg.ai/tunnel/v1/connect',
+    tunnelDomain: 'tunnel.debugg.ai',
   };
 
   test('happy path: POSTs to correct endpoint and returns provision data', async () => {
@@ -37,19 +40,19 @@ describe('provision()', () => {
     const result = await service.provision();
 
     // The body also advertises the transports this client speaks, and the
-    // result carries the transport the backend picked. A response with no
-    // `transport` is an old backend and means ngrok — see
+    // result carries the connect details the backend issued — see
     // __tests__/services/tunnels.transport.test.ts (bead debugg_ai_mcp-xkoh.5).
     expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
       purpose: 'workflow',
-      transports: ['debugg', 'ngrok'],
+      transports: ['debugg'],
     });
     expect(result).toEqual({
       tunnelId: 'tun-123',
       tunnelKey: 'key-abc',
       keyId: 'kid-456',
       expiresAt: '2026-03-01T00:00:00Z',
-      transport: 'ngrok',
+      relayUrl: 'wss://api.debugg.ai/tunnel/v1/connect',
+      tunnelDomain: 'tunnel.debugg.ai',
     });
   });
 
@@ -60,7 +63,7 @@ describe('provision()', () => {
 
     expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
       purpose: 'live_session',
-      transports: ['debugg', 'ngrok'],
+      transports: ['debugg'],
     });
   });
 
@@ -71,7 +74,7 @@ describe('provision()', () => {
 
     expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
       purpose: 'workflow',
-      transports: ['debugg', 'ngrok'],
+      transports: ['debugg'],
     });
   });
 
@@ -118,7 +121,7 @@ describe('classifyProvisionError', () => {
   test('5xx → retryable:true, status set, request-id extracted from headers', () => {
     const raw = new Error('Service Unavailable') as any;
     raw.statusCode = 503;
-    raw.responseData = { detail: 'Service Unavailable', code: 'ngrok_api_down' };
+    raw.responseData = { detail: 'Service Unavailable', code: 'tunnel_api_down' };
     raw.responseHeaders = { 'x-request-id': 'req-abc-123' };
 
     const err = classifyProvisionError(raw);
@@ -126,9 +129,9 @@ describe('classifyProvisionError', () => {
     expect(err).toBeInstanceOf(TunnelProvisionError);
     expect(err.retryable).toBe(true);
     expect(err.status).toBe(503);
-    expect(err.code).toBe('ngrok_api_down');
+    expect(err.code).toBe('tunnel_api_down');
     expect(err.requestId).toBe('req-abc-123');
-    expect(err.diagnosticSuffix()).toBe('(status: 503, code: ngrok_api_down, request-id: req-abc-123, retryable)');
+    expect(err.diagnosticSuffix()).toBe('(status: 503, code: tunnel_api_down, request-id: req-abc-123, retryable)');
   });
 
   test('429 rate limit → retryable:true', () => {
@@ -219,6 +222,9 @@ describe('provisionWithRetry()', () => {
     tunnelKey: 'key-ok',
     keyId: 'kid-ok',
     expiresAt: '2026-03-01T00:00:00Z',
+    transport: 'debugg',
+    relayUrl: 'wss://api.debugg.ai/tunnel/v1/connect',
+    tunnelDomain: 'tunnel.debugg.ai',
   };
 
   function build5xxError(status = 503): any {
@@ -334,11 +340,11 @@ describe('provisionWithRetry()', () => {
 
     expect(mockPost).toHaveBeenNthCalledWith(1, 'api/v1/tunnels/', {
       purpose: 'live_session',
-      transports: ['debugg', 'ngrok'],
+      transports: ['debugg'],
     });
     expect(mockPost).toHaveBeenNthCalledWith(2, 'api/v1/tunnels/', {
       purpose: 'live_session',
-      transports: ['debugg', 'ngrok'],
+      transports: ['debugg'],
     });
   });
 

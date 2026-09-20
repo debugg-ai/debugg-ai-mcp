@@ -108,7 +108,7 @@ export async function triggerCrawlHandler(
   try {
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
-      // Bead 1om: pre-flight local port probe BEFORE provision/ngrok/backend.
+      // Bead 1om: pre-flight local port probe BEFORE provision/tunnel/backend.
       const localPort = extractLocalhostPort(ctx.originalUrl);
       if (typeof localPort === 'number') {
         const probe = await probeLocalPort(localPort);
@@ -188,11 +188,11 @@ export async function triggerCrawlHandler(
               detail: {
                 code: health.code,
                 status: health.status,
-                ngrokErrorCode: health.ngrokErrorCode,
+                tunnelErrorCode: health.tunnelErrorCode,
                 elapsedMs: health.elapsedMs,
               },
             };
-            logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
+            logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.tunnelErrorCode ?? ''} in ${health.elapsedMs}ms`);
             // Evict ONLY on a code proving the endpoint is gone; every other failure
             // keeps the tunnel we are already paying for, because a teardown+
             // re-provision costs two billed hours and this probe cannot tell a dead

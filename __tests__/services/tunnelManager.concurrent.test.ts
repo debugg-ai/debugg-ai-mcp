@@ -14,8 +14,8 @@
  */
 
 import { jest } from '@jest/globals';
-import TunnelManager from '../../services/ngrok/tunnelManager.js';
-import { createInMemoryRegistry } from '../../services/ngrok/tunnelRegistry.js';
+import TunnelManager from '../../services/tunnel/tunnelManager.js';
+import { createInMemoryRegistry } from '../../services/tunnel/tunnelRegistry.js';
 import { PortLock } from '../../services/caddy/portLock.js';
 import type { CaddyProxy, UpstreamTarget } from '../../services/caddy/caddyProxy.js';
 
@@ -41,7 +41,7 @@ describe('TunnelManager — one session tunnel, serialized via the real PortLock
     caddy = makeFakeCaddy();
     manager.caddyFactory = () => caddy;
 
-    // Patch createSessionTunnel so no real ngrok calls are made — spy wraps
+    // Patch createSessionTunnel so no real connects are made — spy wraps
     // the private method the same way the pre-cutover test patched
     // createTunnel, simulating async connect work and storing a TunnelInfo
     // wired to a REAL PortLock bound to the fake caddy above (mirroring
@@ -54,7 +54,7 @@ describe('TunnelManager — one session tunnel, serialized via the real PortLock
       const info = {
         tunnelId: id,
         sessionKey,
-        tunnelUrl: `https://${id}.ngrok.debugg.ai`,
+        tunnelUrl: `https://${id}.tunnel.debugg.ai`,
         createdAt: Date.now(),
         lastAccessedAt: Date.now(),
         caddy,

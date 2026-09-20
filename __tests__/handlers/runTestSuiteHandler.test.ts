@@ -6,7 +6,10 @@ const mockRunTestSuite = jest.fn<(...args: any[]) => Promise<any>>();
 const mockListTestSuites = jest.fn<(...args: any[]) => Promise<any>>();
 const mockListProjects = jest.fn<(...args: any[]) => Promise<any>>();
 const mockProvisionWithRetry = jest.fn<(...args: any[]) => Promise<any>>();
-const mockRevokeNgrokKey = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
+// The real surface the handler revokes through. The old stub only carried the
+// client-level revokeNgrokKey(), which the handler stopped calling long before
+// ngrok was deleted — so its `not.toHaveBeenCalled()` assertion was vacuous.
+const mockRevokeTunnel = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
 
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
@@ -14,8 +17,7 @@ jest.unstable_mockModule('../../services/index.js', () => ({
     runTestSuite: mockRunTestSuite,
     listTestSuites: mockListTestSuites,
     listProjects: mockListProjects,
-    tunnels: { provisionWithRetry: mockProvisionWithRetry },
-    revokeNgrokKey: mockRevokeNgrokKey,
+    tunnels: { provisionWithRetry: mockProvisionWithRetry, revoke: mockRevokeTunnel },
   })),
 }));
 
@@ -54,11 +56,11 @@ jest.unstable_mockModule('../../services/tunnels.js', () => ({
 // hours a time (see utils/tunnelDisposition.ts).
 const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any);
 const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
-// §2.3's run_test_suite exception: acquireDedicatedTunnel dials ngrok
+// §2.3's run_test_suite exception: acquireDedicatedTunnel dials the app
 // directly, bypassing Caddy/PortLock — always mints a FRESH tunnel, never
 // deduped/reused (unlike ensureSessionTunnel).
 const mockAcquireDedicatedTunnel = jest.fn<(...args: any[]) => Promise<any>>();
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: {
     stopTunnel: mockStopTunnel,
     markTunnelDead: mockMarkTunnelDead,
@@ -88,7 +90,7 @@ describe('runTestSuiteHandler', () => {
     mockProbeLocalPort.mockResolvedValue({ reachable: true, code: 'OK', elapsedMs: 5 });
     mockProbeTunnelHealth.mockResolvedValue({ healthy: true, elapsedMs: 10 });
     mockProvisionWithRetry.mockResolvedValue({ tunnelKey: 'key', tunnelId: 'tid', keyId: 'kid' });
-    mockAcquireDedicatedTunnel.mockResolvedValue({ url: 'https://abc.ngrok.io', tunnelId: 'tid' });
+    mockAcquireDedicatedTunnel.mockResolvedValue({ url: 'https://abc.tunnel.debugg.ai', tunnelId: 'tid' });
   });
 
   describe('uuid mode', () => {
@@ -177,7 +179,7 @@ describe('runTestSuiteHandler', () => {
       );
       expect(mockRunTestSuite).toHaveBeenCalledWith(
         SUITE_UUID,
-        expect.objectContaining({ targetUrl: 'https://abc.ngrok.io' }),
+        expect.objectContaining({ targetUrl: 'https://abc.tunnel.debugg.ai' }),
       );
     });
 
@@ -204,7 +206,7 @@ describe('runTestSuiteHandler', () => {
     });
 
     test('localhost targetUrl: TunnelTrafficBlocked when health probe fails', async () => {
-      mockProbeTunnelHealth.mockResolvedValue({ healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_8012', detail: 'Cannot connect to host', elapsedMs: 100 });
+      mockProbeTunnelHealth.mockResolvedValue({ healthy: false, code: 'TUNNEL_ERROR', tunnelErrorCode: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED', detail: 'Cannot connect to host', elapsedMs: 100 });
 
       const res = await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);
 
@@ -212,7 +214,7 @@ describe('runTestSuiteHandler', () => {
       const body = JSON.parse(res.content[0].text!);
       expect(body.error).toBe('TunnelTrafficBlocked');
       expect(mockRunTestSuite).not.toHaveBeenCalled();
-      // ERR_NGROK_8012 = the tunnel is ALIVE and its upstream refused. This
+      // DEBUGG_TUNNEL_UPSTREAM_REFUSED = the tunnel is ALIVE and its upstream refused. This
       // handler used to tear the tunnel down on EVERY health failure and never
       // got bead k34o at all; it now shares the allowlist with the other three.
       // A teardown plus its forced re-provision costs two billed hours.
@@ -238,12 +240,12 @@ describe('runTestSuiteHandler', () => {
       expect(mockStopTunnel).not.toHaveBeenCalled();
       // The key is NOT revoked either: it authenticates the tunnel we just kept,
       // and revoking a live tunnel's credential would kill what we preserved.
-      expect(mockRevokeNgrokKey).not.toHaveBeenCalled();
+      expect(mockRevokeTunnel).not.toHaveBeenCalled();
     });
 
-    test('localhost targetUrl: ERR_NGROK_3200 evicts the proven-dead endpoint', async () => {
+    test('localhost targetUrl: DEBUGG_TUNNEL_OFFLINE evicts the proven-dead endpoint', async () => {
       mockProbeTunnelHealth.mockResolvedValue({
-        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200',
+        healthy: false, code: 'TUNNEL_ERROR', tunnelErrorCode: 'DEBUGG_TUNNEL_OFFLINE',
         status: 404, detail: 'endpoint offline', elapsedMs: 60,
       });
 
@@ -294,9 +296,9 @@ describe('runTestSuiteHandler', () => {
     test('a tunnel hostname leaking into the backend response is stripped before returning', async () => {
       // Use a field name distinct from the handler's own fixed `note` field
       // (which always overwrites whatever the backend sent under that key).
-      mockRunTestSuite.mockResolvedValue({ ...RUN_RESPONSE, statusUrl: 'https://abc.ngrok.io/status' });
+      mockRunTestSuite.mockResolvedValue({ ...RUN_RESPONSE, statusUrl: 'https://abc.tunnel.debugg.ai/status' });
       mockSanitizeResponseUrls.mockImplementation((value: any) =>
-        JSON.parse(JSON.stringify(value).replace(/https:\/\/abc\.ngrok\.io/g, 'http://localhost:3011')),
+        JSON.parse(JSON.stringify(value).replace(/https:\/\/abc\.tunnel\.debugg\.ai/g, 'http://localhost:3011')),
       );
 
       const res = await runTestSuiteHandler({ suiteUuid: SUITE_UUID, targetUrl: 'http://localhost:3011' }, ctx);

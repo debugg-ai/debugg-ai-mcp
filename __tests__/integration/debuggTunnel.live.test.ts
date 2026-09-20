@@ -23,8 +23,8 @@ import type { AddressInfo } from 'node:net';
 
 import { AxiosTransport } from '../../utils/axiosTransport.js';
 import { createTunnelsService } from '../../services/tunnels.js';
-import { createInMemoryRegistry } from '../../services/ngrok/tunnelRegistry.js';
-import TunnelManager from '../../services/ngrok/tunnelManager.js';
+import { createInMemoryRegistry } from '../../services/tunnel/tunnelRegistry.js';
+import TunnelManager from '../../services/tunnel/tunnelManager.js';
 import { probeTunnelHealth } from '../../utils/localReachability.js';
 
 const LIVE_KEY = process.env.DEBUGGAI_LIVE_TUNNEL_API_KEY;
@@ -67,16 +67,11 @@ maybeDescribe('live debugg tunnel against a deployed backend', () => {
 
     const provision = await tunnels.provision('mcp_integration_test');
 
-    // The backend decides the transport, behind the rollout flag. If this
-    // account is not in the dark launch yet the answer is ngrok, and there is
-    // nothing here to assert — report it rather than failing a run that is
-    // correctly configured.
-    if (provision.transport !== 'debugg') {
-      // eslint-disable-next-line no-console
-      console.log(`Backend selected transport "${provision.transport}" — skipping the debugg assertions.`);
-      return;
-    }
-
+    // provision() itself now refuses anything this client cannot connect to
+    // (an ngrok selection, or a response with no relay details), so reaching
+    // here already means a usable debugg tunnel. There is no "skip because the
+    // backend chose ngrok" branch any more — that outcome is a hard failure,
+    // and a live run that hits it is telling us something real.
     expect(provision.relayUrl).toMatch(/^wss:\/\//);
     expect(provision.tunnelDomain).toContain('.');
 

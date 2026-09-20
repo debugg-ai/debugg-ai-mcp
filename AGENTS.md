@@ -39,14 +39,18 @@ Unit tests mock the backend. To verify a tool end-to-end against the real API:
   Use read-only actions (`list`/`get`) on `project`/`environment`/`executions`.
 
 **Tunnel mechanics for localhost URLs:** `check_app_in_browser`/`probe_page`/`trigger_crawl`
-auto-tunnel `http(s)://localhost:*` targets through **one ngrok tunnel per session key** (not per
+auto-tunnel `http(s)://localhost:*` targets through **one tunnel per session key** (not per
 port) dialed at a local Caddy reverse proxy that gets repointed per dispatch under a lock —
-see `docs/local-tunnel-multiplexer-architecture-2026-07-31.md` and
-`services/ngrok/tunnelManager.ts`/`services/caddy/`. The `caddy` binary auto-installs via the
-`@radically-straightforward/caddy` npm dependency's postinstall (pinned version, same pattern as
-the `ngrok` binary) — `CADDY_BIN` overrides it if that download never ran. Fails fast with
-`CaddyBinaryNotFoundError` if neither is available. `test_suite {action:"run"}` is the exception:
-dedicated per-call tunnel, bypasses Caddy, no `caddy` needed.
+see `docs/local-tunnel-multiplexer-architecture-2026-07-31.md`,
+`docs/debugg-tunnel-server-design-2026-09-19.md`, and
+`services/tunnel/`/`services/caddy/`. The tunnel is the **debugg tunnel server**
+(`<id>.tunnel.debugg.ai`), reached by a pure-TS websocket mux client
+(`services/tunnel/debuggTransport.ts`); the ngrok client was removed once that shipped.
+**The `caddy` binary is still required** for any localhost-URL call: it auto-installs via the
+`@radically-straightforward/caddy` npm dependency's postinstall (pinned version) — `CADDY_BIN`
+overrides it if that download never ran. Fails fast with `CaddyBinaryNotFoundError` if neither is
+available. `test_suite {action:"run"}` is the exception: dedicated per-call tunnel, bypasses Caddy,
+no `caddy` needed.
 
 **Security:** never put a literal API key in `.mcp.json` (it's tracked) — use `${DEBUGGAI_API_KEY}`.
 

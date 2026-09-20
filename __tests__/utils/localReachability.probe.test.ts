@@ -1,26 +1,25 @@
 /**
- * Health probing a debugg tunnel goes over the control channel
+ * Health probing a tunnel goes over the control channel
  * (bead debugg_ai_mcp-xkoh.5.3, requirements xkoh.5.2 R7/R8).
  *
- * A debugg tunnel URL resolves only inside our VPC, so probeTunnelHealth's
- * HTTP fetch cannot reach it from a user's machine. For those hosts the check
- * is a PROBE over the tunnel's own websocket, and its PROBE_RESULT maps onto
- * the SAME TunnelHealthProbeResult the four handlers already render — the
- * mapping is pinned on bead debugg_ai_mcp-xkoh.1.2 §9 and is not re-derived
- * here.
+ * A tunnel URL resolves only inside our VPC, so it cannot be fetched from a
+ * user's machine at all. The check is a PROBE over the tunnel's own websocket,
+ * and its PROBE_RESULT maps onto the TunnelHealthProbeResult the four handlers
+ * render — the mapping is pinned on bead debugg_ai_mcp-xkoh.1.2 §9 and is not
+ * re-derived here.
  *
- * The result field names stay ngrok-flavoured on purpose (`code:'NGROK_ERROR'`,
- * `ngrokErrorCode`): handlers echo them into tool output, so renaming them
- * would change what callers see. That rename waits for the ngrok deletion step.
+ * This is now the ONLY probe path, so this file also inherits the outcomes the
+ * deleted HTTP path used to cover (healthy / the user's own 4xx / BAD_GATEWAY /
+ * TIMEOUT / NETWORK_ERROR / ladder exhaustion).
  *
- * RED on purpose: probeTunnelHealth always fetches today, and the prober
- * registry is a stub.
+ * `forbiddenFetch` is kept as a guard even though `fetchFn` is gone as an
+ * option: it proves probeTunnelHealth never reaches for the global fetch either.
  */
 
 import { jest } from '@jest/globals';
 import {
   probeTunnelHealth,
-  extractNgrokErrorCode,
+  extractTunnelErrorCode,
 } from '../../utils/localReachability.js';
 import {
   registerControlProbe,
@@ -31,10 +30,13 @@ import type { ProbeResult } from '../../services/tunnel/protocol/index.js';
 const TUNNEL_URL = 'https://tid-1.tunnel.debugg.ai/dashboard?a=b';
 const HOST = 'tid-1.tunnel.debugg.ai';
 
-/** A fetch that fails the test if the HTTP path is taken for a debugg tunnel. */
+/** Installed over the global fetch: probing must never reach for the network. */
 const forbiddenFetch = jest.fn(async () => {
   throw new Error('probeTunnelHealth fetched a private tunnel URL instead of using PROBE');
-}) as unknown as typeof fetch;
+});
+const realFetch = globalThis.fetch;
+beforeEach(() => { (globalThis as any).fetch = forbiddenFetch; });
+afterAll(() => { (globalThis as any).fetch = realFetch; });
 
 function prober(...results: ProbeResult[]) {
   const calls: Array<{ path: string; opts?: { timeoutMs?: number } }> = [];
@@ -53,34 +55,43 @@ afterEach(() => {
 
 // ── Markers ──────────────────────────────────────────────────────────────────
 
-describe('extractNgrokErrorCode also reads the debugg markers', () => {
+describe('extractTunnelErrorCode reads the tunnel server markers', () => {
   // Used twice: on an error page body, and by testPageChangesHandler's
-  // findNgrokErrorMarker when it scans a run's own evidence for proof that the
+  // findTunnelErrorMarker when it scans a run's own evidence for proof that the
   // remote browser landed on our error page rather than the user's app.
   test('finds DEBUGG_TUNNEL_OFFLINE in a body', () => {
-    expect(extractNgrokErrorCode('<h1>Tunnel offline</h1><code>DEBUGG_TUNNEL_OFFLINE</code>'))
+    expect(extractTunnelErrorCode('<h1>Tunnel offline</h1><code>DEBUGG_TUNNEL_OFFLINE</code>'))
       .toBe('DEBUGG_TUNNEL_OFFLINE');
   });
 
   test('finds DEBUGG_TUNNEL_UPSTREAM_REFUSED', () => {
-    expect(extractNgrokErrorCode('error: DEBUGG_TUNNEL_UPSTREAM_REFUSED (502)'))
+    expect(extractTunnelErrorCode('error: DEBUGG_TUNNEL_UPSTREAM_REFUSED (502)'))
       .toBe('DEBUGG_TUNNEL_UPSTREAM_REFUSED');
   });
 
   test('finds DEBUGG_TUNNEL_UNKNOWN', () => {
-    expect(extractNgrokErrorCode('DEBUGG_TUNNEL_UNKNOWN')).toBe('DEBUGG_TUNNEL_UNKNOWN');
+    expect(extractTunnelErrorCode('DEBUGG_TUNNEL_UNKNOWN')).toBe('DEBUGG_TUNNEL_UNKNOWN');
   });
 
-  test('still finds the ngrok codes', () => {
-    expect(extractNgrokErrorCode('ERR_NGROK_3200 not found')).toBe('ERR_NGROK_3200');
+  test('does NOT find a retired ngrok code — no tunnel we create serves one', () => {
+    // Matching them would be dead logic reading as live, and worse: a user's
+    // own page mentioning one would get their genuine UI failure reclassified
+    // as an infrastructure fault on our side.
+    expect(extractTunnelErrorCode('ERR_NGROK_3200 not found')).toBeUndefined();
+    expect(extractTunnelErrorCode('<html>ERR_NGROK_8012: failed to dial backend</html>')).toBeUndefined();
+  });
+
+  test('returns undefined when there is no marker at all', () => {
+    expect(extractTunnelErrorCode('<html>OK</html>')).toBeUndefined();
+    expect(extractTunnelErrorCode('')).toBeUndefined();
   });
 
   test('does NOT match our own env var name — the marker list is explicit, not a prefix match', () => {
     // DEBUGG_TUNNEL_FAULT_MODE is the fault-injection env var
-    // (services/ngrok/tunnelFaultInjection.ts). A /DEBUGG_TUNNEL_[A-Z_]+/
+    // (services/tunnel/tunnelFaultInjection.ts). A /DEBUGG_TUNNEL_[A-Z_]+/
     // pattern would read a log line mentioning it as a server marker and
     // reclassify a genuine failure as an infrastructure fault.
-    expect(extractNgrokErrorCode('running with DEBUGG_TUNNEL_FAULT_MODE=fail-connect-N:2')).toBeUndefined();
+    expect(extractTunnelErrorCode('running with DEBUGG_TUNNEL_FAULT_MODE=fail-connect-N:2')).toBeUndefined();
   });
 });
 
@@ -91,7 +102,7 @@ describe('probeTunnelHealth routes a debugg tunnel through PROBE', () => {
     const p = prober({ status: 200, elapsedMs: 7 });
     registerControlProbe(HOST, p.fn as any);
 
-    const result = await probeTunnelHealth(TUNNEL_URL, { fetchFn: forbiddenFetch });
+    const result = await probeTunnelHealth(TUNNEL_URL);
 
     expect(result.healthy).toBe(true);
     expect(forbiddenFetch).not.toHaveBeenCalled();
@@ -102,28 +113,30 @@ describe('probeTunnelHealth routes a debugg tunnel through PROBE', () => {
     const p = prober({ status: 200, elapsedMs: 1 });
     registerControlProbe(HOST, p.fn as any);
 
-    await probeTunnelHealth(TUNNEL_URL, { fetchFn: forbiddenFetch });
+    await probeTunnelHealth(TUNNEL_URL);
 
     expect(p.calls[0].path).toBe('/dashboard?a=b');
   });
 
-  test('an ngrok tunnel URL still takes the HTTP path', async () => {
-    const fetchFn = jest.fn(async () => new Response('ok', { status: 200 })) as unknown as typeof fetch;
+  test('a retired ngrok tunnel URL has no control channel, so it reports gone — it is never fetched', async () => {
+    // The hostname is still RECOGNISED (so it gets scrubbed out of responses),
+    // but this client cannot hold a session for one, and there is no HTTP
+    // fallback any more. "Gone" is the honest answer.
+    const result = await probeTunnelHealth('https://tid-1.ngrok.debugg.ai/');
 
-    const result = await probeTunnelHealth('https://tid-1.ngrok.debugg.ai/', { fetchFn });
-
-    expect(result.healthy).toBe(true);
-    expect(fetchFn).toHaveBeenCalled();
+    expect(result.healthy).toBe(false);
+    expect(result.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UNKNOWN');
+    expect(forbiddenFetch).not.toHaveBeenCalled();
   });
 
-  test('a debugg host with no live control channel reports the tunnel gone, and never fetches', async () => {
+  test('a host with no live control channel reports the tunnel gone, and never fetches', async () => {
     // Nothing is registered: this process holds no session for that host, so
     // the tunnel is not coming back on its own. Report it as gone so the
     // disposition evicts the leftover state and the next call re-provisions.
-    const result = await probeTunnelHealth(TUNNEL_URL, { fetchFn: forbiddenFetch });
+    const result = await probeTunnelHealth(TUNNEL_URL);
 
     expect(result.healthy).toBe(false);
-    expect(result.ngrokErrorCode).toBe('DEBUGG_TUNNEL_UNKNOWN');
+    expect(result.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UNKNOWN');
     expect(forbiddenFetch).not.toHaveBeenCalled();
   });
 });
@@ -134,10 +147,7 @@ describe('PROBE_RESULT maps onto the existing health codes', () => {
   async function probeWith(...results: ProbeResult[]) {
     const p = prober(...results);
     registerControlProbe(HOST, p.fn as any);
-    const result = await probeTunnelHealth(TUNNEL_URL, {
-      fetchFn: forbiddenFetch,
-      retryBackoffMs: [1, 1],
-    });
+    const result = await probeTunnelHealth(TUNNEL_URL, { retryBackoffMs: [1, 1] });
     return { result, calls: p.callCount };
   }
 
@@ -161,7 +171,7 @@ describe('PROBE_RESULT maps onto the existing health codes', () => {
     expect(result.code).toBe('BAD_GATEWAY');
   });
 
-  test('a marker becomes NGROK_ERROR + ngrokErrorCode, so the disposition policy sees it', async () => {
+  test('a marker becomes TUNNEL_ERROR + tunnelErrorCode, so the disposition policy sees it', async () => {
     const { result } = await probeWith({
       status: 502,
       marker: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED',
@@ -169,8 +179,8 @@ describe('PROBE_RESULT maps onto the existing health codes', () => {
     });
     expect(result).toMatchObject({
       healthy: false,
-      code: 'NGROK_ERROR',
-      ngrokErrorCode: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED',
+      code: 'TUNNEL_ERROR',
+      tunnelErrorCode: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED',
       status: 502,
     });
   });
@@ -191,6 +201,24 @@ describe('PROBE_RESULT maps onto the existing health codes', () => {
     const { result } = await probeWith({ status: 200, elapsedMs: 42 });
     expect(typeof result.elapsedMs).toBe('number');
   });
+
+  // Inherited from the deleted HTTP-path suite: a connection-level failure
+  // that NEVER clears is still unhealthy. "Not ready" that never becomes ready
+  // must not be laundered into a pass by the retry ladder.
+  test('a persistent connection-level failure is unhealthy after the ladder, not a pass', async () => {
+    const { result, calls } = await probeWith({ error: 'CLOSED', elapsedMs: 2 });
+    expect(result.healthy).toBe(false);
+    expect(result.code).toBe('NETWORK_ERROR');
+    expect(calls).toBe(3);
+  });
+
+  // Inherited: a transient failure followed by success IS a pass — the whole
+  // point of the ladder (bead k6yq).
+  test('a transient failure then a 200 is healthy', async () => {
+    const { result, calls } = await probeWith({ error: 'RESET', elapsedMs: 1 }, { status: 200, elapsedMs: 3 });
+    expect(result.healthy).toBe(true);
+    expect(calls).toBe(2);
+  });
 });
 
 // ── Teardown-authorising verdicts ────────────────────────────────────────────
@@ -200,7 +228,7 @@ describe('OFFLINE is confirmed across the ladder; UNKNOWN is definitive', () => 
     const p = prober({ marker: 'DEBUGG_TUNNEL_OFFLINE', status: 404, elapsedMs: 3 }, { status: 200, elapsedMs: 3 });
     registerControlProbe(HOST, p.fn as any);
 
-    const result = await probeTunnelHealth(TUNNEL_URL, { fetchFn: forbiddenFetch, retryBackoffMs: [1, 1] });
+    const result = await probeTunnelHealth(TUNNEL_URL, { retryBackoffMs: [1, 1] });
 
     expect(result.healthy).toBe(true);
     expect(p.callCount).toBe(2);
@@ -210,9 +238,9 @@ describe('OFFLINE is confirmed across the ladder; UNKNOWN is definitive', () => 
     const p = prober({ marker: 'DEBUGG_TUNNEL_OFFLINE', status: 404, elapsedMs: 3 });
     registerControlProbe(HOST, p.fn as any);
 
-    const result = await probeTunnelHealth(TUNNEL_URL, { fetchFn: forbiddenFetch, retryBackoffMs: [1, 1] });
+    const result = await probeTunnelHealth(TUNNEL_URL, { retryBackoffMs: [1, 1] });
 
-    expect(result.ngrokErrorCode).toBe('DEBUGG_TUNNEL_OFFLINE');
+    expect(result.tunnelErrorCode).toBe('DEBUGG_TUNNEL_OFFLINE');
     expect(p.callCount).toBe(3);
   });
 
@@ -220,9 +248,9 @@ describe('OFFLINE is confirmed across the ladder; UNKNOWN is definitive', () => 
     const p = prober({ marker: 'DEBUGG_TUNNEL_UNKNOWN', status: 404, elapsedMs: 3 });
     registerControlProbe(HOST, p.fn as any);
 
-    const result = await probeTunnelHealth(TUNNEL_URL, { fetchFn: forbiddenFetch, retryBackoffMs: [1, 1] });
+    const result = await probeTunnelHealth(TUNNEL_URL, { retryBackoffMs: [1, 1] });
 
-    expect(result.ngrokErrorCode).toBe('DEBUGG_TUNNEL_UNKNOWN');
+    expect(result.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UNKNOWN');
     expect(p.callCount).toBe(1);
   });
 
@@ -230,9 +258,9 @@ describe('OFFLINE is confirmed across the ladder; UNKNOWN is definitive', () => 
     const p = prober({ marker: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED', status: 502, elapsedMs: 3 });
     registerControlProbe(HOST, p.fn as any);
 
-    const result = await probeTunnelHealth(TUNNEL_URL, { fetchFn: forbiddenFetch, retryBackoffMs: [1, 1] });
+    const result = await probeTunnelHealth(TUNNEL_URL, { retryBackoffMs: [1, 1] });
 
-    expect(result.ngrokErrorCode).toBe('DEBUGG_TUNNEL_UPSTREAM_REFUSED');
+    expect(result.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UPSTREAM_REFUSED');
     expect(p.callCount).toBe(1);
   });
 });

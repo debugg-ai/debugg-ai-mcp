@@ -61,7 +61,7 @@ export interface CaddyProxy {
 
   /** Fires when a crash-triggered respawn lands on a DIFFERENT localPort
    *  than before (sticky-port reclaim failed, fresh port succeeded). The
-   *  caller's existing ngrok tunnel is now dialing a dead port — nothing
+   *  caller's existing tunnel is now dialing a dead port — nothing
    *  Caddy-internal can fix this; the owner MUST tear down and recreate
    *  the whole session tunnel. See CaddyPortReclaimError and the doc's §6. */
   onPortChanged(cb: (newLocalOrigin: string) => void): void;
@@ -126,8 +126,9 @@ export function isDockerEnv(): boolean {
 // @radically-straightforward/caddy is a dependency (package.json's "caddy"
 // field pins the exact version — see its postinstall) that downloads Caddy
 // from the project's own GitHub releases and drops it at
-// node_modules/.bin/caddy(.exe). Same pattern this repo already uses for the
-// ngrok binary (the "ngrok" npm package's own postinstall). Pinned rather
+// node_modules/.bin/caddy(.exe). It is now the ONLY binary this package pulls
+// down at install time — the ngrok package, whose postinstall fetched the ngrok
+// agent the same way, is gone. Pinned rather
 // than "latest" deliberately: a real config incompatibility with a Caddy
 // version (--adapter json rejected by 2.11.3) was found and fixed during
 // development of this file — "latest" silently shipping a breaking change
@@ -337,7 +338,7 @@ export function buildPatchBody(target: UpstreamTarget, inDocker: boolean): Recor
     upstreams: [{ dial }],
   };
   if (isHttpsLocal) {
-    // Local self-signed certs — doesn't touch the public leg's real ngrok TLS.
+    // Local self-signed certs — doesn't touch the public leg's real TLS.
     body.transport = { protocol: 'http', tls: { insecure_skip_verify: true } };
   }
   return body;
@@ -475,7 +476,7 @@ export class CaddyProxyManager implements CaddyProxy {
       }
       // Network-level failure against a previously-healthy admin port —
       // the process is presumed dead. Exactly one respawn-and-retry, then
-      // propagate uncaught — no loop (matches ngrokAgentSession.ts's
+      // propagate uncaught — no loop (matches the transport's
       // onTerminated philosophy: lazy, bounded, next-call-triggered).
       logger.warn(`Caddy admin API unreachable on port ${adminPort} — assuming process died, respawning once: ${err}`);
       this.markDead();
@@ -640,7 +641,7 @@ export class CaddyProxyManager implements CaddyProxy {
    * successfully-bound proxy port (if any); attempt 2 falls back to a fresh
    * one. `CaddyPortReclaimError` means BOTH attempts failed — Caddy is fully
    * down. `onPortChanged` fires on the "succeeded but moved" case, which is
-   * the signal TunnelManager needs to evict the now-orphaned ngrok tunnel.
+   * the signal TunnelManager needs to evict the now-orphaned tunnel.
    */
   private async doStart(): Promise<void> {
     sweepOrphanedConfigs(this.configDir);
@@ -717,7 +718,7 @@ export class CaddyProxyManager implements CaddyProxy {
   }
 
   /** Restart policy: lazy, bounded, next-call-triggered — no background
-   *  watchdog (matches ngrokAgentSession.ts's onTerminated philosophy). This
+   *  watchdog (matches the transport's onDead philosophy). This
    *  handler only marks state as dead; it never itself triggers a respawn. */
   private installExitHandler(child: ChildProcess): void {
     child.once('exit', (code, signal) => {

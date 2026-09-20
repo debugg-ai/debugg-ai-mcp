@@ -1,39 +1,26 @@
 /**
- * Both tunnel domains are recognised and rewritten (bead debugg_ai_mcp-xkoh.5.3).
+ * Every tunnel domain is recognised and rewritten (bead debugg_ai_mcp-xkoh.5.3,
+ * then .6.4).
  *
- * Requirement (xkoh.5.2 notes R6): during the migration a process can hold an
- * ngrok tunnel and a debugg tunnel at the same time, so every place that knows
- * a tunnel hostname has to know BOTH `*.ngrok.debugg.ai` and
- * `*.tunnel.debugg.ai`. The one that matters for users is replaceTunnelUrls:
- * it is what sanitizeResponseUrls uses to keep a tunnel hostname out of every
- * tool response, so a domain it does not know is a URL that leaks.
+ * Requirement (xkoh.5.2 notes R6): every place that knows a tunnel hostname has
+ * to know BOTH `*.tunnel.debugg.ai` and the retired `*.ngrok.debugg.ai`. The
+ * one that matters for users is replaceTunnelUrls: it is what
+ * sanitizeResponseUrls uses to keep a tunnel hostname out of every tool
+ * response, so a domain it does not know is a URL that leaks.
  *
- * RED on purpose: utils/urlParser.ts hardcodes `.ngrok.debugg.ai` (L114) and
- * tunnelManager hardcodes it in isTunnelUrl (L455) and extractTunnelId (L459).
+ * ── THE ngrok CASES ARE A DELIBERATE KEEP, NOT LEFTOVERS ────────────────────
+ * The ngrok transport is deleted; this client cannot create an
+ * `*.ngrok.debugg.ai` tunnel any more. Those hostnames are still recognised
+ * because a BACKEND RESPONSE ABOUT A HISTORICAL RUN can still carry one, and
+ * an unrecognised tunnel hostname is one that leaks to the caller verbatim.
+ * The tests below are the lock that stops the entry being tidied away as dead
+ * code — see the box in utils/tunnelDomains.ts. Retire both together under
+ * bead debugg_ai_mcp-xkoh.6.6.
  */
 
-import { jest } from '@jest/globals';
+import TunnelManagerClass from '../../services/tunnel/tunnelManager.js';
+import { createInMemoryRegistry } from '../../services/tunnel/tunnelRegistry.js';
 import { replaceTunnelUrls, generateTunnelUrl, retargetTunnelUrl } from '../../utils/urlParser.js';
-
-// TunnelManager pulls in ngrok lazily, but constructing one must never spawn or
-// download anything in a unit test.
-jest.unstable_mockModule('ngrok', () => ({
-  connect: jest.fn(),
-  disconnect: jest.fn(),
-  getApi: jest.fn(),
-  default: { connect: jest.fn(), disconnect: jest.fn(), getApi: jest.fn() },
-}));
-jest.unstable_mockModule('../../services/ngrok/ngrokAgentSession.js', () => ({
-  startAgentSession: jest.fn(async (opts: any) => { opts.onStatusChange('connected'); }),
-}));
-
-let TunnelManagerClass: typeof import('../../services/ngrok/tunnelManager.js').default;
-let createInMemoryRegistry: typeof import('../../services/ngrok/tunnelRegistry.js').createInMemoryRegistry;
-
-beforeAll(async () => {
-  ({ default: TunnelManagerClass } = await import('../../services/ngrok/tunnelManager.js'));
-  ({ createInMemoryRegistry } = await import('../../services/ngrok/tunnelRegistry.js'));
-});
 
 const LOCAL = 'http://localhost:3000';
 
@@ -45,14 +32,14 @@ describe('replaceTunnelUrls knows both tunnel domains', () => {
       .toBe('http://localhost:3000/dashboard');
   });
 
-  test('still rewrites an ngrok tunnel URL (migration parity)', () => {
+  test('LOCK: still rewrites a historical ngrok tunnel URL', () => {
     expect(replaceTunnelUrls('https://abc-123.ngrok.debugg.ai/dashboard', LOCAL))
       .toBe('http://localhost:3000/dashboard');
   });
 
-  test('rewrites both domains in one payload — a session can hold one of each', () => {
+  test('rewrites both domains in one payload — a response can carry a live and a historical URL', () => {
     const payload = {
-      screenshot: 'https://a.ngrok.debugg.ai/shot.png',
+      screenshot: 'https://a.ngrok.debugg.ai/shot.png', // stored by a historical run
       nested: { target: 'https://b.tunnel.debugg.ai/login?next=/x' },
       list: ['https://c.tunnel.debugg.ai/'],
     };

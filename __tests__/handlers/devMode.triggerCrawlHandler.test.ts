@@ -33,7 +33,6 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
     },
-    revokeNgrokKey: mockRevokeKey,
   })),
 }));
 
@@ -64,7 +63,7 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeTunnelHealth: mockProbeTunnelHealth,
 }));
 
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
 }));
 

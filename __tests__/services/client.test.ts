@@ -3,7 +3,7 @@
  *
  * Covers:
  *  - init() wires up services
- *  - revokeNgrokKey API call
+ *  - tunnel provisioning wiring
  *  - isMcpRequest interceptor injection
  */
 
@@ -60,22 +60,6 @@ describe('init()', () => {
     await client.init();
     expect(client.workflows).toBeDefined();
     expect(client.tunnels).toBeDefined();
-  });
-});
-
-// ── revokeNgrokKey ───────────────────────────────────────────────────────────
-
-describe('revokeNgrokKey', () => {
-  test('POSTs to api/v1/ngrok/revoke/ with ngrokKeyId', async () => {
-    const client = new DebuggAIServerClient('test-key');
-    await client.init();
-    await client.revokeNgrokKey('ak_123');
-    expect(mockPost).toHaveBeenCalledWith('api/v1/ngrok/revoke/', { ngrokKeyId: 'ak_123' });
-  });
-
-  test('throws if called before init()', async () => {
-    const client = new DebuggAIServerClient('test-key');
-    await expect(client.revokeNgrokKey('ak_123')).rejects.toThrow('not initialized');
   });
 });
 

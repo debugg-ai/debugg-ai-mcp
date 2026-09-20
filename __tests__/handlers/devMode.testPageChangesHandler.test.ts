@@ -15,7 +15,6 @@ const mockExecuteWorkflow = jest.fn<(...args: any[]) => Promise<any>>();
 const mockPollExecution = jest.fn<(...args: any[]) => Promise<any>>();
 const mockFindEvaluationTemplate = jest.fn<() => Promise<any>>();
 const mockProvisionWithRetry = jest.fn<(...args: any[]) => Promise<any>>();
-const mockRevokeNgrokKey = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined as any);
 // project_id is required (bead 56kd.5) — resolve a linked project so the
 // dev-mode flow proceeds past the fail-fast guard.
 const mockFindProjectByRepoName = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({ uuid: 'proj-dev', name: 'Dev Project' });
@@ -29,7 +28,6 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       pollExecution: mockPollExecution,
     },
     tunnels: { provisionWithRetry: mockProvisionWithRetry },
-    revokeNgrokKey: mockRevokeNgrokKey,
     findProjectByRepoName: mockFindProjectByRepoName,
   })),
 }));
@@ -46,9 +44,9 @@ const mockTouchTunnelById = jest.fn();
 jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeLocalPort: mockProbeLocalPort,
   probeTunnelHealth: mockProbeTunnelHealth,
-  // Bug z15n: the handler imports this to spot ngrok's interstitial marker in
+  // Bug z15n: the handler imports this to spot the tunnel's interstitial marker in
   // run evidence. Pure regex helper — mirror the real implementation.
-  extractNgrokErrorCode: (body: string) => body.match(/ERR_NGROK_\d+/)?.[0],
+  extractTunnelErrorCode: (body: string) => body.match(/DEBUGG_TUNNEL_(?:OFFLINE|UNKNOWN|UPSTREAM_REFUSED)/)?.[0],
 }));
 
 const mockRetargetAuxiliaryUrl = jest.fn<(ctx: any, url: string) => any>(
@@ -74,7 +72,7 @@ jest.unstable_mockModule('../../services/tunnels.js', () => ({
   TunnelProvisionError: class TunnelProvisionError extends Error {},
 }));
 
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
 }));
 

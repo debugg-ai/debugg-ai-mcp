@@ -48,7 +48,6 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
     },
-    revokeNgrokKey: mockRevokeKey,
   })),
 }));
 
@@ -81,7 +80,7 @@ jest.unstable_mockModule('../../utils/localReachability.js', () => ({
 // handler did NOT do: tearing a live tunnel down costs two billed hours.
 const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue();
 const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue();
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: { stopTunnel: mockStopTunnel, markTunnelDead: mockMarkTunnelDead },
 }));
 
@@ -186,7 +185,7 @@ function setupHappyPath(options: { isLocalhost: boolean } = { isLocalhost: false
       originalUrl: url,
       isLocalhost: true,
       tunnelId: PROVISION_RESPONSE.tunnelId,
-      targetUrl: `https://${PROVISION_RESPONSE.tunnelId}.ngrok.debugg.ai/`,
+      targetUrl: `https://${PROVISION_RESPONSE.tunnelId}.tunnel.debugg.ai/`,
     });
   } else {
     mockFindExistingTunnel.mockReturnValue(null);
@@ -241,7 +240,7 @@ describe('triggerCrawlHandler', () => {
         originalUrl: 'http://localhost:3000',
         isLocalhost: true,
         tunnelId: PROVISION_RESPONSE.tunnelId,
-        targetUrl: `https://${PROVISION_RESPONSE.tunnelId}.ngrok.debugg.ai/`,
+        targetUrl: `https://${PROVISION_RESPONSE.tunnelId}.tunnel.debugg.ai/`,
       };
     });
     mockExecute.mockImplementation(async () => { order.push('execute'); return EXECUTE_RESPONSE; });
@@ -251,7 +250,7 @@ describe('triggerCrawlHandler', () => {
     expect(order).toEqual(['provision', 'ensureTunnel', 'execute']);
   });
 
-  test('response contains executionId, status, and targetUrl; NO ngrok tunnel URL leak', async () => {
+  test('response contains executionId, status, and targetUrl; NO tunnel URL leak', async () => {
     setupHappyPath({ isLocalhost: true });
     const result = await triggerCrawlHandler(localhostInput, defaultContext);
     const body = JSON.parse(result.content[0].text!);
@@ -261,7 +260,7 @@ describe('triggerCrawlHandler', () => {
     expect(body.targetUrl).toBe('http://localhost:3000'); // original, not tunnel URL
 
     const raw = result.content[0].text!;
-    expect(raw).not.toMatch(/ngrok\.debugg\.ai/);
+    expect(raw).not.toMatch(/tunnel\.debugg\.ai/);
   });
 
   test('response NEVER contains the password, even when password was in input', async () => {
@@ -492,7 +491,7 @@ describe('triggerCrawlHandler', () => {
     test('tunnel health probe fails → TunnelTrafficBlocked; no execute', async () => {
       setupHappyPath({ isLocalhost: true });
       mockProbeTunnelHealth.mockResolvedValueOnce({
-        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_8012',
+        healthy: false, code: 'TUNNEL_ERROR', tunnelErrorCode: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED',
         status: 502, elapsedMs: 50,
       });
 
@@ -501,10 +500,10 @@ describe('triggerCrawlHandler', () => {
       expect(result.isError).toBe(true);
       const body = JSON.parse(result.content[0].text!);
       expect(body.error).toBe('TunnelTrafficBlocked');
-      expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
+      expect(body.detail.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UPSTREAM_REFUSED');
       expect(mockProvision).toHaveBeenCalled();
       expect(mockExecute).not.toHaveBeenCalled();
-      // ERR_NGROK_8012 = the tunnel is ALIVE and its upstream refused. Keep it:
+      // DEBUGG_TUNNEL_UPSTREAM_REFUSED = the tunnel is ALIVE and its upstream refused. Keep it:
       // a teardown plus the re-provision it forces costs two billed hours, and
       // the next call reuses this tunnel for free once the dev server is back.
       expect(mockMarkTunnelDead).not.toHaveBeenCalled();
@@ -514,7 +513,7 @@ describe('triggerCrawlHandler', () => {
     test('health probe fails with NETWORK_ERROR → tunnel left completely alone', async () => {
       setupHappyPath({ isLocalhost: true });
       // What every real probe failure looks like on this edge (bead kmzb): undici
-      // gets an HTTP/2 GOAWAY instead of ngrok's interstitial, so no code at all.
+      // reports a connection-level failure instead of a marker, so no code at all.
       // Indistinguishable from the transient flake of bead k6yq — so never a
       // teardown trigger.
       mockProbeTunnelHealth.mockResolvedValueOnce({
@@ -531,10 +530,10 @@ describe('triggerCrawlHandler', () => {
       expect(mockStopTunnel).not.toHaveBeenCalled();
     });
 
-    test('health probe reports ERR_NGROK_3200 → endpoint proven gone, evicted', async () => {
+    test('health probe reports DEBUGG_TUNNEL_OFFLINE → endpoint proven gone, evicted', async () => {
       setupHappyPath({ isLocalhost: true });
       mockProbeTunnelHealth.mockResolvedValueOnce({
-        healthy: false, code: 'NGROK_ERROR', ngrokErrorCode: 'ERR_NGROK_3200',
+        healthy: false, code: 'TUNNEL_ERROR', tunnelErrorCode: 'DEBUGG_TUNNEL_OFFLINE',
         status: 404, elapsedMs: 50,
       });
 
@@ -788,7 +787,7 @@ describe('triggerCrawlHandler', () => {
           originalUrl: 'http://localhost:3000',
           isLocalhost: true,
           tunnelId: PROVISION_RESPONSE.tunnelId,
-          targetUrl: `https://${PROVISION_RESPONSE.tunnelId}.ngrok.debugg.ai/`,
+          targetUrl: `https://${PROVISION_RESPONSE.tunnelId}.tunnel.debugg.ai/`,
         };
       });
       mockAcquirePortRoute.mockImplementation(async (ctx: any) => {

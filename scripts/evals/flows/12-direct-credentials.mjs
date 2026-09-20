@@ -133,7 +133,7 @@ export const flow = {
 
         assert(!r.isError, `Tool error: ${r.content?.[0]?.text?.slice(0, 600)}`);
         const text = r.content[0].text;
-        assert(!text.includes('ngrok.debugg.ai'), 'Response leaks internal tunnel URL');
+        assert(!/\.(?:tunnel|ngrok)\.debugg\.ai/.test(text), 'Response leaks internal tunnel URL');
         assert(!text.includes(validPassword), 'Response leaked the password in plaintext');
 
         const body = JSON.parse(text);

@@ -26,7 +26,7 @@ export const flow = {
       assertHas(body, 'success');
       assertHas(body, 'targetUrl');
       assert(body.targetUrl === 'https://example.com', `targetUrl wrong: ${body.targetUrl}`);
-      assert(!text.includes('ngrok.debugg.ai'), 'Response leaks internal tunnel URL');
+      assert(!/\.(?:tunnel|ngrok)\.debugg\.ai/.test(text), 'Response leaks internal tunnel URL');
     });
   },
 };

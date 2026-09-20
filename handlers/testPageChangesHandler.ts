@@ -33,7 +33,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { detectRepoName } from '../utils/gitContext.js';
 import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
-import { probeLocalPort, probeTunnelHealth, extractNgrokErrorCode } from '../utils/localReachability.js';
+import { probeLocalPort, probeTunnelHealth, extractTunnelErrorCode } from '../utils/localReachability.js';
 import type { TunnelHealthProbeResult } from '../utils/localReachability.js';
 import { extractLocalhostPort } from '../utils/urlParser.js';
 import {
@@ -59,12 +59,12 @@ function getMaxTransientRetries(): number {
   return Math.min(n, 3);
 }
 
-// Bug z15n: scan run evidence for ngrok's interstitial marker. The marker is a
+// Bug z15n: scan run evidence for the tunnel server's interstitial marker. It is a
 // stable, recognizable string the REMOTE BROWSER saw — positive evidence that it
 // hit our tunnel's error page rather than the user's app. Non-string parts are
 // serialized (the action trace is the usual carrier); a part we can't serialize
 // is simply skipped — it is not evidence either way.
-function findNgrokErrorMarker(parts: unknown[]): string | undefined {
+function findTunnelErrorMarker(parts: unknown[]): string | undefined {
   for (const part of parts) {
     if (part === undefined || part === null || part === '') continue;
     let text: string;
@@ -73,7 +73,7 @@ function findNgrokErrorMarker(parts: unknown[]): string | undefined {
     } catch {
       continue;
     }
-    const code = extractNgrokErrorCode(text);
+    const code = extractTunnelErrorCode(text);
     if (code) return code;
   }
   return undefined;
@@ -233,7 +233,7 @@ async function testPageChangesHandlerInner(
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
       // Bead 1om: pre-flight local port probe BEFORE committing to backend
-      // provision + ngrok session. If the user's dev server isn't listening,
+      // provision + tunnel session. If the user's dev server isn't listening,
       // fail in ~1.5s with a structured error instead of burning 5 minutes
       // on a browser agent trying to reach a dead tunnel.
       const localPort = extractLocalhostPort(ctx.originalUrl);
@@ -290,9 +290,9 @@ async function testPageChangesHandlerInner(
               tunnel.keyId,
               () => client.tunnels!.revoke(tunnel),
               // The provision IS the transport selection. Omitting it here is
-              // not a no-op: ensureTunnel falls back to ngrok, so the flagship
-              // tool would keep using ngrok however the backend answered, and
-              // would revoke through the ngrok endpoint. The other three
+              // not a no-op: without it ensureTunnel gets no relayUrl or
+              // tunnelDomain at all, so the flagship tool cannot connect a
+              // tunnel the backend just issued. The other three
               // handlers pass it; this one was missed.
               tunnel,
             );
@@ -328,7 +328,7 @@ async function testPageChangesHandlerInner(
         });
 
         // Bead 1om: verify traffic actually flows through the tunnel. The
-        // tunnel can be established (ngrok.connect returns OK) yet refuse
+        // tunnel can be established (connect returns OK) yet refuse
         // to forward traffic — e.g., IPv4/IPv6 bind mismatch, or the dev
         // server died between the pre-flight probe and here. Catch it now,
         // in ~1s, not via a 5-minute browser-agent false-pass.
@@ -341,11 +341,11 @@ async function testPageChangesHandlerInner(
               detail: {
                 code: health.code,
                 status: health.status,
-                ngrokErrorCode: health.ngrokErrorCode,
+                tunnelErrorCode: health.tunnelErrorCode,
                 elapsedMs: health.elapsedMs,
               },
             };
-            logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.ngrokErrorCode ?? ''} in ${health.elapsedMs}ms`);
+            logger.warn(`Tunnel health probe failed for ${ctx.targetUrl}: ${health.code} ${health.tunnelErrorCode ?? ''} in ${health.elapsedMs}ms`);
             // Evict ONLY on a code proving the endpoint is gone; every other
             // failure keeps the tunnel we are already paying for, because a
             // teardown+re-provision costs two billed hours and this probe cannot
@@ -772,7 +772,7 @@ async function testPageChangesHandlerInner(
     // --- Post-hoc tunnel reclassification (bugs z15n, 4bui) ---
     // The pre-flight probe above proves the tunnel was alive when we handed it to
     // the remote browser — it can still die mid-run. When it does, the browser
-    // lands on ngrok's ERR_NGROK_* interstitial and the backend, which only sees
+    // lands on the tunnel server's DEBUGG_TUNNEL_* interstitial and the backend, which only sees
     // "the page didn't contain what I was asked about", returns a normal 'fail'
     // whose reason blames the USER'S page for OUR dead tunnel (execution
     // a8f07747: 217s, 7 steps, failureCategory 'fail').
@@ -780,7 +780,7 @@ async function testPageChangesHandlerInner(
     // THE MARKER IS REQUIRED (bug 4bui). Reclassifying overrides the backend's
     // verdict, so it demands positive evidence of the claim we are actually
     // making: that the remote browser hit OUR error page DURING THE RUN. Only
-    // the ERR_NGROK_* marker recorded BY the run is evidence of that.
+    // the DEBUGG_TUNNEL_* marker recorded BY the run is evidence of that.
     //
     // The re-probe is NOT such evidence and can no longer trigger this on its
     // own. It answers a different question — "is the tunnel healthy NOW?" —
@@ -792,20 +792,20 @@ async function testPageChangesHandlerInner(
     // independently returned a FALSE NETWORK_ERROR on healthy servers ~1 in 5
     // runs (bug k6yq), so the false positive was reachable with nothing
     // whatsoever wrong. (k6yq is now fixed: the cause was not the suspected DNS
-    // race but an HTTP/2 GOAWAY from the ngrok edge on a freshly created
+    // race but a connection-level flake against a freshly created
     // tunnel, which probeTunnelHealth now retries. The marker requirement
     // stands on its own regardless — the probe never decides this.)
     //
     // Requiring the marker loses no coverage: a real mid-run death fires BOTH
-    // arms (live-confirmed — re-probe NETWORK_ERROR *and* marker ERR_NGROK_3200),
+    // arms (live-confirmed — re-probe NETWORK_ERROR *and* an endpoint-gone marker),
     // so the marker alone still catches it. The probe is kept purely as
     // CORROBORATION in `detail` — it tells the caller whether the tunnel is
     // still down now or has since recovered. Per epic 56kd ("relay honestly,
     // invent nothing"), asserting an infrastructure fault we did not observe
     // during the run is the relay inventing a cause.
-    let tunnelFault: { probe?: TunnelHealthProbeResult; ngrokErrorCode?: string } | undefined;
+    let tunnelFault: { probe?: TunnelHealthProbeResult; tunnelErrorCode?: string } | undefined;
     if (verdict.outcome === 'fail' && ctx.isLocalhost && ctx.tunnelId && ctx.targetUrl) {
-      const marker = findNgrokErrorMarker([
+      const marker = findTunnelErrorMarker([
         verdict.reason,
         finalExecution.state?.error,
         finalExecution.errorMessage,
@@ -816,7 +816,7 @@ async function testPageChangesHandlerInner(
       // never decides whether we reclassify, only what we report alongside it.
       const probe = await probeTunnelHealth(ctx.targetUrl).catch(() => undefined);
       if (marker) {
-        tunnelFault = { probe, ngrokErrorCode: marker };
+        tunnelFault = { probe, tunnelErrorCode: marker };
         logger.warn(
           `Reclassifying backend 'fail' as an infrastructure fault for ${executionUuid}: ` +
           `the run recorded ${marker} (re-probe now: ` +
@@ -824,12 +824,12 @@ async function testPageChangesHandlerInner(
         );
       } else if (probe && !probe.healthy) {
         // Deliberately NOT reclassifying. The tunnel looks unhealthy now, but
-        // the run recorded no ngrok interstitial, so we have no evidence the
+        // the run recorded no tunnel interstitial, so we have no evidence the
         // browser ever saw one — the tunnel most likely died after the run (or
         // the probe flaked). Relay the backend's verdict and log the tension.
         logger.info(
           `Post-run tunnel re-probe for ${executionUuid} was unhealthy (${probe.code}) but the run ` +
-          'recorded no ERR_NGROK_* marker, so the browser reached the app during the run. Relaying ' +
+          'recorded no DEBUGG_TUNNEL_* marker, so the browser reached the app during the run. Relaying ' +
           "the backend's verdict verbatim rather than blaming the tunnel.",
         );
       }
@@ -899,23 +899,23 @@ async function testPageChangesHandlerInner(
     // The backend's original verdict is preserved verbatim, never swallowed.
     //
     // Bug 4bui: the stated cause leads with the MARKER, because the marker is the
-    // evidence that justified getting here — the run itself recorded ngrok's
+    // evidence that justified getting here — the run itself recorded the tunnel's
     // interstitial. The probe only corroborates (and may legitimately say the
     // tunnel has recovered by now), so it rides in `detail`, never as the cause.
     if (tunnelFault) {
-      const { probe, ngrokErrorCode } = tunnelFault;
+      const { probe, tunnelErrorCode } = tunnelFault;
       responsePayload.backendVerdict = { outcome: verdict.outcome, reason: verdict.reason };
       responsePayload.outcome = 'error';
       responsePayload.success = false;
       responsePayload.failureCategory = 'infrastructure';
       responsePayload.error = 'TunnelOfflineDuringRun';
       responsePayload.message =
-        'During this run the remote browser landed on our tunnel\'s ngrok error page instead of your ' +
+        'During this run the remote browser landed on our tunnel\'s error page instead of your ' +
         'app, so the check evaluated our error page rather than your UI. This is an infrastructure ' +
         'fault on our side, not a failed check — retry it. The backend\'s original verdict is ' +
         'preserved under `backendVerdict`.';
       responsePayload.reason =
-        `The run recorded ngrok's ${ngrokErrorCode} interstitial, so the remote browser reached ` +
+        `The run recorded our tunnel's ${tunnelErrorCode} interstitial, so the remote browser reached ` +
         'our tunnel error page instead of your app.' +
         (probe
           ? probe.healthy
@@ -924,7 +924,7 @@ async function testPageChangesHandlerInner(
               `${probe.status ? ` (HTTP ${probe.status})` : ''}.)`
           : '');
       responsePayload.detail = {
-        ngrokErrorCode,
+        tunnelErrorCode,
         probeCode: probe?.code,
         probeStatus: probe?.status,
         probeHealthy: probe?.healthy,
@@ -944,7 +944,7 @@ async function testPageChangesHandlerInner(
     }
     // Backend release 2026-04-25: browser_session block on execution detail
     // carries presigned S3 URLs for HAR + console log + recording. Pass through
-    // verbatim — sanitizeResponseUrls below only strips ngrok hosts so S3 URLs
+    // verbatim — sanitizeResponseUrls below only strips tunnel hosts so S3 URLs
     // are preserved. Resolves client-feedback items #1 (network) + #7 (console).
     if (finalExecution.browserSession) {
       responsePayload.browserSession = finalExecution.browserSession;

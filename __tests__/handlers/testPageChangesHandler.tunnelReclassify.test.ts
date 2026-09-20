@@ -5,13 +5,13 @@
  * The pre-flight probe (bead 1om) proves the tunnel was alive when we handed it
  * to the remote browser, but it can still die during the run. Execution
  * a8f07747-232f-4c37-87b5-9cf69f6e67ec passed pre-flight, ran 217s, and the
- * remote browser landed on ngrok's ERR_NGROK_3200 interstitial — which came back
+ * remote browser landed on our DEBUGG_TUNNEL_OFFLINE interstitial — which came back
  * as outcome 'fail' with a reason blaming the user's View button.
  *
  * Epic 56kd is "relay honestly, invent nothing", so reclassification is allowed
  * ONLY on POSITIVE local evidence that the tunnel is dead:
  *   - our own post-run re-probe actually failing, or
- *   - an explicit ERR_NGROK_* marker recorded by the run itself.
+ *   - an explicit DEBUGG_TUNNEL_* marker recorded by the run itself.
  * A healthy re-probe must relay the backend verdict VERBATIM — a genuine UI
  * failure must never be laundered into an infrastructure excuse.
  */
@@ -50,7 +50,6 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       pollExecution: mockPoll,
       cancelExecution: mockCancelExecution,
     },
-    revokeNgrokKey: mockRevokeKey,
     findProjectByRepoName: mockFindProject,
   })),
 }));
@@ -83,16 +82,16 @@ jest.unstable_mockModule('../../utils/imageUtils.js', () => ({
   artifactResourceLinks: jest.fn(() => []),
 }));
 
-// The probes are mocked (they hit the real network); extractNgrokErrorCode is a
+// The probes are mocked (they hit the real network); extractTunnelErrorCode is a
 // pure regex helper, so the double mirrors the real implementation exactly
 // rather than stubbing away the behaviour under test.
 jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeLocalPort: mockProbeLocalPort,
   probeTunnelHealth: mockProbeTunnelHealth,
-  extractNgrokErrorCode: (body: string) => body.match(/ERR_NGROK_\d+/)?.[0],
+  extractTunnelErrorCode: (body: string) => body.match(/DEBUGG_TUNNEL_(?:OFFLINE|UNKNOWN|UPSTREAM_REFUSED)/)?.[0],
 }));
 
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: { stopTunnel: jest.fn<() => Promise<void>>().mockResolvedValue(undefined as any), markTunnelDead: jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined as any) },
 }));
 
@@ -109,7 +108,7 @@ const ctx: ToolContext = { requestId: 'z15n-test', timestamp: new Date() };
 
 const LOCALHOST_URL = 'http://localhost:3011/projects/83fa71e2/graphs';
 const PUBLIC_URL = 'https://example.com';
-const TUNNEL_URL = 'https://687ba5fa-8dd5-45df-bfa2-32cdc09804f5.ngrok.debugg.ai/';
+const TUNNEL_URL = 'https://687ba5fa-8dd5-45df-bfa2-32cdc09804f5.tunnel.debugg.ai/';
 
 const localhostInput = { description: 'check the View button layout', url: LOCALHOST_URL };
 const publicInput = { description: 'check the View button layout', url: PUBLIC_URL };
@@ -120,15 +119,15 @@ const PROVISION_RESPONSE = { tunnelId: 'tid-abc', tunnelKey: 'tkey-abc', keyId: 
 
 /** Verbatim from the bead: the backend blames the page for OUR dead tunnel. */
 const BACKEND_FAIL_REASON =
-  'The target ngrok endpoint is offline, so the View button layout cannot be evaluated.';
+  'The target tunnel endpoint is offline, so the View button layout cannot be evaluated.';
 
 const HEALTHY = { healthy: true, status: 200, elapsedMs: 1 };
 const DEAD_TUNNEL = {
   healthy: false,
   status: 404,
-  code: 'NGROK_ERROR',
-  ngrokErrorCode: 'ERR_NGROK_3200',
-  detail: 'ngrok returned ERR_NGROK_3200 — endpoint is offline',
+  code: 'TUNNEL_ERROR',
+  tunnelErrorCode: 'DEBUGG_TUNNEL_OFFLINE',
+  detail: 'the tunnel returned DEBUGG_TUNNEL_OFFLINE — endpoint is offline',
   elapsedMs: 42,
 };
 
@@ -138,14 +137,14 @@ const DEAD_TUNNEL = {
 // tunnel healthy NOW?"; we were using it to claim "the tunnel was dead DURING
 // THE RUN". This flake is the proof, observed live on a demonstrably healthy
 // server (~1 in 5 runs) while `curl 127.0.0.1:39117/` returned 200:
-//     [warn] Tunnel health probe failed for https://...ngrok.debugg.ai/: NETWORK_ERROR in 286ms
+//     [warn] Tunnel health probe failed for https://...tunnel.debugg.ai/: NETWORK_ERROR in 286ms
 // It is a DNS race in the probe itself (debugg_ai_mcp-k6yq) — the tunnel is
 // fine. A probe result is therefore NOT evidence about the run window, and a
 // WRONG probe must not be able to move the verdict.
 const PROBE_FLAKE_NETWORK_ERROR = {
   healthy: false,
   code: 'NETWORK_ERROR',
-  detail: 'getaddrinfo ENOTFOUND 9aad79fd-c520-41b9-ad7a-fae900bd9859.ngrok.debugg.ai',
+  detail: 'getaddrinfo ENOTFOUND 9aad79fd-c520-41b9-ad7a-fae900bd9859.tunnel.debugg.ai',
   elapsedMs: 286,
 };
 
@@ -164,7 +163,7 @@ const EVIDENCE_STRICTNESS_REASON =
  *   completedAt 2026-07-16T00:46:42.971669Z, durationMs 22298
  *   state.outcome 'unknown'  → the raw backend outcome is not even 'fail'
  *   verdict.outcome 'fail'   → adaptVerdict relays this, satisfying the gate
- *   ERR_NGROK anywhere in the record: NONE
+ *   DEBUGG_TUNNEL_* anywhere in the record: NONE
  *   actionTrace proves the remote browser reached the REAL app.
  * The upstream was killed 2.78s AFTER completedAt, so the tunnel was alive for
  * 100% of the run — yet we stamped it TunnelOfflineDuringRun.
@@ -252,11 +251,11 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
   test('real mid-run death: BOTH arms fire (run recorded the marker + re-probe still UNHEALTHY) → reclassified as infrastructure, backend reason preserved', async () => {
     setup({ isLocalhost: true });
     // FIXTURE CORRECTED (bug 4bui): this case's original fixture recorded no
-    // ERR_NGROK_* marker on the run, which does not describe a real mid-run
-    // death — it stipulated a tunnel dead enough to serve ERR_NGROK_3200 to our
+    // DEBUGG_TUNNEL_* marker on the run, which does not describe a real mid-run
+    // death — it stipulated a tunnel dead enough to serve DEBUGG_TUNNEL_OFFLINE to our
     // probe whose own run somehow never saw an interstitial. Live QA (z15n)
     // settled what a genuine mid-run death actually looks like: BOTH arms fire
-    // together — re-probe unhealthy AND marker ERR_NGROK_3200 in the trace. The
+    // together — re-probe unhealthy AND marker DEBUGG_TUNNEL_OFFLINE in the trace. The
     // marker is now what authorizes reclassification, so the fixture carries it.
     // Every assertion below is unchanged.
     mockPoll.mockResolvedValue(
@@ -267,7 +266,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
             {
               step: 7,
               action: 'observe',
-              intent: 'Page shows ERR_NGROK_3200: the endpoint is offline',
+              intent: 'Page shows DEBUGG_TUNNEL_OFFLINE: the endpoint is offline',
               success: false,
             },
           ],
@@ -294,8 +293,8 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
     expect(payload.backendVerdict).toEqual({ outcome: 'fail', reason: BACKEND_FAIL_REASON });
 
     // Our own observation is what we assert as the cause — nothing invented.
-    expect(payload.detail.ngrokErrorCode).toBe('ERR_NGROK_3200');
-    expect(payload.detail.probeCode).toBe('NGROK_ERROR');
+    expect(payload.detail.tunnelErrorCode).toBe('DEBUGG_TUNNEL_OFFLINE');
+    expect(payload.detail.probeCode).toBe('TUNNEL_ERROR');
 
     // Run identity is still relayed so the caller can dig into the execution.
     expect(payload.executionId).toBe('exec-uuid-1');
@@ -306,7 +305,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
     setup({ isLocalhost: true });
     mockPoll.mockResolvedValue(makeExecution());
     // Tunnel is fine both before and after — this is a genuine UI failure, even
-    // though the backend's reason happens to mention the word "ngrok".
+    // though the backend's reason happens to mention the word "tunnel".
     mockProbeTunnelHealth.mockResolvedValue(HEALTHY);
 
     const result = await testPageChangesHandler(localhostInput, ctx);
@@ -362,7 +361,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
     expect(result.isError).toBeUndefined();
   });
 
-  test('backend fail + ERR_NGROK_* marker in the run evidence → reclassified even if the tunnel recovered (marker is the authority)', async () => {
+  test('backend fail + DEBUGG_TUNNEL_* marker in the run evidence → reclassified even if the tunnel recovered (marker is the authority)', async () => {
     setup({ isLocalhost: true });
     mockPoll.mockResolvedValue(
       makeExecution({
@@ -372,7 +371,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
             {
               step: 7,
               action: 'observe',
-              intent: 'Page shows ERR_NGROK_3200: the endpoint is offline',
+              intent: 'Page shows DEBUGG_TUNNEL_OFFLINE: the endpoint is offline',
               success: false,
             },
           ],
@@ -388,7 +387,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
     const payload = JSON.parse(result.content[0].text!);
     expect(payload.error).toBe('TunnelOfflineDuringRun');
     expect(payload.failureCategory).toBe('infrastructure');
-    expect(payload.detail.ngrokErrorCode).toBe('ERR_NGROK_3200');
+    expect(payload.detail.tunnelErrorCode).toBe('DEBUGG_TUNNEL_OFFLINE');
     expect(payload.backendVerdict).toEqual({ outcome: 'fail', reason: BACKEND_FAIL_REASON });
     expect(result.isError).toBe(true);
   });
@@ -408,7 +407,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
  * assumption under test. These tests deliberately encode a probe that is WRONG:
  * it reports unhealthy for a tunnel that demonstrably served the entire run.
  *
- * The fix: REQUIRE the ERR_NGROK_* marker. The marker is positive evidence that
+ * The fix: REQUIRE the DEBUGG_TUNNEL_* marker. The marker is positive evidence that
  * the remote browser actually hit OUR error page DURING the run — which is the
  * claim we are making. The probe is evidence about now, and is demoted to
  * corroboration. Per epic 56kd, only positive evidence justifies overriding the
@@ -445,11 +444,11 @@ describe('testPageChangesHandler — the re-probe alone must never launder a gen
     expect(payload.actionTrace[0].intent).toContain("text_visible('View Report') — matched");
   });
 
-  test('probe sees ERR_NGROK NOW but the run recorded none → the probe\'s ngrok code is not run evidence, relayed VERBATIM', async () => {
+  test('probe sees a marker NOW but the run recorded none → the probe\'s marker is not run evidence, relayed VERBATIM', async () => {
     setup({ isLocalhost: true });
     mockPoll.mockResolvedValue(makeHealthyRunGenuineFailExecution());
     // This is 2aa14b0b's literal kill sequence: the tunnel died AFTER the run
-    // completed, so a probe now genuinely sees ngrok's interstitial. That is a
+    // completed, so a probe now genuinely sees our interstitial. That is a
     // true statement about NOW and says nothing about the run window. The
     // browser never saw this page — the run's trace proves it reached the app.
     mockProbeTunnelHealth.mockResolvedValueOnce(HEALTHY).mockResolvedValueOnce(DEAD_TUNNEL);

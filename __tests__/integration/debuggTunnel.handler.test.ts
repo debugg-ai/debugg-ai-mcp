@@ -11,7 +11,7 @@
  *
  * This is the test that pins the plumbing the four handlers need: the provision
  * response's transport fields have to reach TunnelManager, and the revoke has
- * to follow the transport. Without them the handler silently keeps using ngrok.
+ * to follow the transport. Without them the handler has no relay URL to connect to.
  *
  * Self-skips without `caddy` on PATH. RED on purpose.
  */
@@ -36,7 +36,7 @@ const observed = {
   contextData: undefined as any,
   browserFetchedPath: undefined as string | undefined,
   browserStatus: undefined as number | undefined,
-  revokedVia: undefined as 'tunnels.revoke' | 'revokeNgrokKey' | undefined,
+  revokedVia: undefined as 'tunnels.revoke' | 'client.legacy' | undefined,
   revokedTunnelId: undefined as string | undefined,
 };
 
@@ -103,7 +103,8 @@ class FakeServerClient {
   };
 
   async init(): Promise<void> {}
-  async revokeNgrokKey(): Promise<void> { observed.revokedVia = 'revokeNgrokKey'; }
+  // The client used to expose revokeNgrokKey(); it is gone. Nothing here may
+  // reach a revoke path other than tunnels.revoke().
 }
 
 jest.unstable_mockModule('../../services/index.js', () => ({
@@ -111,11 +112,11 @@ jest.unstable_mockModule('../../services/index.js', () => ({
 }));
 
 let probePageHandler: typeof import('../../handlers/probePageHandler.js').probePageHandler;
-let tunnelManager: typeof import('../../services/ngrok/tunnelManager.js').tunnelManager;
+let tunnelManager: typeof import('../../services/tunnel/tunnelManager.js').tunnelManager;
 
 beforeAll(async () => {
   ({ probePageHandler } = await import('../../handlers/probePageHandler.js'));
-  ({ tunnelManager } = await import('../../services/ngrok/tunnelManager.js'));
+  ({ tunnelManager } = await import('../../services/tunnel/tunnelManager.js'));
 });
 
 maybeDescribe('probe_page through a debugg tunnel', () => {
@@ -156,10 +157,9 @@ maybeDescribe('probe_page through a debugg tunnel', () => {
 
     tunnelManager.connectBackoffMs = [50, 100];
 
-    // Fail fast while the transport seam is missing: otherwise the handler
-    // falls through to the REAL ngrok agent, which spawns a binary and calls
-    // ngrok's API from a test run. Harmless once 4.1 lands.
-    expect(typeof (tunnelManager as any).transports?.debugg?.connect).toBe('function');
+    // Fail fast if the transport seam ever goes missing, so a red run reports
+    // THAT rather than a pile of downstream confusion.
+    expect(typeof (tunnelManager as any).transport?.connect).toBe('function');
   });
 
   afterEach(async () => {
@@ -191,7 +191,7 @@ maybeDescribe('probe_page through a debugg tunnel', () => {
     expect(text).toContain(`http://localhost:${appPort}`);
   }, 30000);
 
-  test("the tunnel's revoke callback routes to the debugg endpoint, not the ngrok one", async () => {
+  test("the tunnel's revoke callback routes to the tunnels service", async () => {
     await probePageHandler(
       {
         targets: [{ url: `http://localhost:${appPort}/dashboard`, waitForLoadState: 'domcontentloaded', timeoutMs: 10000 }],
@@ -204,7 +204,7 @@ maybeDescribe('probe_page through a debugg tunnel', () => {
     // Tunnels outlive a call by design (reuse + the 55-minute idle shutoff), so
     // the revoke fires when the tunnel is actually stopped. That callback is
     // what the handler built, and it must follow the transport the backend
-    // picked rather than hitting api/v1/ngrok/revoke/ for a debugg tunnel.
+    // owned by the tunnels service rather than any client-level revoke.
     await tunnelManager.stopAllTunnels();
 
     expect(observed.revokedVia).toBe('tunnels.revoke');
@@ -219,7 +219,7 @@ maybeDescribe('probe_page through a debugg tunnel', () => {
   // but when ensureTunnel throws, `targetContexts.push(tunneled)` never runs,
   // so `tc` is undefined and nothing is revoked — a provisioned tunnel is
   // leaked until it expires. It predates this arc (the same loop skipped
-  // revokeNgrokKey on the ngrok path) and probe_page is the only handler with
+  // the client's own revoke) and probe_page is the only handler with
   // it, because it is the batch one.
   //
   // Whoever fixes xkoh.9 flips this assertion to expect 'tunnels.revoke'.

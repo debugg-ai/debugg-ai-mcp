@@ -1,37 +1,51 @@
 /**
- * TunnelTransport — the one step of tunnel creation that differs between ngrok
- * and the debugg tunnel server.
+ * TunnelTransport — the boundary between tunnel LIFECYCLE (tunnelManager.ts:
+ * who owns a tunnel, when it is reused, when it is torn down) and tunnel
+ * TRANSPORT (debuggTransport.ts: the websocket mux that actually carries
+ * bytes).
  *
- * STUB (bead debugg_ai_mcp-xkoh.5.3, phase 2.1). Types and signatures only; the
- * implementations arrive in phase 4.1 (debugg_ai_mcp-xkoh.5.7).
+ * This started life as a two-implementation seam so the ngrok client and the
+ * debugg client could run side by side through the rollout. ngrok is gone and
+ * there is exactly one implementation now, but the interface is KEPT and the
+ * two-implementation machinery around it is not — see the note below.
+ *
+ * WHY KEEP AN INTERFACE WITH ONE IMPLEMENTATION: it is the injection point
+ * (`tunnelManager.transport`) every tunnel-lifecycle test drives, in the same
+ * spirit as `caddyFactory`. Without it, testing eviction, the retry ladder or
+ * the idle timer means standing up a real websocket against a real relay.
+ * It also keeps debuggTransport's ~600 lines of framing, flow control and
+ * reconnect out of TunnelManager, which is the reason the file boundary is
+ * worth having regardless of how many implementations exist.
+ *
+ * WHAT WAS REMOVED WITH ngrok, because it was ceremony the moment the second
+ * implementation went away:
+ *   - `TunnelTransportKind` and the `Record<kind, TunnelTransport>` registry —
+ *     a map with one key, keyed by a union with one member.
+ *   - `prepare()`, `resetAfterFailedAttempt()` and `onAllTunnelsStopped()` —
+ *     three optional hooks that existed ONLY for the ngrok agent process
+ *     (pre-warm, agent reset between retries, module reset when the agent may
+ *     have exited). debugg has no out-of-process agent, so every one of them
+ *     was a no-op on the only surviving implementation.
  *
  * Everything above this seam is unchanged: handlers, utils/tunnelContext.ts,
- * the per-session Caddy instance, PortLock, URL rewriting, the retry ladder,
- * the idle timer and the session keying all behave exactly as they do today
- * (docs/debugg-tunnel-server-design-2026-09-19.md §5). TunnelManager picks an
- * implementation from the provision response and calls it where it calls
- * ngrok.connect() today.
+ * the per-session Caddy instance, PortLock, URL rewriting, the retry ladder and
+ * the idle timer (docs/debugg-tunnel-server-design-2026-09-19.md §5).
  */
 
 import type { ProbeResult } from './protocol/index.js';
 
-/** Which tunnel the backend told us to use. A response with no `transport` means ngrok. */
-export type TunnelTransportKind = 'ngrok' | 'debugg';
-
 /**
- * The transport-selecting part of a provision response. A `TunnelProvision`
+ * The parts of a provision response that a connect needs. A `TunnelProvision`
  * satisfies this structurally, so callers pass the provision itself.
  */
 export interface TunnelTransportSelection {
-  transport: TunnelTransportKind;
-  /** debugg only: the websocket control endpoint, e.g. wss://api.debugg.ai/tunnel/v1/connect */
+  /** The websocket control endpoint, e.g. wss://api.debugg.ai/tunnel/v1/connect */
   relayUrl?: string;
-  /** debugg only: the hostname suffix, e.g. tunnel.debugg.ai */
+  /** The hostname suffix, e.g. tunnel.debugg.ai */
   tunnelDomain?: string;
   /**
-   * The id the backend issued. The dedicated (test_suite run) path must use it
-   * for a debugg tunnel: the token is bound to that Tunnel record, so a
-   * client-minted uuid is rejected with 401.
+   * The id the backend issued. BOTH tunnel paths must use it: the token is
+   * bound to that Tunnel record, so a client-minted uuid is rejected with 401.
    */
   tunnelId?: string;
 }
@@ -39,7 +53,7 @@ export interface TunnelTransportSelection {
 export interface TunnelConnectOptions {
   /** The hostname label, sent as X-Debugg-Tunnel-Id and bound to the token. */
   tunnelId: string;
-  /** debugg only: where the control websocket goes. */
+  /** Where the control websocket goes. */
   relayUrl?: string;
   /**
    * Called when the tunnel can never come back — a revoke, or an auth failure
@@ -60,7 +74,13 @@ export interface TunnelTransportError extends Error {
 }
 
 export interface TunnelTransport {
-  readonly kind: TunnelTransportKind;
+  /**
+   * Short label for logs and telemetry. Kept as a property rather than
+   * hardcoded at the call sites so the `transport` dimension on
+   * TUNNEL_PROVISIONED / TUNNEL_STOPPED stays populated and keeps its meaning
+   * if a second transport ever arrives.
+   */
+  readonly kind: string;
 
   /**
    * Establish the tunnel and return its public origin (no path).
@@ -81,17 +101,9 @@ export interface TunnelTransport {
   disconnect(publicUrl: string): Promise<void>;
 
   /**
-   * Health-check the tunnel from the server side (debugg: a control-channel
-   * PROBE). Absent on transports whose public URL can simply be fetched.
+   * Health-check the tunnel from the server side (a control-channel PROBE).
+   * A tunnel hostname resolves only inside our VPC, so this is the only way to
+   * health-check one from a user's machine.
    */
   probe?(publicUrl: string, path: string, opts?: { timeoutMs?: number }): Promise<ProbeResult>;
-
-  /** ngrok only: pre-warm the agent session before the first connect (bead pqgj). */
-  prepare?(token: string): Promise<void>;
-
-  /** ngrok only: the agent reset the retry ladder does between attempts 1 and 2. */
-  resetAfterFailedAttempt?(): Promise<void>;
-
-  /** ngrok only: no tunnels of this kind remain, so the agent module can be reset. */
-  onAllTunnelsStopped?(): void;
 }

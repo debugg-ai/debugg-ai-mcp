@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "lint": "eslint .",
-    "build": "tsc && shx chmod +x dist/index.js",
+    "build": "shx rm -rf dist && tsc && shx chmod +x dist/index.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
@@ -61,7 +61,6 @@
     "@radically-straightforward/caddy": "^2.0.12",
     "axios": "^1.9.0",
     "mkdirp": "^3.0.1",
-    "ngrok": "^5.0.0-beta.2",
     "posthog-node": "^5.26.0",
     "uuid": "^11.1.0",
     "winston": "^3.15.0",

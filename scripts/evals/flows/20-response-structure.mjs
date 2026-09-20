@@ -164,7 +164,7 @@ export const flow = {
         const textBlock = response.content?.find(b => b.type === 'text');
         const body = JSON.parse(textBlock.text);
         assert(body.targetUrl === localUrl, `targetUrl mismatch: expected ${localUrl}, got ${body.targetUrl}`);
-        assert(!textBlock.text.includes('ngrok.debugg.ai'), 'response leaks internal tunnel URL');
+        assert(!/\.(?:tunnel|ngrok)\.debugg\.ai/.test(textBlock.text), 'response leaks internal tunnel URL');
       });
 
       await step('response body carries browserSession with HAR/console URL + status keys (releases 2026-04-25 + 2026-04-26)', async () => {

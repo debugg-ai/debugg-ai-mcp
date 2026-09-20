@@ -91,7 +91,7 @@ export const flow = {
 
     await step('no internal tunnel URL leaks in the raw response', async () => {
       const raw = response.content[0].text;
-      assert(!raw.includes('ngrok.debugg.ai'),
+      assert(!/\.(?:tunnel|ngrok)\.debugg\.ai/.test(raw),
         `Response leaks internal tunnel URL: ${raw.slice(0, 300)}`);
     });
 

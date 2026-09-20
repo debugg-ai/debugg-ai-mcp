@@ -1,6 +1,6 @@
 /**
  * Tests for testPageChangesHandler
- * Verifies execute-first tunnel flow and ngrok key revocation
+ * Verifies execute-first tunnel flow and tunnel revocation
  */
 
 import { ToolContext, TestPageChangesInputSchema } from '../../types/index.js';
@@ -68,9 +68,9 @@ describe('testPageChangesHandler — execute-first tunnel flow', () => {
     });
 
     test('revokeKey is stored on tunnel and fires on auto-shutoff, not per-call', () => {
-      // The handler passes () => client.revokeNgrokKey(keyId) as revokeKey to ensureTunnel.
+      // The handler passes () => client.tunnels.revoke(provision) as revokeKey to ensureTunnel.
       // TunnelManager stores it in TunnelInfo and calls it when the tunnel auto-stops.
-      // Handler does NOT call revokeNgrokKey directly in the happy path.
+      // Handler does NOT revoke directly in the happy path.
       expect(true).toBe(true); // documented invariant, enforced by integration tests below
     });
   });
@@ -459,7 +459,7 @@ const mockFindTemplate = jest.fn<() => Promise<any>>();
 const mockExecute = jest.fn<() => Promise<any>>();
 const mockPoll = jest.fn<() => Promise<any>>();
 const mockRevokeKey = jest.fn<() => Promise<void>>();
-/** Revoking now follows the provision's transport (ngrok key vs debugg tunnel). */
+/** Revoking goes through the tunnels service, which owns the endpoint. */
 const mockRevokeTunnel = jest.fn<(provision: any) => Promise<void>>();
 const mockInit = jest.fn<() => Promise<void>>();
 const mockFindProject = jest.fn<(repo: string) => Promise<any>>();
@@ -489,7 +489,6 @@ jest.unstable_mockModule('../../services/index.js', () => ({
       executeWorkflow: mockExecute,
       pollExecution: mockPoll,
     },
-    revokeNgrokKey: mockRevokeKey,
     findProjectByRepoName: mockFindProject,
   })),
 }));
@@ -529,16 +528,16 @@ const mockProbeTunnelHealth = jest.fn<(...args: any[]) => Promise<any>>()
 jest.unstable_mockModule('../../utils/localReachability.js', () => ({
   probeLocalPort: mockProbeLocalPort,
   probeTunnelHealth: mockProbeTunnelHealth,
-  // Bug z15n: the handler imports this to spot ngrok's interstitial marker in
+  // Bug z15n: the handler imports this to spot the tunnel's interstitial marker in
   // run evidence. It's a pure regex helper, so the double mirrors the real
   // implementation rather than stubbing it out.
-  extractNgrokErrorCode: (body: string) => body.match(/ERR_NGROK_\d+/)?.[0],
+  extractTunnelErrorCode: (body: string) => body.match(/DEBUGG_TUNNEL_(?:OFFLINE|UNKNOWN|UPSTREAM_REFUSED)/)?.[0],
 }));
 
 // tunnelManager.stopTunnel / markTunnelDead are called on bead-1om health-probe failure.
 const mockStopTunnel = jest.fn<() => Promise<void>>().mockResolvedValue();
 const mockMarkTunnelDead = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue();
-jest.unstable_mockModule('../../services/ngrok/tunnelManager.js', () => ({
+jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
   tunnelManager: {
     stopTunnel: mockStopTunnel,
     markTunnelDead: mockMarkTunnelDead,
@@ -621,7 +620,7 @@ function setupHappyPath(options: { isLocalhost: boolean; reuseExisting?: boolean
         originalUrl: url,
         isLocalhost: true,
         tunnelId: 'existing-tid',
-        targetUrl: 'https://existing-tid.ngrok.debugg.ai/',
+        targetUrl: 'https://existing-tid.tunnel.debugg.ai/',
       });
     } else {
       // No existing tunnel — provision path
@@ -631,7 +630,7 @@ function setupHappyPath(options: { isLocalhost: boolean; reuseExisting?: boolean
         originalUrl: url,
         isLocalhost: true,
         tunnelId: 'tid-abc',
-        targetUrl: 'https://tid-abc.ngrok.debugg.ai/',
+        targetUrl: 'https://tid-abc.tunnel.debugg.ai/',
       });
     }
   } else {
@@ -721,7 +720,7 @@ describe('testPageChangesHandler — full handler flow', () => {
         originalUrl: 'http://localhost:3000',
         isLocalhost: true,
         tunnelId: 'tid-abc',
-        targetUrl: 'https://tid-abc.ngrok.debugg.ai/',
+        targetUrl: 'https://tid-abc.tunnel.debugg.ai/',
       };
     });
     mockExecute.mockImplementation(async () => {
@@ -737,7 +736,7 @@ describe('testPageChangesHandler — full handler flow', () => {
 
     // targetUrl in contextData is the tunnel URL
     const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
-    expect(contextData.targetUrl).toBe('https://tid-abc.ngrok.debugg.ai/');
+    expect(contextData.targetUrl).toBe('https://tid-abc.tunnel.debugg.ai/');
 
     // ensureTunnel called with keyId, revokeKey AND the provision, which is
     // the transport selection. This assertion pinned the 5-argument form
@@ -766,7 +765,7 @@ describe('testPageChangesHandler — full handler flow', () => {
       const order: string[] = [];
       mockEnsureTunnel.mockImplementation(async () => {
         order.push('ensureTunnel');
-        return { originalUrl: 'http://localhost:3000', isLocalhost: true, tunnelId: 'tid-abc', targetUrl: 'https://tid-abc.ngrok.debugg.ai/' };
+        return { originalUrl: 'http://localhost:3000', isLocalhost: true, tunnelId: 'tid-abc', targetUrl: 'https://tid-abc.tunnel.debugg.ai/' };
       });
       mockAcquirePortRoute.mockImplementation(async (ctx: any) => {
         order.push('acquirePortRoute');
@@ -810,7 +809,7 @@ describe('testPageChangesHandler — full handler flow', () => {
   });
 
   // Test 3: Happy-path localhost — tunnel stays alive, no explicit revoke in finally
-  test('tunnel reuse: releaseTunnel NOT called, revokeNgrokKey NOT called on success', async () => {
+  test('tunnel reuse: releaseTunnel NOT called, revoke NOT called on success', async () => {
     setupHappyPath({ isLocalhost: true });
 
     await testPageChangesHandler(localhostInput, defaultContext);
@@ -835,7 +834,7 @@ describe('testPageChangesHandler — full handler flow', () => {
   // immediately, through the endpoint ITS transport uses.
   test('ensureTunnel throws after provision: unused tunnel is revoked', async () => {
     setupHappyPath({ isLocalhost: true });
-    mockEnsureTunnel.mockRejectedValue(new Error('ngrok connect failed'));
+    mockEnsureTunnel.mockRejectedValue(new Error('tunnel connect failed'));
 
     await expect(
       testPageChangesHandler(localhostInput, defaultContext)
@@ -861,7 +860,7 @@ describe('testPageChangesHandler — full handler flow', () => {
   });
 
   // Test 6: executeWorkflow throws — tunnel stays alive, no revoke in finally
-  test('executeWorkflow throws: tunnel stays alive, revokeNgrokKey NOT called in finally', async () => {
+  test('executeWorkflow throws: tunnel stays alive, revoke NOT called in finally', async () => {
     setupHappyPath({ isLocalhost: true });
     mockExecute.mockRejectedValue(new Error('API error'));
 
@@ -884,7 +883,7 @@ describe('testPageChangesHandler — full handler flow', () => {
 
     // contextData uses the reused tunnel URL
     const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
-    expect(contextData.targetUrl).toBe('https://existing-tid.ngrok.debugg.ai/');
+    expect(contextData.targetUrl).toBe('https://existing-tid.tunnel.debugg.ai/');
   });
 
   // ── Bead 1om: pre-flight local port + post-tunnel health checks ───────────
@@ -918,9 +917,9 @@ describe('testPageChangesHandler — full handler flow', () => {
       mockProbeTunnelHealth.mockResolvedValueOnce({
         healthy: false,
         status: 502,
-        code: 'NGROK_ERROR',
-        ngrokErrorCode: 'ERR_NGROK_8012',
-        detail: 'ngrok returned ERR_NGROK_8012',
+        code: 'TUNNEL_ERROR',
+        tunnelErrorCode: 'DEBUGG_TUNNEL_UPSTREAM_REFUSED',
+        detail: 'the tunnel returned DEBUGG_TUNNEL_UPSTREAM_REFUSED',
         elapsedMs: 120,
       });
 
@@ -930,15 +929,15 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
       expect(body.error).toBe('TunnelTrafficBlocked');
       expect(body.message).toContain('traffic isn\'t reaching');
-      expect(body.detail.ngrokErrorCode).toBe('ERR_NGROK_8012');
+      expect(body.detail.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UPSTREAM_REFUSED');
 
-      // ERR_NGROK_8012 means the TUNNEL IS ALIVE and its upstream refused — the
+      // DEBUGG_TUNNEL_UPSTREAM_REFUSED means the TUNNEL IS ALIVE and its upstream refused — the
       // tunnel is what served us this error. Evicting on it orphans a live,
       // billing tunnel and makes the next call provision a replacement: two
       // billed hours (1-hour minimum down, another up) spent on a dev server
       // that is the actual problem. This assertion used to be the opposite way
       // round; see utils/tunnelDisposition.ts for the allowlist that replaced
-      // "any ERR_NGROK_* means dead".
+      // "any marker at all means dead".
       expect(mockMarkTunnelDead).not.toHaveBeenCalled();
       expect(mockStopTunnel).not.toHaveBeenCalled();
 
@@ -948,12 +947,12 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockExecute).not.toHaveBeenCalled();
     });
 
-    test('health fails WITHOUT an ngrok marker → tunnel is left completely alone', async () => {
+    test('health fails WITHOUT a tunnel marker → tunnel is left completely alone', async () => {
       setupHappyPath({ isLocalhost: true });
       mockProbeTunnelHealth.mockResolvedValueOnce({
         healthy: false,
         code: 'NETWORK_ERROR',
-        // no ngrokErrorCode — and per bead kmzb the probe cannot produce one at
+        // no tunnelErrorCode — and per bead kmzb the probe cannot produce one at
         // all against this edge (undici gets an HTTP/2 GOAWAY instead of the
         // interstitial), so this is what EVERY real probe failure looks like.
         detail: 'connection reset',
@@ -971,14 +970,14 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockMarkTunnelDead).not.toHaveBeenCalled();
     });
 
-    test('health fails with ERR_NGROK_3200 → endpoint proven gone, evicted from the shared registry', async () => {
+    test('health fails with DEBUGG_TUNNEL_OFFLINE → endpoint proven gone, evicted from the shared registry', async () => {
       setupHappyPath({ isLocalhost: true });
       mockProbeTunnelHealth.mockResolvedValueOnce({
         healthy: false,
         status: 404,
-        code: 'NGROK_ERROR',
-        ngrokErrorCode: 'ERR_NGROK_3200',
-        detail: 'ngrok returned ERR_NGROK_3200',
+        code: 'TUNNEL_ERROR',
+        tunnelErrorCode: 'DEBUGG_TUNNEL_OFFLINE',
+        detail: 'the tunnel returned DEBUGG_TUNNEL_OFFLINE',
         elapsedMs: 55,
       });
 
@@ -1665,7 +1664,7 @@ describe('testPageChangesHandler — full handler flow', () => {
       setupHappyPath({ isLocalhost: true });
       mockRetargetAuxiliaryUrl.mockImplementation((_ctx: any, url: string) => ({
         ok: true,
-        url: url.replace('http://localhost:3000', 'https://tid-abc.ngrok.debugg.ai'),
+        url: url.replace('http://localhost:3000', 'https://tid-abc.tunnel.debugg.ai'),
         rewritten: true,
       }));
 
@@ -1685,8 +1684,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockRetargetAuxiliaryUrl).toHaveBeenCalledWith(expect.anything(), 'http://localhost:3000/settings?tab=profile');
 
       const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
-      expect(contextData.auth.entryUrl).toBe('https://tid-abc.ngrok.debugg.ai/login');
-      expect(contextData.auth.deepUrl).toBe('https://tid-abc.ngrok.debugg.ai/settings?tab=profile');
+      expect(contextData.auth.entryUrl).toBe('https://tid-abc.tunnel.debugg.ai/login');
+      expect(contextData.auth.deepUrl).toBe('https://tid-abc.tunnel.debugg.ai/settings?tab=profile');
       // Nothing the browser navigates may still say localhost.
       expect(JSON.stringify(contextData.auth)).not.toMatch(/localhost|127\.0\.0\.1/);
     });

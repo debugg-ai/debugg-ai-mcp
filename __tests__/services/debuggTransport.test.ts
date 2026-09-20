@@ -244,7 +244,7 @@ describe('handshake rejections', () => {
 // ── Blocked egress ───────────────────────────────────────────────────────────
 
 describe('a connection that never reaches the relay says what has to be allowed', () => {
-  // This is the ONE user-visible regression versus ngrok: the ngrok agent
+  // This is the ONE user-visible regression from the ngrok cutover: its agent
   // honours HTTPS_PROXY and this client does not (owner decision: accepted
   // risk). A generic "tunnel failed" would send someone hunting in the wrong
   // place, so the message names the host, the port, and the proxy limitation.
@@ -357,7 +357,7 @@ describe('a stream is dialled at the registered local address and nowhere else',
 
     expect(received).toHaveLength(1);
     expect(received[0].url).toBe('/app');
-    // The Host header rides through untouched, exactly as the ngrok agent does.
+    // The Host header rides through untouched, exactly as the ngrok agent did.
     expect(received[0].host).toBe('tid-1.tunnel.debugg.ai');
   });
 
@@ -411,7 +411,7 @@ describe('a stream is dialled at the registered local address and nowhere else',
   });
 
   test('a local app that refuses the connection gets RST(UPSTREAM_UNREACHABLE), and the tunnel stays up', async () => {
-    // Closed port: the ERR_NGROK_8012 analogue. The server renders
+    // Closed port: the upstream-refused case. The server renders
     // DEBUGG_TUNNEL_UPSTREAM_REFUSED from this code, and tunnelDisposition
     // keeps the tunnel, because the tunnel is not what failed.
     const closedPort = port;

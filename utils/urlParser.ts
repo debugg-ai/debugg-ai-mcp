@@ -111,10 +111,9 @@ export function isLocalhostUrl(urlString: string): boolean {
  * Used to sanitize backend responses that contain internal tunnel URLs before
  * returning them to callers who only know the original localhost address.
  *
- * Covers EVERY known tunnel domain (utils/tunnelDomains.ts), not just ngrok's:
- * during the migration one session can hold an ngrok tunnel and another a
- * debugg tunnel, and a domain this does not know is a hostname that leaks to
- * the caller.
+ * Covers EVERY known tunnel domain (utils/tunnelDomains.ts), including the
+ * retired `ngrok.debugg.ai` one a historical run's stored URLs still carry: a
+ * domain this does not know is a hostname that leaks to the caller.
  */
 export function replaceTunnelUrls(value: unknown, localhostOrigin: string): unknown {
   if (typeof value === 'string') {
@@ -136,7 +135,7 @@ export function replaceTunnelUrls(value: unknown, localhostOrigin: string): unkn
 /**
  * Re-point a REUSED tunnel at the current caller's path (bead zmc9).
  *
- * A tunnel is origin-scoped: its `tunnelUrl` (scheme://host from ngrok) forwards
+ * A tunnel is origin-scoped: its `tunnelUrl` (scheme://host from the transport) forwards
  * every path. The path is request-scoped. On reuse we must compose the reused
  * tunnel's ORIGIN with THIS request's path/search/hash — never replay the
  * path-bearing `publicUrl` baked in by whichever call created the tunnel.
@@ -158,7 +157,7 @@ export function retargetTunnelUrl(tunnelOrigin: string, requestedUrl: string): s
 /**
  * Generate a tunneled URL for a localhost URL
  */
-export function generateTunnelUrl(originalUrl: string, tunnelId: string, tunnelDomain: string = 'ngrok.debugg.ai'): string {
+export function generateTunnelUrl(originalUrl: string, tunnelId: string, tunnelDomain: string): string {
   try {
     const parsed = parseUrl(originalUrl);
     if (!parsed.isLocalhost) {

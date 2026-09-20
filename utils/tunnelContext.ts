@@ -3,12 +3,12 @@
  *
  * Centralizes:
  *  - resolving user input url to a concrete URL
- *  - creating / reusing ngrok tunnels after the backend returns a tunnelKey
+ *  - creating / reusing tunnels after the backend returns a tunnelKey
  *  - acquiring/releasing this session's shared Caddy port route (§2.4)
  *  - sanitizing backend responses so callers only ever see the original URL
  */
 
-import { tunnelManager, getSessionKey } from '../services/ngrok/tunnelManager.js';
+import { tunnelManager, getSessionKey } from '../services/tunnel/tunnelManager.js';
 import { isLocalhostUrl, replaceTunnelUrls, retargetTunnelUrl, extractLocalhostPort } from './urlParser.js';
 import type { PortRouteHandle, PortWaitInfo } from '../services/caddy/portLock.js';
 import type { TunnelTransportSelection } from '../services/tunnel/transport.js';
@@ -20,10 +20,10 @@ export interface TunnelContext {
   originalUrl: string;
   /** Whether the original URL is localhost / 127.0.0.1. */
   isLocalhost: boolean;
-  /** Tunnel ID (ngrok subdomain) used for this request, if a tunnel was created. */
+  /** Tunnel ID (the tunnel hostname's leftmost label) used for this request, if a tunnel was created. */
   tunnelId?: string;
   /** The public tunnel URL to pass to the backend as contextData.targetUrl.
-   *  For localhost this is the ngrok/Caddy URL; for public URLs it equals originalUrl. */
+   *  For localhost this is the tunnel/Caddy URL; for public URLs it equals originalUrl. */
   targetUrl?: string;
   /** This request's held claim on the session's shared Caddy route (§2.4),
    *  set by `acquirePortRoute` and released via `releasePortRoute`. Undefined
@@ -54,7 +54,7 @@ export function buildContext(originalUrl: string): TunnelContext {
 // ─── Tunnel creation ─────────────────────────────────────────────────────────
 
 /**
- * Check whether this SESSION already has a tunnel (§2.1 — one ngrok tunnel
+ * Check whether this SESSION already has a tunnel (§2.1 — one tunnel
  * per session key, not per local port). If found, touches its timer and
  * returns an enriched context retargeted at this caller's own path. Returns
  * null for public URLs or when this session has no tunnel yet.
@@ -82,14 +82,16 @@ export function findExistingTunnel(ctx: TunnelContext): TunnelContext | null {
  * No-op for public URLs.
  *
  * @param ctx       - Context built from `buildContext()`
- * @param tunnelKey - Auth token from the backend (short-lived ngrok key)
- * @param tunnelId  - ID to use as the ngrok subdomain (only takes effect the
- *                    first time this session creates a tunnel)
+ * @param tunnelKey - Auth token from the backend (short-lived tunnel token)
+ * @param tunnelId  - ID to use as the tunnel hostname's label (only takes
+ *                    effect the first time this session creates a tunnel).
+ *                    The token is bound to it, so it must be the backend's.
  * @param keyId     - Backend key ID; stored on the tunnel so it is revoked on stop
  * @param revokeKey - Callback that revokes the backend tunnel (called when tunnel stops)
- * @param selection - The provision response's transport fields. Omitted means
- *                    ngrok, which is what an old backend implies, so every
- *                    existing caller keeps its meaning.
+ * @param selection - The provision response's relayUrl / tunnelDomain /
+ *                    tunnelId. Omitting it leaves the transport with nowhere
+ *                    to connect, so every handler must pass the provision
+ *                    (locked by __tests__/handlers/tunnelSelectionWiring.test.ts).
  */
 export async function ensureTunnel(
   ctx: TunnelContext,

@@ -3,7 +3,7 @@
  *
  * One websocket per tunnel to the relayUrl a provision response supplies,
  * speaking the wire protocol in services/tunnel/protocol/ (spec: bead
- * debugg_ai_mcp-xkoh.1.2). It replaces the `ngrok` package, which downloads and
+ * debugg_ai_mcp-xkoh.1.2). It replaced the `ngrok` package, which downloaded and
  * spawns a native agent; `ws` is the only new dependency and is pure JS.
  *
  * This file owns exactly four things — the socket, the reconnect policy, the
@@ -440,7 +440,7 @@ class DebuggTransport implements TunnelTransport {
 
     socket.on('error', () => {
       if (!established) {
-        // The ERR_NGROK_8012 analogue: the tunnel is fine, the app refused.
+        // The tunnel is fine; the app refused the connection.
         // The server renders DEBUGG_TUNNEL_UPSTREAM_REFUSED from this code and
         // tunnelDisposition keeps the tunnel.
         stream.reset(ErrorCode.UPSTREAM_UNREACHABLE);
@@ -488,9 +488,9 @@ function handshakeFailureError(
 ): TunnelTransportError {
   switch (status) {
     case 401:
-      // The word "authtoken" is load-bearing: TunnelManager matches it to
-      // render its "invalid auth token" message, the same one an ngrok auth
-      // failure produces.
+      // The word "authtoken" is load-bearing: TunnelManager's connect ladder
+      // matches it to stop retrying and render its "invalid auth token"
+      // message.
       return terminal(
         'the debugg tunnel server rejected the authtoken (HTTP 401) — the tunnel key is invalid, ' +
         'expired or revoked. A new one is provisioned on the next call.',
@@ -520,10 +520,10 @@ function handshakeFailureError(
 }
 
 /**
- * A connection-level failure reaching the relay. This is the one place where
- * the debugg transport can be WORSE than ngrok for a user — ngrok's agent
- * honours HTTPS_PROXY and this client does not — so the message says plainly
- * what has to be allowed instead of reading as a generic tunnel error.
+ * A connection-level failure reaching the relay. This client does NOT honour
+ * HTTPS_PROXY (the retired ngrok agent did, which is the one capability lost
+ * in the cutover — design §5 "open gap"), so the message says plainly what has
+ * to be allowed instead of reading as a generic tunnel error.
  */
 function egressError(state: TunnelState, detail: string, code?: string): TunnelTransportError {
   const relayHost = hostOf(state.relayUrl);
