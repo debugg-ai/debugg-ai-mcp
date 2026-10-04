@@ -260,6 +260,22 @@ clients without resource support keep using the tools.
 - 404s from the backend surface as `isError: true` with `{error: 'NotFound', ...}`, never as thrown exceptions.
 - Missing `DEBUGGAI_API_KEY` surfaces as a structured tool error on first invocation — the server still registers and lists tools normally.
 
+## Migration to v6.0.0 (backend verdicts, no MCP-authored text)
+
+A run verdict is `pass | fail | error`, with the backend's `reason` relayed verbatim. A run that
+never attempted a test reads `outcome: null`, `skipped: true`, `skipReason`.
+
+| Removed | Replacement |
+|---------|-------------|
+| `success` | `outcome` |
+| `failureCategory` | `outcome` + `reason` |
+| `stepsTaken` / `stepsBudget` / `stepsRemaining` | `budget: {maxSteps, usedSteps}` |
+| `failedNode` | `errorInfo` |
+| `get` → `projects[0]` / `executions[0]` / `environments[0]` + `pageInfo` + `filter` | `{project}` / `{execution}` / `{project, environment}` |
+| `message` / `note` on warnings and results | structured fields only |
+
+Full list: [CHANGELOG.md](CHANGELOG.md) 6.0.0.
+
 ## Migration to v3.0.0 (action-based tools)
 
 v3 consolidated the 20 per-verb tools into 8 action-based tools. Old tool → new `tool {action}`:
