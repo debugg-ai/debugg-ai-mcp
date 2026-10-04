@@ -18,6 +18,7 @@ import {
   ProgressCallback,
 } from '../types/index.js';
 import { config } from '../config/index.js';
+import { toUserFacingOutcome, noVerdictReason } from '../services/verdictAdapter.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
@@ -336,8 +337,16 @@ export async function triggerCrawlHandler(
       targetUrl: ctx.originalUrl,
       durationMs: finalExecution.durationMs ?? duration,
     };
-    const outcome = finalExecution.state?.outcome;
-    if (outcome !== undefined && outcome !== null) responsePayload.outcome = outcome;
+    // Map onto the user-facing enum instead of relaying raw. This path never
+    // went through adaptVerdict, so it would otherwise emit whatever the
+    // backend sent — including retired non-answers like 'inconclusive'.
+    const rawOutcome = finalExecution.state?.outcome;
+    if (rawOutcome !== undefined && rawOutcome !== null) {
+      responsePayload.outcome = toUserFacingOutcome(rawOutcome);
+      if (responsePayload.outcome === 'error' && !finalExecution.errorMessage) {
+        responsePayload.reason = noVerdictReason(rawOutcome);
+      }
+    }
     if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
     if (finalExecution.errorInfo?.failedNodeId) responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
     if (executeResponse.resolvedEnvironmentId) responsePayload.resolvedEnvironmentId = executeResponse.resolvedEnvironmentId;

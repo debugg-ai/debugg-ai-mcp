@@ -1241,7 +1241,7 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(body.failureCategory).toBe('error');
     });
 
-    test('backend verdict.outcome "inconclusive" surfaces as inconclusive (NOT failure-invented)', async () => {
+    test('backend verdict.outcome "inconclusive" surfaces as error (NOT failure-invented)', async () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
@@ -1254,11 +1254,11 @@ describe('testPageChangesHandler — full handler flow', () => {
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.outcome).toBe('inconclusive');
-      expect(body.failureCategory).toBe('inconclusive');
+      expect(body.outcome).toBe('error');
+      expect(body.failureCategory).toBe('error');
     });
 
-    test('thin state (no verdict, no outcome) → inconclusive, NOT fail, no assertion-mismatch', async () => {
+    test('thin state (no verdict, no outcome) → error, NOT fail, no assertion-mismatch', async () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
@@ -1270,8 +1270,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.outcome).toBe('inconclusive');
-      expect(body.failureCategory).toBe('inconclusive');
+      expect(body.outcome).toBe('error');
+      expect(body.failureCategory).toBe('error');
       expect(body.failureCategory).not.toBe('assertion-mismatch');
     });
 
@@ -1331,18 +1331,27 @@ describe('testPageChangesHandler — full handler flow', () => {
       errorInfo: null,
       nodeExecutions: [],
       timedOut: true,
+      // what pollExecution really returns on a deadline hit — the handler must
+      // forward these or the reason loses its numbers
+      pollTimeout: { elapsedMs: 600_000, pollCount: 37 },
     };
 
-    test('poll timeout → shaped partial result (outcome:timeout + partial trace), NOT a thrown error', async () => {
+    test('poll timeout → shaped partial result (outcome:error + partial trace), NOT a thrown error', async () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue(TIMED_OUT_EXECUTION);
 
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.outcome).toBe('timeout');
+      expect(body.outcome).toBe('error');
       expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('timeout');
+      expect(body.failureCategory).toBe('error');
+      // the reason must still say it was OUR deadline, not the app failing
+      // our deadline, stated with the numbers we observed — not a canned
+      // sentence, and not confusable with the app itself failing
+      expect(body.reason).toContain('exec-uuid-1');
+      expect(body.reason).toContain('600s of polling');
+      expect(body.reason).toContain('37 polls');
       expect(body.actionTrace).toHaveLength(1);          // partial trace preserved
       expect(body.stepsTaken).toBe(4);
     });

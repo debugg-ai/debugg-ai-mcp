@@ -13,23 +13,101 @@
  * `verdict` is SINGULAR — distinct from the pre-existing plural `verdicts`
  * (RunVerdict array) and the raw `outcome` string, neither of which we read.
  *
- * Principle: relay, never invent.
- *   - `verdict.outcome` is relayed VERBATIM; `success` = (outcome === 'pass').
- *   - Anything else (fail/inconclusive/error/timeout) → success:false with
- *     `failureCategory = outcome` — NOT a fabricated 'assertion-mismatch'.
- *   - A missing / null / unrecognized verdict maps to `inconclusive`, never to
- *     `fail` and never to the raw execution status.
+ * EVERY verdict a user sees is pass | fail | error (platform-98fv.16,
+ * 2026-10-04). `inconclusive`, `unverified`, `unknown` and `abandoned` are gone
+ * as user-facing values: they told a user nothing they could act on. They now
+ * become `error` carrying the reason "No verdict recorded", which at least says
+ * what happened.
+ *
+ * Principle: relay, never invent — but never relay a non-answer either.
+ *   - pass/fail are relayed verbatim; `success` = (outcome === 'pass').
+ *   - everything else collapses to `error` with `failureCategory = 'error'`,
+ *     never a fabricated 'assertion-mismatch'.
+ *   - the backend's own `reason` is shown whenever it sends one. We only
+ *     supply a reason when it did not.
+ *   - a missing / null / unrecognized verdict is `error`, never `fail` and
+ *     never the raw execution status.
  *   - Budget comes from the response, not a client-side constant (the constant
  *     is only a fallback for pre-contract backends).
+ *
+ * `timeout` deserves its own note because it is OURS, not the backend's. The
+ * MCP synthesises it when its own 10-minute poll deadline expires
+ * (services/workflows.ts) — which is a different event from the backend saying
+ * a run timed out. Both are `error`, because neither is a verdict about the
+ * user's app, but the REASON keeps them apart: ours says we stopped waiting and
+ * the run may still be going, theirs says whatever the backend said. Merging
+ * them would erase the answer to the first question anyone asks.
  */
 
 import type { WorkflowExecution } from './workflows.js';
 
-/** The verdict enum the backend emits (bead sentinal-k8x1f.2). */
-export const KNOWN_OUTCOMES = ['pass', 'fail', 'inconclusive', 'error', 'timeout'] as const;
-export type VerdictOutcome = (typeof KNOWN_OUTCOMES)[number];
+/** The ONLY outcomes a user ever sees. */
+export const USER_FACING_OUTCOMES = ['pass', 'fail', 'error'] as const;
+export type VerdictOutcome = (typeof USER_FACING_OUTCOMES)[number];
 
-const KNOWN = new Set<string>(KNOWN_OUTCOMES);
+/**
+ * A reason is a FACTUAL RECORD: what we did, what we saw, what happened. No
+ * hedges ("may", "likely"), no blame, no advice, and no fixed sentence per
+ * category — a canned string reads as an explanation while carrying no
+ * information, and the reader cannot tell one occurrence from another.
+ *
+ * So these are built from the actual values observed, and every number in them
+ * is real.
+ */
+/**
+ * THE mapping, exported because more than one field carries an outcome and they
+ * must never disagree: the headline `outcome` and the nested
+ * `evaluation.outcome` are read by the same person in the same payload. The
+ * backend keeps them consistent by deriving both from one verdict
+ * (sentinal-sk5sl.1); once the MCP re-maps one of them, it has to re-map the
+ * other through the same function or it reintroduces exactly the contradiction
+ * that design removed.
+ */
+export function toUserFacingOutcome(raw: unknown): VerdictOutcome {
+  // Deliberately an allowlist, not a denylist of known non-answers: a value a
+  // future backend invents must land on `error` too, rather than leaking
+  // through because nobody added it to a list.
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  return v === 'pass' || v === 'fail' ? v : 'error';
+}
+
+export function noVerdictReason(rawOutcome: unknown): string {
+  const seen = typeof rawOutcome === 'string' && rawOutcome.trim() !== '' ? rawOutcome.trim() : null;
+  return seen
+    ? `Backend returned outcome '${seen}' with no reason.`
+    : 'Backend returned no outcome and no reason.';
+}
+
+/** Facts the poll loop observed when its own deadline expired. */
+export interface PollTimeoutFacts {
+  executionUuid?: string;
+  elapsedMs?: number;
+  lastStatus?: string;
+  pollCount?: number;
+}
+
+/**
+ * OUR deadline expiring is not the backend reporting a timeout, and the two
+ * must stay distinguishable: one means we stopped listening, the other means
+ * the run stopped. This states only what we observed — no claim about whether
+ * the run is still going, because we do not know.
+ */
+export function pollTimeoutReason(facts: PollTimeoutFacts): string {
+  const parts: string[] = [];
+  parts.push(
+    facts.executionUuid
+      ? `No result from execution ${facts.executionUuid}`
+      : 'No result from the execution',
+  );
+  if (typeof facts.elapsedMs === 'number') {
+    parts.push(`after ${Math.round(facts.elapsedMs / 1000)}s of polling`);
+  }
+  if (typeof facts.pollCount === 'number') {
+    parts.push(`(${facts.pollCount} polls)`);
+  }
+  const head = parts.join(' ');
+  return facts.lastStatus ? `${head}; last status: ${facts.lastStatus}.` : `${head}.`;
+}
 
 export interface RelayVerdict {
   /** Backend verdict.outcome, relayed verbatim; 'inconclusive' when absent/unknown. */
@@ -139,6 +217,12 @@ export interface AdaptVerdictOptions {
    * is no terminal backend verdict to read).
    */
   outcomeOverride?: string;
+  /**
+   * What the poll loop observed when ITS deadline expired. Supplied only on
+   * that path, and only used to build a factual reason — so our timeout can
+   * never be mistaken for a backend-reported one.
+   */
+  pollTimeout?: PollTimeoutFacts;
 }
 
 /**
@@ -155,16 +239,17 @@ export function adaptVerdict(
   const budget = execution?.budget ?? null;
   const evidence = execution?.evidence ?? null;
 
-  // --- Outcome (verbatim relay, inconclusive on anything unrecognized) ---
-  let outcome: string;
-  if (opts.outcomeOverride) {
-    outcome = opts.outcomeOverride;
-  } else {
-    // Prefer the explicit verdict; fall back to the legacy per-run outcome
-    // field; NEVER fall back to execution.status. Unknown values → inconclusive.
-    const raw = verdict?.outcome ?? state?.outcome;
-    outcome = typeof raw === 'string' && KNOWN.has(raw) ? raw : 'inconclusive';
-  }
+  // --- Outcome: pass | fail | error, and nothing else ---
+  // Prefer the explicit verdict; fall back to the legacy per-run outcome field;
+  // NEVER fall back to execution.status.
+  const rawOutcome = opts.outcomeOverride ?? verdict?.outcome ?? state?.outcome;
+  const raw = typeof rawOutcome === 'string' ? rawOutcome.trim() : '';
+  const isOurPollTimeout = opts.outcomeOverride === 'timeout';
+
+  // error covers: the backend's own 'error'/'timeout', every retired non-answer
+  // (inconclusive/unverified/unknown/abandoned), anything a newer backend
+  // invents, and a verdict that never arrived.
+  const outcome = toUserFacingOutcome(raw);
 
   const success = outcome === 'pass';
 
@@ -185,7 +270,29 @@ export function adaptVerdict(
   };
 
   if (!success) relay.failureCategory = outcome;
-  if (typeof verdict?.reason === 'string' && verdict.reason) relay.reason = verdict.reason;
+
+  // Reason precedence, and the order is the whole point:
+  //   1. the backend's own words, relayed VERBATIM and never rephrased;
+  //   2. our poll deadline, stated as what we observed — only when WE forced
+  //      the timeout, so a backend-reported timeout keeps its own reason;
+  //   3. a factual record of what arrived, when nothing explained itself.
+  const backendReason =
+    typeof verdict?.reason === 'string' && verdict.reason.trim() !== '' ? verdict.reason : null;
+  // OUR deadline comes first, deliberately. If we never saw a terminal verdict,
+  // any reason we are holding came from a mid-flight poll — it describes a run
+  // still in progress, not its result. Relaying it next to outcome='error'
+  // would pair someone else's "looks good" with our failure.
+  if (isOurPollTimeout) {
+    relay.reason = pollTimeoutReason({
+      executionUuid: execution?.uuid,
+      lastStatus: execution?.status,
+      ...(opts.pollTimeout ?? {}),
+    });
+  } else if (backendReason) {
+    relay.reason = backendReason;
+  } else if (outcome === 'error') {
+    relay.reason = noVerdictReason(raw);
+  }
   if (typeof evidence?.screenshot === 'string' && evidence.screenshot) relay.screenshot = evidence.screenshot;
   if (Array.isArray(evidence?.actionTrace)) relay.actionTrace = evidence.actionTrace;
   if (Array.isArray(evidence?.logins) && evidence.logins.length > 0) relay.logins = evidence.logins;

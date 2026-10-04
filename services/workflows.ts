@@ -143,6 +143,8 @@ export interface WorkflowExecution {
   // hit — signals the handler to shape a partial 'timeout' result (bead 56kd.3)
   // instead of the service throwing and discarding evidence.
   timedOut?: boolean;
+  /** Facts the poll loop observed when ITS deadline expired (see pollExecution). */
+  pollTimeout?: { elapsedMs?: number; pollCount?: number };
   errorMessage: string;
   errorInfo: { message?: string; failedNodeId?: string } | null;
   nodeExecutions: NodeExecution[];
@@ -331,7 +333,13 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
           finalIntervalMs: intervalMs,
           timedOut: true,
         });
-        return { ...lastExecution, timedOut: true };
+        // Carry the facts the deadline path observed, so the reason the user
+        // sees contains real numbers rather than a canned sentence.
+        return {
+          ...lastExecution,
+          timedOut: true,
+          pollTimeout: { elapsedMs: Date.now() - pollStart, pollCount },
+        };
       }
       throw new Error(
         `Execution ${executionUuid} timed out after ${EXECUTION_TIMEOUT_MS / 1000}s`

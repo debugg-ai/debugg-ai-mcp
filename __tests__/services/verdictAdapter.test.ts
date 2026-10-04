@@ -4,7 +4,12 @@
  * The adapter is the ONE place that maps the backend explicit-verdict + budget
  * + evidence contract onto the MCP relay fields. Principle: relay, never
  * invent. It must NOT fabricate a failure or an assertion-mismatch from thin
- * state — a missing/unknown verdict surfaces as `inconclusive`, not `fail`.
+ * state — a missing/unknown verdict surfaces as `error`, not `fail`.
+ *
+ * The user-facing enum is pass | fail | error (platform-98fv.16). The
+ * three-outcome mapping itself, and the factual reason text, are covered in
+ * verdictAdapter.threeOutcomes.test.ts; what this file still guards is
+ * PRECEDENCE and the never-invent rules, which are unchanged.
  *
  * Backend contract (camelCase after axiosTransport conversion). The containers
  * are TOP-LEVEL siblings of `state` on the execution-detail response:
@@ -44,33 +49,39 @@ describe('adaptVerdict — explicit verdict relay', () => {
     expect(v.reason).toBe('looks good');
   });
 
-  test.each(['fail', 'inconclusive', 'error', 'timeout'])(
-    'verdict.outcome "%s" → verbatim, success false, failureCategory = outcome',
+  test('verdict.outcome "fail" → verbatim, success false, failureCategory = outcome', () => {
+    const v = adaptVerdict(makeExecution({ verdict: { outcome: 'fail' } }));
+    expect(v.outcome).toBe('fail');
+    expect(v.success).toBe(false);
+    expect(v.failureCategory).toBe('fail'); // NOT a fabricated 'assertion-mismatch'
+  });
+
+  test.each(['inconclusive', 'error', 'timeout'])(
+    'verdict.outcome "%s" → error, success false, failureCategory = error',
     (outcome) => {
-      const exec = makeExecution({ verdict: { outcome } });
-      const v = adaptVerdict(exec);
-      expect(v.outcome).toBe(outcome);
+      const v = adaptVerdict(makeExecution({ verdict: { outcome } }));
+      expect(v.outcome).toBe('error');
       expect(v.success).toBe(false);
-      expect(v.failureCategory).toBe(outcome); // NOT a fabricated 'assertion-mismatch'
+      expect(v.failureCategory).toBe('error'); // NOT a fabricated 'assertion-mismatch'
     },
   );
 
-  test('thin state (no verdict, no outcome) → inconclusive, NOT fail', () => {
+  test('thin state (no verdict, no outcome) → error, NOT fail', () => {
     const v = adaptVerdict(makeExecution({ state: { outcome: '', success: false, stepsTaken: 0, error: '' } }));
-    expect(v.outcome).toBe('inconclusive');
+    expect(v.outcome).toBe('error');
     expect(v.success).toBe(false);
-    expect(v.failureCategory).toBe('inconclusive');
+    expect(v.failureCategory).toBe('error');
   });
 
-  test('null state and no verdict → inconclusive (never throws)', () => {
+  test('null state and no verdict → error (never throws)', () => {
     const v = adaptVerdict(makeExecution({ state: null }));
-    expect(v.outcome).toBe('inconclusive');
+    expect(v.outcome).toBe('error');
     expect(v.success).toBe(false);
   });
 
-  test('unknown/garbage verdict.outcome → inconclusive (not relayed verbatim)', () => {
+  test('unknown/garbage verdict.outcome → error (not relayed verbatim)', () => {
     const v = adaptVerdict(makeExecution({ verdict: { outcome: 'totally-made-up' } }));
-    expect(v.outcome).toBe('inconclusive');
+    expect(v.outcome).toBe('error');
   });
 
   test('never falls back to the raw execution status as an outcome', () => {
@@ -78,7 +89,7 @@ describe('adaptVerdict — explicit verdict relay', () => {
     // leaked into the outcome field. A failed status with no verdict must be
     // inconclusive, not "failed".
     const v = adaptVerdict(makeExecution({ state: null, status: 'failed' }));
-    expect(v.outcome).toBe('inconclusive');
+    expect(v.outcome).toBe('error');
     expect(v.outcome).not.toBe('failed');
   });
 
@@ -100,9 +111,11 @@ describe('adaptVerdict — explicit verdict relay', () => {
   test('outcomeOverride wins (used by the timeout path)', () => {
     const exec = makeExecution({ verdict: { outcome: 'pass' } });
     const v = adaptVerdict(exec, { outcomeOverride: 'timeout' });
-    expect(v.outcome).toBe('timeout');
+    // 'timeout' is ours and maps to error; what matters here is that the
+    // override BEAT the backend's 'pass' rather than being ignored.
+    expect(v.outcome).toBe('error');
     expect(v.success).toBe(false);
-    expect(v.failureCategory).toBe('timeout');
+    expect(v.failureCategory).toBe('error');
   });
 });
 

@@ -598,7 +598,7 @@ describe('evaluation is relayed, not re-derived', () => {
 
     expect(body.evaluation).toEqual({
       passed: null,
-      outcome: 'inconclusive',
+      outcome: 'error',
       reason: 'ran but produced no assertable verdict',
     });
     // "could not determine" must not arrive as a failure.

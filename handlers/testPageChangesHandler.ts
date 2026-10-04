@@ -17,7 +17,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { getEvalTemplateSlug } from '../services/workflows.js';
-import { adaptVerdict, credentialSubstitutions } from '../services/verdictAdapter.js';
+import { adaptVerdict, toUserFacingOutcome, credentialSubstitutions } from '../services/verdictAdapter.js';
 import { TunnelProvisionError, type TunnelProvision } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
@@ -35,7 +35,7 @@ import { detectRepoName } from '../utils/gitContext.js';
 import { disposeUnhealthyTunnel } from '../utils/tunnelDisposition.js';
 import { probeLocalPort, probeTunnelHealth, extractTunnelErrorCode } from '../utils/localReachability.js';
 import type { TunnelHealthProbeResult } from '../utils/localReachability.js';
-import { extractLocalhostPort } from '../utils/urlParser.js';
+import { extractLocalhostPort, rewriteLocalhostInText } from '../utils/urlParser.js';
 import {
   getCachedTemplateUuid,
   getCachedProjectUuid,
@@ -417,7 +417,12 @@ async function testPageChangesHandlerInner(
     // --- Build context data (camelCase here — axiosTransport auto-converts to snake_case) ---
     const contextData: Record<string, any> = {
       targetUrl: ctx.targetUrl ?? originalUrl,
-      question: input.description,
+      // The goal is read by a browser in OUR cloud. A goal that still says
+      // "go to http://localhost:3017" sends it to its own loopback, where it
+      // gets connection refused and the run is recorded as the app failing —
+      // with the tunnel working the whole time. Rewrite it onto the same
+      // tunnel the targetUrl above uses.
+      question: rewriteLocalhostInText(input.description, ctx.targetUrl),
     };
     if (projectUuid) {
       contextData.projectId = projectUuid;
@@ -433,7 +438,8 @@ async function testPageChangesHandlerInner(
       if (input.auth.environmentId) auth.environmentId = input.auth.environmentId;
       if (input.auth.precondition) auth.precondition = input.auth.precondition;
       // Bead go1m: entryUrl/deepUrl are URLs the run NAVIGATES, so they need the
-      // same localhost→tunnel rewrite `url` gets (contextData.targetUrl above).
+      // same localhost→tunnel rewrite `url` and the goal text get
+      // (contextData.targetUrl and contextData.question above).
       // Forwarded verbatim they reached the remote browser as literal localhost
       // and it dialled its own loopback: offscope_host + ERR_CONNECTION_REFUSED.
       for (const field of ['entryUrl', 'deepUrl'] as const) {
@@ -734,7 +740,14 @@ async function testPageChangesHandlerInner(
     const evalNode = nodes.find(n => n.nodeType === 'brain.evaluate');
     let evaluation: Record<string, any> | undefined;
     if (finalExecution.evaluation && typeof finalExecution.evaluation === 'object') {
-      evaluation = finalExecution.evaluation;
+      // Relayed verbatim EXCEPT `outcome`, which goes through the same mapper as
+      // the headline. The backend keeps the two consistent by deriving both from
+      // one verdict; re-mapping only the headline would put outcome='error' on
+      // top and evaluation.outcome='inconclusive' underneath, in one payload.
+      evaluation = { ...finalExecution.evaluation };
+      if ('outcome' in evaluation) {
+        evaluation.outcome = toUserFacingOutcome(evaluation.outcome);
+      }
     } else if (evalNode?.outputData) {
       evaluation = {
         passed: evalNode.outputData.passed,
@@ -763,6 +776,9 @@ async function testPageChangesHandlerInner(
     const verdict = adaptVerdict(finalExecution, {
       fallbackBudget: MAX_EXEC_STEPS,
       outcomeOverride: timedOut ? 'timeout' : undefined,
+      // real numbers from the deadline path, so the reason is a record of what
+      // we observed rather than a fixed sentence
+      pollTimeout: timedOut ? finalExecution.pollTimeout : undefined,
     });
 
     // Evidence: prefer the backend's contract evidence.actionTrace; fall back to
