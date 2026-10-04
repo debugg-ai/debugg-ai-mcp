@@ -118,11 +118,13 @@ export interface WorkflowExecution {
   // from the pre-existing plural `verdicts` (RunVerdict array) and the raw
   // `outcome` string, neither of which the adapter reads. All optional until
   // the backend deploy lands; consumed via services/verdictAdapter.ts.
-  verdict?: { outcome?: string; reason?: string } | null;
+  // outcome null + skipped true: the run never attempted a test — no verdict
+  // (platform-98fv.16); reason is then the recorded reason it did not.
+  verdict?: { outcome?: string | null; reason?: string; skipped?: boolean } | null;
   // Derived from the SAME verdict as the headline outcome (sentinal-sk5sl.1), so
   // the two can never disagree within one payload. `passed` is null — not false —
   // for an inconclusive run: "could not determine" is not "failed".
-  evaluation?: { passed?: boolean | null; outcome?: string; reason?: string } | null;
+  evaluation?: { passed?: boolean | null; outcome?: string | null; reason?: string } | null;
   budget?: { maxSteps?: number; usedSteps?: number } | null;
   evidence?: {
     screenshot?: string;
@@ -253,7 +255,10 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
           status: e.status,
           mode: e.mode,
           source: e.source,
+          // The run verdict (pass|fail|error); null in flight AND for a run that
+          // never attempted a test — then skipReason (backend `skip_reason`) is set.
           outcome: e.outcome ?? null,
+          ...(typeof e.skipReason === 'string' && e.skipReason ? { skipReason: e.skipReason } : {}),
           startedAt: e.startedAt,
           completedAt: e.completedAt,
           durationMs: e.durationMs,

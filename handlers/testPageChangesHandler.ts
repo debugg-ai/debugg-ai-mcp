@@ -764,6 +764,9 @@ async function testPageChangesHandlerInner(
     const responsePayload: Record<string, any> = {
       outcome: verdict.outcome,
       ...(verdict.reason ? { reason: verdict.reason } : {}),
+      // platform-98fv.16: never attempted a test — no verdict, the backend's reason verbatim
+      ...(verdict.skipped ? { skipped: true } : {}),
+      ...(verdict.skipReason ? { skipReason: verdict.skipReason } : {}),
       status: finalExecution.status,
       executionId: executionUuid,
       targetUrl: originalUrl,

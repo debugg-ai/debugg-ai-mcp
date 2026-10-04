@@ -23,6 +23,8 @@ const mockFinalExecution = {
   completedAt: '2026-02-19T17:02:00Z',
   durationMs: 120000,
   state: { outcome: 'pass', success: true, stepsTaken: 3, error: '' },
+  // the backend contract verdict — the MCP never reads state.outcome (platform-98fv.16)
+  verdict: { outcome: 'pass' },
   errorMessage: '',
   errorInfo: null,
   nodeExecutions: [
@@ -560,6 +562,8 @@ const COMPLETED_EXECUTION = {
   completedAt: '2026-02-25T10:02:00Z',
   durationMs: 120000,
   state: { outcome: 'pass', success: true, stepsTaken: 3, error: '' },
+  // the backend contract verdict — the MCP never reads state.outcome (platform-98fv.16)
+  verdict: { outcome: 'pass' },
   errorMessage: '',
   errorInfo: null,
   nodeExecutions: [
@@ -1016,6 +1020,7 @@ describe('testPageChangesHandler — full handler flow', () => {
       completedAt: '2026-02-25T10:02:00Z',
       durationMs: 120000,
       state: { outcome: 'fail', success: false, stepsTaken: 2, error: 'element not found' },
+      verdict: { outcome: 'fail' },
       errorMessage: '',
       errorInfo: null,
       nodeExecutions: [],
@@ -1244,6 +1249,7 @@ describe('testPageChangesHandler — full handler flow', () => {
         ...mockFinalExecution,
         status: 'completed',
         state: { outcome: '', success: false, stepsTaken: 0, error: '' },
+        verdict: null,
         errorMessage: '',
       });
 

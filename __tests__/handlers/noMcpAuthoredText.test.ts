@@ -261,6 +261,27 @@ describe('check_app_in_browser relays, never authors', () => {
     expect(messages.join('\n')).not.toMatch(/inconclusive|unverified|unknown|abandoned/);
   });
 
+  // platform-98fv.16: a run that never attempted a test has NO verdict. The MCP
+  // relays the backend's skip reason verbatim and authors nothing — no "error",
+  // no raw run outcome, no explanatory text.
+  test('a never-tested run: outcome null, skipReason verbatim, nothing authored', async () => {
+    const SKIPPED_EXEC = {
+      ...PASS_EXEC,
+      status: 'cancelled',
+      state: { outcome: 'cancelled', stepsTaken: 0, error: '' },
+      verdict: { outcome: null, reason: 'SENTINEL Cancelled before any test step ran.', skipped: true },
+      evaluation: { passed: null, outcome: null, reason: 'SENTINEL Cancelled before any test step ran.' },
+      evidence: { screenshot: null, actionTrace: [] },
+    };
+    m.poll.mockResolvedValue(SKIPPED_EXEC);
+    const b = body(await testPageChangesHandler(CHECK_INPUT as any, ctx));
+    expectOnlyRelayedStrings(b, SKIPPED_EXEC, CHECK_INPUT);
+    expect(b.outcome).toBeNull();
+    expect(b.skipped).toBe(true);
+    expect(b.skipReason).toBe(SKIPPED_EXEC.verdict.reason);
+    expect(b).not.toHaveProperty('reason');
+  });
+
   test('ProjectRequired states what happened, without instructions', async () => {
     m.findProject.mockResolvedValue(null);
     m.poll.mockResolvedValue(PASS_EXEC);
@@ -306,6 +327,26 @@ describe('trigger_crawl relays node output, never fills in defaults', () => {
     // no invented reason:'', edgesImported:0, knowledgeGraphId:'' or derived `imported`
     expect(b.knowledgeGraph).toEqual({ skipped: true });
     expect(b.crawlSummary).toEqual({ pagesDiscovered: 4 });
+  });
+
+  test('a never-tested crawl: outcome null and skipReason verbatim, never the raw cancelled', async () => {
+    const exec = {
+      uuid: 'exec-1',
+      status: 'cancelled',
+      durationMs: 10,
+      state: { outcome: 'cancelled' },
+      verdict: { outcome: null, reason: 'SENTINEL Cancelled before any test step ran.', skipped: true },
+      errorMessage: '',
+      errorInfo: null,
+      nodeExecutions: [],
+    };
+    m.poll.mockResolvedValue(exec);
+    const b = body(await triggerCrawlHandler({ url: 'https://app.example.com' } as any, ctx));
+    expect(b.outcome).toBeNull();
+    expect(b.skipped).toBe(true);
+    expect(b.skipReason).toBe(exec.verdict.reason);
+    expect(b).not.toHaveProperty('reason');
+    expectOnlyRelayedStrings(b, exec, { url: 'https://app.example.com' });
   });
 
   test('LocalServerUnreachable carries no instructions', async () => {
@@ -376,6 +417,32 @@ describe('lookup tools return the backend object, not an MCP envelope', () => {
     const b = body(await executionsHandler({ action: 'list' } as any, ctx));
     expect(b).not.toHaveProperty('filter');
     expect(b.executions.map((e: any) => e.outcome)).toEqual(['error', 'fail', null]);
+  });
+
+  test('executions list: a never-tested row keeps outcome null and relays its skipReason', async () => {
+    m.listExecutions.mockResolvedValue({
+      pageInfo: { page: 1, pageSize: 20, totalCount: 1, totalPages: 1, hasMore: false },
+      executions: [
+        { uuid: 'a', status: 'failed', outcome: null, skipReason: 'SENTINEL CodeBuild failed: exit 1' },
+      ],
+    });
+    const b = body(await executionsHandler({ action: 'list' } as any, ctx));
+    expect(b.executions[0].outcome).toBeNull();
+    expect(b.executions[0].skipReason).toBe('SENTINEL CodeBuild failed: exit 1');
+    expectOnlyRelayedStrings(b, await m.listExecutions.mock.results[0].value);
+  });
+
+  test('executions get: a never-tested run keeps every verdict field null', async () => {
+    const execution = {
+      uuid: 'exec-1', status: 'cancelled', outcome: null,
+      verdict: { outcome: null, reason: 'SENTINEL Cancelled before any test step ran.', skipped: true },
+      evaluation: { passed: null, outcome: null, reason: 'SENTINEL Cancelled before any test step ran.' },
+      state: { outcome: 'cancelled' },
+      nodeExecutions: [],
+    };
+    m.getExecution.mockResolvedValue(execution);
+    const b = body(await executionsHandler({ action: 'get', uuid: 'exec-1' } as any, ctx));
+    expect(b).toEqual({ execution });
   });
 
   test('executions get maps every user-visible verdict field through the same allowlist', async () => {

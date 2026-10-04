@@ -87,9 +87,10 @@ describe('adaptVerdict — explicit verdict relay', () => {
     expect(v.outcome).not.toBe('failed');
   });
 
-  test('legacy state.outcome (defensive fallback) still relayed when it is a known verdict', () => {
+  test('the raw state.outcome is never read as the verdict (platform-98fv.16)', () => {
+    // It is the run's internal record and can be cancelled / timeout / skipped.
     const v = adaptVerdict(makeExecution({ state: { outcome: 'fail', success: false, stepsTaken: 2, error: 'x' } }));
-    expect(v.outcome).toBe('fail');
+    expect(v.outcome).toBe('error');
   });
 
   test('top-level verdict wins over legacy state.outcome', () => {

@@ -121,3 +121,80 @@ describe('timeout: who gave up matters', () => {
     expect(ours).not.toEqual(theirs);
   });
 });
+
+/**
+ * A run that never attempted a test has NO verdict (platform-98fv.16, decided
+ * 2026-10-04). The backend sends `verdict: { outcome: null, reason, skipped: true }`
+ * on the detail, and `outcome: null` + `skip_reason` on list rows. The MCP relays
+ * that as no verdict — never `error`, and never the raw run outcome (which can be
+ * `cancelled` / `timeout` / `skipped`).
+ */
+describe('a run that never attempted a test', () => {
+  const SKIP = 'Circuit breaker triggered: 0/18 builds succeeded (all-time).';
+
+  test.each(['completed', 'failed', 'cancelled'])(
+    'status %s: outcome null, skipped true, skipReason is the backend reason verbatim',
+    (status) => {
+      const v = adaptVerdict(makeExecution({
+        status,
+        state: { outcome: status === 'cancelled' ? 'cancelled' : 'skipped', success: false, stepsTaken: 0, error: '' },
+        verdict: { outcome: null, reason: SKIP, skipped: true },
+      }));
+      expect(v.outcome).toBeNull();
+      expect(v.skipped).toBe(true);
+      expect(v.skipReason).toBe(SKIP);
+      // the reason is carried once, as skipReason — not restated as a second field
+      expect(v).not.toHaveProperty('reason');
+    },
+  );
+
+  test.each(['cancelled', 'timeout', 'skipped', 'error'])(
+    'the raw run outcome %s never leaks into outcome',
+    (raw) => {
+      const v = adaptVerdict(makeExecution({
+        status: 'failed',
+        state: { outcome: raw, success: false, stepsTaken: 0, error: '' },
+        verdict: { outcome: null, reason: SKIP, skipped: true },
+      }));
+      expect(v.outcome).toBeNull();
+    },
+  );
+
+  test('a skipped verdict without a reason is still no verdict, and the MCP writes none', () => {
+    const v = adaptVerdict(makeExecution({ verdict: { outcome: null, skipped: true } }));
+    expect(v.outcome).toBeNull();
+    expect(v.skipped).toBe(true);
+    expect(v).not.toHaveProperty('skipReason');
+    expect(v).not.toHaveProperty('reason');
+  });
+
+  test('our own poll deadline still wins: we never saw a terminal verdict', () => {
+    const v = adaptVerdict(
+      makeExecution({ status: 'running', verdict: { outcome: null, reason: SKIP, skipped: true } }),
+      { outcomeOverride: 'timeout', pollTimeout: { executionUuid: 'e1', elapsedMs: 600000, pollCount: 40 } },
+    );
+    expect(v.outcome).toBe('error');
+    expect(v).not.toHaveProperty('skipped');
+  });
+});
+
+describe('a null verdict', () => {
+  test('while the run is still going: outcome null, no reason', () => {
+    const v = adaptVerdict(makeExecution({ status: 'running', verdict: { outcome: null } }));
+    expect(v.outcome).toBeNull();
+    expect(v).not.toHaveProperty('reason');
+  });
+
+  test.each(['cancelled', 'timeout', 'fail', 'pass'])(
+    'on a finished run is error — the raw run outcome %s is never read',
+    (raw) => {
+      const v = adaptVerdict(makeExecution({
+        status: 'completed',
+        state: { outcome: raw, success: false, stepsTaken: 0, error: '' },
+        verdict: null,
+      }));
+      expect(v.outcome).toBe('error');
+      expect(v.reason).toBe('Backend returned no outcome and no reason.');
+    },
+  );
+});

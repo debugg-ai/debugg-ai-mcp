@@ -7,7 +7,8 @@
  *
  * Backend contract (camelCase after axiosTransport conversion). The containers
  * are TOP-LEVEL siblings of `state` on the execution-detail response:
- *   execution.verdict:  { outcome: pass|fail|inconclusive|error|timeout, reason }
+ *   execution.verdict:  { outcome: pass|fail|error|null, reason, skipped? }
+ *                       (outcome null + skipped: true = never attempted a test)
  *   execution.budget:   { maxSteps, usedSteps }
  *   execution.evidence: { screenshot, actionTrace }
  * `verdict` is SINGULAR — distinct from the pre-existing plural `verdicts`
@@ -26,8 +27,14 @@
  *     disagree with it.
  *   - the backend's own `reason` is shown whenever it sends one. We only
  *     supply a reason when it did not.
- *   - a missing / null / unrecognized verdict is `error`, never `fail` and
- *     never the raw execution status.
+ *   - a missing / null / unrecognized verdict on a FINISHED run is `error`,
+ *     never `fail`, never the raw execution status and never the raw run
+ *     outcome (`state.outcome` is internal: it can be cancelled / timeout /
+ *     skipped).
+ *   - a run that NEVER ATTEMPTED A TEST has no verdict (platform-98fv.16): the
+ *     backend sends `verdict: { outcome: null, reason, skipped: true }` and the
+ *     relay is `outcome: null, skipped: true, skipReason: <reason verbatim>`.
+ *   - a run still going has no verdict yet: `outcome: null`.
  *   - `budget` is the backend's container, relayed verbatim or not at all.
  *
  * `timeout` deserves its own note because it is OURS, not the backend's. The
@@ -131,8 +138,15 @@ export function pollTimeoutReason(facts: PollTimeoutFacts): string {
 }
 
 export interface RelayVerdict {
-  /** pass | fail | error — the backend verdict.outcome through toUserFacingOutcome. */
-  outcome: VerdictOutcome;
+  /**
+   * pass | fail | error — the backend verdict.outcome through toUserFacingOutcome.
+   * null when the run never attempted a test (`skipped`) or has not finished.
+   */
+  outcome: VerdictOutcome | null;
+  /** True when the backend says the run never attempted a test (no verdict). */
+  skipped?: true;
+  /** The backend's recorded reason the run never attempted a test, verbatim. */
+  skipReason?: string;
   /** verdict.reason verbatim; an MCP-observed fact only when the backend sent none. */
   reason?: string;
   /**
@@ -247,19 +261,38 @@ export function adaptVerdict(
   execution: WorkflowExecution,
   opts: AdaptVerdictOptions = {},
 ): RelayVerdict {
-  const state = execution?.state ?? null;
   // Contract containers live at the TOP LEVEL of the execution response
   // (siblings of `state`), NOT nested under state.
   const verdict = execution?.verdict ?? null;
   const budget = execution?.budget ?? null;
   const evidence = execution?.evidence ?? null;
 
-  // --- Outcome: pass | fail | error, and nothing else ---
-  // Prefer the explicit verdict; fall back to the legacy per-run outcome field;
-  // NEVER fall back to execution.status.
-  const rawOutcome = opts.outcomeOverride ?? verdict?.outcome ?? state?.outcome;
+  // --- Outcome: pass | fail | error, or null for no verdict ---
+  // Only the explicit verdict. NEVER the raw run outcome (state.outcome is the
+  // run's internal record — cancelled / timeout / skipped) and never
+  // execution.status.
+  const rawOutcome = opts.outcomeOverride ?? verdict?.outcome;
   const raw = typeof rawOutcome === 'string' ? rawOutcome.trim() : '';
   const isOurPollTimeout = opts.outcomeOverride === 'timeout';
+  const backendReason =
+    typeof verdict?.reason === 'string' && verdict.reason.trim() !== '' ? verdict.reason : null;
+
+  if (!isOurPollTimeout && !raw) {
+    // A run that never attempted a test (platform-98fv.16): no verdict, and the
+    // backend's recorded reason, verbatim.
+    if (verdict?.skipped === true) {
+      const skipped: RelayVerdict = { outcome: null, skipped: true };
+      if (backendReason) skipped.skipReason = backendReason;
+      if (budget && typeof budget === 'object') skipped.budget = budget;
+      return attachEvidence(skipped, evidence);
+    }
+    // Still going: no verdict YET is not an error.
+    if (!TERMINAL_STATUSES.has(String(execution?.status ?? ''))) {
+      const pending: RelayVerdict = { outcome: null };
+      if (budget && typeof budget === 'object') pending.budget = budget;
+      return attachEvidence(pending, evidence);
+    }
+  }
 
   // error covers: the backend's own 'error'/'timeout', every retired non-answer
   // (inconclusive/unverified/unknown/abandoned), anything a newer backend
@@ -274,8 +307,6 @@ export function adaptVerdict(
   //   2. our poll deadline, stated as what we observed — only when WE forced
   //      the timeout, so a backend-reported timeout keeps its own reason;
   //   3. a factual record of what arrived, when nothing explained itself.
-  const backendReason =
-    typeof verdict?.reason === 'string' && verdict.reason.trim() !== '' ? verdict.reason : null;
   // OUR deadline comes first, deliberately. If we never saw a terminal verdict,
   // any reason we are holding came from a mid-flight poll — it describes a run
   // still in progress, not its result. Relaying it next to outcome='error'
@@ -291,6 +322,14 @@ export function adaptVerdict(
   } else if (outcome === 'error') {
     relay.reason = noVerdictReason(raw);
   }
+  return attachEvidence(relay, evidence);
+}
+
+/** The run lifecycle states after which no verdict will arrive. */
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+/** The backend's evidence container onto the relay, verbatim. */
+function attachEvidence(relay: RelayVerdict, evidence: any): RelayVerdict {
   if (typeof evidence?.screenshot === 'string' && evidence.screenshot) relay.screenshot = evidence.screenshot;
   if (Array.isArray(evidence?.actionTrace)) relay.actionTrace = evidence.actionTrace;
   if (Array.isArray(evidence?.logins) && evidence.logins.length > 0) relay.logins = evidence.logins;
@@ -298,6 +337,5 @@ export function adaptVerdict(
     relay.loginError = evidence.loginError;
   }
   if (typeof evidence?.report === 'string' && evidence.report) relay.report = evidence.report;
-
   return relay;
 }

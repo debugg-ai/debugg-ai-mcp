@@ -333,7 +333,14 @@ export async function triggerCrawlHandler(
     // went through adaptVerdict, so it would otherwise emit whatever the
     // backend sent — including retired non-answers like 'inconclusive'.
     const rawOutcome = finalExecution.state?.outcome;
-    if (rawOutcome !== undefined && rawOutcome !== null) {
+    if (finalExecution.verdict?.skipped === true && !finalExecution.verdict.outcome) {
+      // platform-98fv.16: the run never attempted a test — no verdict, the
+      // backend's recorded reason verbatim. Never the raw run outcome.
+      responsePayload.outcome = null;
+      responsePayload.skipped = true;
+      const skipReason = finalExecution.verdict.reason;
+      if (typeof skipReason === 'string' && skipReason.trim() !== '') responsePayload.skipReason = skipReason;
+    } else if (rawOutcome !== undefined && rawOutcome !== null) {
       responsePayload.outcome = toUserFacingOutcome(rawOutcome);
       if (responsePayload.outcome === 'error' && !finalExecution.errorMessage) {
         responsePayload.reason = noVerdictReason(rawOutcome);
