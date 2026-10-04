@@ -34,7 +34,9 @@ with its reasons verbatim. The MCP authors text only for what it observed itself
   (no derived `imported`, no `0` / `''` defaults).
 - `probe_page`: an unreported `statusCode` / `loadTimeMs` / `finalUrl` is `null`,
   not `0` or the input URL.
-- `test_suite run`: no `note`. Error messages no longer append advice
+- `test_suite`: an unreported `runStatus` / run counts are `null` (no invented
+  `NEVER_RUN` / `PENDING` / `0`); `results` per-test `lastRun.outcome` goes
+  through the `pass | fail | error` allowlist. `run`: no `note`. Error messages no longer append advice
   ("Start your dev server…", "Common causes…", "Ensure the template is seeded…",
   "Pass … explicitly", "Link this repo…").
 
