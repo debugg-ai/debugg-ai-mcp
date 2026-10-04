@@ -26,11 +26,9 @@ export function toMCPError(error: unknown, context?: string): MCPError {
     return new MCPError(
       MCPErrorCode.INTERNAL_ERROR,
       error.message,
-      { 
-        originalError: error.name,
-        context,
-        stack: error.stack 
-      }
+      // The stack is logged above; it is MCP internals, not something the
+      // caller's response should carry.
+      { originalError: error.name, context }
     );
   }
 

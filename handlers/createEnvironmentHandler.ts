@@ -33,7 +33,7 @@ export async function createEnvironmentHandler(
       if (!repoName) {
         const payload = {
           error: 'NoProjectResolved',
-          message: 'No git repo detected and no projectUuid provided. Pass projectUuid (get it from search_projects) or invoke from a directory with a git origin.',
+          message: 'No git repo detected and no projectUuid provided.',
         };
         return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
       }
@@ -41,7 +41,7 @@ export async function createEnvironmentHandler(
       if (!project) {
         const payload = {
           error: 'NoProjectResolved',
-          message: `No DebuggAI project found for repo "${repoName}". Pass projectUuid explicitly.`,
+          message: `No DebuggAI project found for repo "${repoName}".`,
         };
         return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
       }
@@ -96,11 +96,11 @@ export async function createEnvironmentHandler(
     // Bead q4d4: only the echo proves the backend kept the hosts.
     if (input.authorizedCredentialHosts !== undefined) {
       const hostsWarning = checkAuthorizedCredentialHostsEcho(
-        input.authorizedCredentialHosts, env.authorizedCredentialHosts, 'create',
+        input.authorizedCredentialHosts, env.authorizedCredentialHosts
       );
       if (hostsWarning) {
         payload.authorizedCredentialHostsWarning = hostsWarning;
-        logger.warn(`create_environment: ${hostsWarning.message}`);
+        logger.warn(`create_environment: authorizedCredentialHosts not persisted`, hostsWarning);
       }
     }
 

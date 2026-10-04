@@ -65,12 +65,10 @@ describe('searchExecutionsHandler', () => {
 
       expect(mockGetExecution).toHaveBeenCalledWith(UUID);
       expect(mockListExecutions).not.toHaveBeenCalled();
-      expect(body.filter).toEqual({ uuid: UUID });
-      expect(body.pageInfo.totalCount).toBe(1);
-      expect(body.executions).toHaveLength(1);
-      expect(body.executions[0].uuid).toBe(UUID);
-      expect(body.executions[0].nodeExecutions).toHaveLength(2);
-      expect(body.executions[0].state).toMatchObject({ outcome: 'pass', success: true });
+      expect(Object.keys(body)).toEqual(['execution']);
+      expect(body.execution.uuid).toBe(UUID);
+      expect(body.execution.nodeExecutions).toHaveLength(2);
+      expect(body.execution.state).toMatchObject({ outcome: 'pass', success: true });
     });
 
     test('uuid miss: isError:true NotFound', async () => {
@@ -105,10 +103,7 @@ describe('searchExecutionsHandler', () => {
       expect(call.page).toBe(2);
       expect(call.pageSize).toBe(5);
       expect(body.executions).toHaveLength(2);
-      expect(body.filter).toMatchObject({
-        status: 'completed',
-        projectUuid: '00000000-0000-0000-0000-000000000abc',
-      });
+      expect(body).not.toHaveProperty('filter');
     });
 
     test('empty input: default pagination, no filters', async () => {
@@ -119,8 +114,7 @@ describe('searchExecutionsHandler', () => {
       const res = await searchExecutionsHandler({}, ctx);
       const body = JSON.parse(res.content[0].text!);
       expect(body.executions).toEqual([]);
-      expect(body.filter.status).toBeNull();
-      expect(body.filter.projectUuid).toBeNull();
+      expect(body).not.toHaveProperty('filter');
     });
   });
 });

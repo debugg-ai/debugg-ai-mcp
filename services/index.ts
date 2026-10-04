@@ -1,3 +1,4 @@
+import { toUserFacingOutcome } from './verdictAdapter.js';
 import { createWorkflowsService, WorkflowsService } from "./workflows.js";
 import { createTunnelsService, TunnelsService } from "./tunnels.js";
 import { AxiosTransport, AxiosTransportOptions } from "../utils/axiosTransport.js";
@@ -364,13 +365,14 @@ export class DebuggAIServerClient  {
   public async clearEnvironmentSessions(
     envUuid: string,
     filters: { username?: string; credentialId?: string } = {},
-  ): Promise<{ invalidated: number }> {
+  ): Promise<{ invalidated: number | null }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const response = await this.tx.delete<any>(
       `api/v1/environments/${envUuid}/sessions/`,
       { params: filters },
     );
-    return { invalidated: response?.invalidated ?? 0 };
+    // absent → null: a count the backend did not report is not a reported 0
+    return { invalidated: response?.invalidated ?? null };
   }
 
   /**
@@ -585,7 +587,7 @@ export class DebuggAIServerClient  {
     name: string;
     description: string;
     projectUuid: string;
-  }): Promise<{ uuid: string; name: string; description: string | null; runStatus: string; testsCount: number }> {
+  }): Promise<{ uuid: string; name: string; description: string | null; runStatus: string | null; testsCount: number | null }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const s = await this.tx.post<any>('api/v1/test-suites/', {
       name: input.name,
@@ -600,7 +602,7 @@ export class DebuggAIServerClient  {
     search?: string;
     page?: number;
     pageSize?: number;
-  }): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; suites: Array<{ uuid: string; name: string; description: string | null; runStatus: string; testsCount: number; passRate: number | null; lastRunAt: string | null }> }> {
+  }): Promise<{ pageInfo: import('../utils/pagination.js').PageInfo; suites: Array<{ uuid: string; name: string; description: string | null; runStatus: string | null; testsCount: number | null; passRate: number | null; lastRunAt: string | null }> }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const { makePageInfo } = await import('../utils/pagination.js');
     const page = params.page ?? 1;
@@ -617,8 +619,8 @@ export class DebuggAIServerClient  {
         uuid: s.uuid,
         name: s.name,
         description: s.description ?? null,
-        runStatus: s.runStatus ?? s.run_status ?? 'NEVER_RUN',
-        testsCount: s.testsCount ?? s.tests_count ?? 0,
+        runStatus: s.runStatus ?? s.run_status ?? null,
+        testsCount: s.testsCount ?? s.tests_count ?? null,
         passRate: s.passRate ?? s.pass_rate ?? null,
         lastRunAt: s.lastRunAt ?? s.last_run_at ?? null,
       })),
@@ -639,7 +641,7 @@ export class DebuggAIServerClient  {
     projectUuid: string;
     relativeUrl?: string;
     maxSteps?: number;
-  }): Promise<{ uuid: string; name: string; description: string; agentTaskDescription: string; suite: string; project: string; runCount: number }> {
+  }): Promise<{ uuid: string; name: string; description: string; agentTaskDescription: string; suite: string; project: string; runCount: number | null }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const body: Record<string, any> = {
       name: input.name,
@@ -659,7 +661,7 @@ export class DebuggAIServerClient  {
       agentTaskDescription: t.agentTaskDescription ?? t.agent_task_description ?? '',
       suite: t.suite ?? input.suiteUuid,
       project: t.project ?? input.projectUuid,
-      runCount: t.runCount ?? t.run_count ?? 0,
+      runCount: t.runCount ?? t.run_count ?? null,
     };
   }
 
@@ -690,14 +692,14 @@ export class DebuggAIServerClient  {
   public async runTestSuite(
     suiteUuid: string,
     params: { targetUrl?: string },
-  ): Promise<{ suiteUuid: string; runStatus: string; testsTriggered: number }> {
+  ): Promise<{ suiteUuid: string; runStatus: string | null; testsTriggered: number }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
     const body: Record<string, any> = {};
     if (params.targetUrl) body.target_url = params.targetUrl;
     const s = await this.tx.post<any>(`api/v1/test-suites/${suiteUuid}/run/`, body);
     return {
       suiteUuid,
-      runStatus: s?.runStatus ?? s?.run_status ?? 'PENDING',
+      runStatus: s?.runStatus ?? s?.run_status ?? null,
       testsTriggered: (s?.tests ?? []).length,
     };
   }
@@ -705,18 +707,18 @@ export class DebuggAIServerClient  {
   public async getTestSuiteDetail(suiteUuid: string): Promise<{
     uuid: string;
     name: string;
-    runStatus: string;
+    runStatus: string | null;
     testsCount: number;
     passRate: number | null;
     lastRunAt: string | null;
     tests: Array<{
       uuid: string;
       name: string;
-      runCount: number;
-      passedRunsCount: number;
-      failedRunsCount: number;
+      runCount: number | null;
+      passedRunsCount: number | null;
+      failedRunsCount: number | null;
       passRate: number | null;
-      lastRun: { uuid: string; status: string; outcome: string; executionTime: number | null; timestamp: string } | null;
+      lastRun: { uuid: string; status: string; outcome: string | null; executionTime: number | null; timestamp: string } | null;
     }>;
   }> {
     if (!this.tx) throw new Error('Client not initialized — call init() first');
@@ -725,7 +727,7 @@ export class DebuggAIServerClient  {
     return {
       uuid: s.uuid,
       name: s.name,
-      runStatus: s.runStatus ?? s.run_status ?? 'NEVER_RUN',
+      runStatus: s.runStatus ?? s.run_status ?? null,
       testsCount: tests.length,
       passRate: s.passRate ?? s.pass_rate ?? null,
       lastRunAt: s.lastRunAt ?? s.last_run_at ?? null,
@@ -735,14 +737,18 @@ export class DebuggAIServerClient  {
         return {
           uuid: t.uuid,
           name: t.name,
-          runCount: t.runCount ?? t.run_count ?? 0,
-          passedRunsCount: t.passedRunsCount ?? t.passed_runs_count ?? 0,
-          failedRunsCount: t.failedRunsCount ?? t.failed_runs_count ?? 0,
+          runCount: t.runCount ?? t.run_count ?? null,
+          passedRunsCount: t.passedRunsCount ?? t.passed_runs_count ?? null,
+          failedRunsCount: t.failedRunsCount ?? t.failed_runs_count ?? null,
           passRate: t.passRate ?? t.pass_rate ?? null,
           lastRun: lastRun ? {
             uuid: lastRun.uuid,
             status: lastRun.status,
-            outcome: lastRun.outcome,
+            // the user-facing verdict allowlist, same as every other surface;
+            // a run with no outcome yet keeps its null
+            outcome: typeof lastRun.outcome === 'string' && lastRun.outcome.trim() !== ''
+              ? toUserFacingOutcome(lastRun.outcome)
+              : lastRun.outcome ?? null,
             executionTime: lastRun.executionTime ?? lastRun.execution_time ?? null,
             timestamp: lastRun.timestamp,
           } : null,
@@ -751,13 +757,13 @@ export class DebuggAIServerClient  {
     };
   }
 
-  private mapTestSuite(s: any): { uuid: string; name: string; description: string | null; runStatus: string; testsCount: number } {
+  private mapTestSuite(s: any): { uuid: string; name: string; description: string | null; runStatus: string | null; testsCount: number | null } {
     return {
       uuid: s.uuid,
       name: s.name,
       description: s.description ?? null,
-      runStatus: s.runStatus ?? s.run_status ?? 'NEVER_RUN',
-      testsCount: s.testsCount ?? s.tests_count ?? 0,
+      runStatus: s.runStatus ?? s.run_status ?? null,
+      testsCount: s.testsCount ?? s.tests_count ?? null,
     };
   }
 

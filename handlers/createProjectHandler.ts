@@ -42,7 +42,7 @@ function resolveName(
   if (matches.length > 1) {
     return {
       error: 'AmbiguousMatch',
-      message: `Multiple ${kind.toLowerCase()}s match "${name}". Pass ${kind.toLowerCase()}Uuid explicitly.`,
+      message: `Multiple ${kind.toLowerCase()}s match "${name}".`,
       candidates: matches.map(m => ({ uuid: m.uuid, name: m.name })),
     };
   }

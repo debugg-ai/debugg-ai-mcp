@@ -91,12 +91,12 @@ export async function searchEnvironmentsHandler(
       const repoName = detectRepoName();
       if (!repoName) {
         return noProjectResolved(pagination,
-          'No git repo detected and no projectUuid provided. Pass projectUuid (get via search_projects) or invoke from a directory with a git origin.');
+          'No git repo detected and no projectUuid provided.');
       }
       const resolved = await client.findProjectByRepoName(repoName);
       if (!resolved) {
         return noProjectResolved(pagination,
-          `No DebuggAI project found for repo "${repoName}". Pass projectUuid explicitly.`);
+          `No DebuggAI project found for repo "${repoName}".`);
       }
       projectUuid = resolved.uuid;
       project = { uuid: resolved.uuid };
@@ -114,9 +114,7 @@ export async function searchEnvironmentsHandler(
         const creds = await client.listCredentialsForEnvironment(projectUuid, input.uuid).catch(() => []);
         const payload = {
           project,
-          filter: { uuid: input.uuid },
-          pageInfo: { page: 1, pageSize: 1, totalCount: 1, totalPages: 1, hasMore: false },
-          environments: [{ ...env, credentials: creds.map(stripPassword) }],
+          environment: { ...env, credentials: creds.map(stripPassword) },
         };
         logger.toolComplete('search_environments', Date.now() - start);
         return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
@@ -138,7 +136,6 @@ export async function searchEnvironmentsHandler(
 
     const payload = {
       project,
-      filter: { q: input.q ?? null },
       pageInfo,
       environments: withCreds,
     };

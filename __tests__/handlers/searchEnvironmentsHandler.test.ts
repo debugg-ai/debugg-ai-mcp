@@ -149,13 +149,11 @@ describe('searchEnvironmentsHandler', () => {
       const res = await searchEnvironmentsHandler({ projectUuid: PROJECT_UUID, uuid: ENV_UUID }, ctx);
       const body = JSON.parse(res.content[0].text!);
 
-      expect(body.filter.uuid).toBe(ENV_UUID);
-      expect(body.pageInfo.totalCount).toBe(1);
-      expect(body.pageInfo.hasMore).toBe(false);
-      expect(body.environments).toHaveLength(1);
-      expect(body.environments[0].uuid).toBe(ENV_UUID);
-      expect(body.environments[0].credentials).toHaveLength(2);
-      expect(body.environments[0].credentials[0]).toMatchObject({
+      expect(body).not.toHaveProperty('filter');
+      expect(body).not.toHaveProperty('pageInfo');
+      expect(body.environment.uuid).toBe(ENV_UUID);
+      expect(body.environment.credentials).toHaveLength(2);
+      expect(body.environment.credentials[0]).toMatchObject({
         uuid: 'c-a-1', label: 'admin', username: 'admin@x', role: 'admin',
       });
     });
@@ -218,7 +216,7 @@ describe('searchEnvironmentsHandler', () => {
       mockListCredentialsForEnvironment.mockResolvedValue([]);
 
       const got = JSON.parse((await searchEnvironmentsHandler({ uuid: ENV_UUID, projectUuid: PROJECT_UUID }, ctx)).content[0].text!);
-      expect(got.environments[0].authorizedCredentialHosts).toEqual(['auth.idp.example']);
+      expect(got.environment.authorizedCredentialHosts).toEqual(['auth.idp.example']);
 
       const list = JSON.parse((await searchEnvironmentsHandler({ projectUuid: PROJECT_UUID }, ctx)).content[0].text!);
       expect(list.environments[0].authorizedCredentialHosts).toEqual(['auth.idp.example']);

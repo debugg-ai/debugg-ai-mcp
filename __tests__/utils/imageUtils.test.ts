@@ -198,6 +198,11 @@ describe('artifactResourceLinks', () => {
     expect(byName['recording.gif'].uri).toBe('https://s3/run.gif');
   });
 
+  test('carries no MCP-authored description — the link is the backend URL and its key', () => {
+    const links = artifactResourceLinks({ harUrl: 'https://s3/run.har' });
+    expect(links[0]).not.toHaveProperty('description');
+  });
+
   test('skips tunnel URLs and non-objects', () => {
     expect(artifactResourceLinks({ x: 'https://abc.ngrok.io/y.har' })).toEqual([]);
     expect(artifactResourceLinks(null)).toEqual([]);

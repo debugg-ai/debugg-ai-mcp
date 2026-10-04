@@ -46,16 +46,7 @@ export async function listEnvironmentSessionsHandler(
     // usableCount, not just the rows: "does this environment currently hold a
     // session that will be restored?" is the question a caller is actually
     // asking, and an expired row still reports status 'valid'.
-    const usableCount = sessions.filter(s => s.isUsable).length;
-    return ok({
-      environmentUuid: input.uuid,
-      sessions,
-      pageInfo: { totalCount: sessions.length, usableCount },
-      note: sessions.length === 0
-        ? 'No captured sessions — every run for this environment logs in for real.'
-        : `${usableCount} of ${sessions.length} session(s) would be restored instead of logging in. `
-          + 'Use action "clearSessions" to force a real login, or pass freshSession:true on a single run.',
-    });
+    return ok({ environmentUuid: input.uuid, sessions });
   } catch (error) {
     throw handleExternalServiceError(error, 'DebuggAI', 'environment.sessions');
   }
@@ -79,14 +70,7 @@ export async function clearEnvironmentSessionsHandler(
 
     const scope = input.username ?? input.credentialId ?? 'all accounts';
     logger.info(`environment.clearSessions: invalidated ${invalidated} session(s) for ${scope}`);
-    return ok({
-      environmentUuid: input.uuid,
-      invalidated,
-      scope,
-      note: invalidated === 0
-        ? 'Nothing to clear — no usable captured session matched.'
-        : 'The next run for this identity will perform a real login and re-capture.',
-    });
+    return ok({ environmentUuid: input.uuid, invalidated });
   } catch (error) {
     throw handleExternalServiceError(error, 'DebuggAI', 'environment.clearSessions');
   }

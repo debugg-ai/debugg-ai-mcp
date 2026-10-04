@@ -33,7 +33,7 @@ export function resolveByName(name: string, candidates: Named[], kind: string): 
   if (matches.length > 1) {
     return {
       error: 'AmbiguousMatch',
-      message: `Multiple ${kind.toLowerCase().replace('testsuite', 'test suite')}s match "${name}". Pass the uuid directly.`,
+      message: `Multiple ${kind.toLowerCase().replace('testsuite', 'test suite')}s match "${name}".`,
       candidates: matches.map(m => ({ uuid: m.uuid, name: m.name })),
     };
   }

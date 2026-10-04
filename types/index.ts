@@ -470,10 +470,12 @@ export interface ConsoleErrorEntry {
 
 export interface ProbePageResult {
   url: string;
-  finalUrl: string;
-  statusCode: number;
+  /** null when the capture reported no URL — never the input URL standing in for it. */
+  finalUrl: string | null;
+  /** null when the capture reported no status — never a fabricated 0. */
+  statusCode: number | null;
   title: string | null;
-  loadTimeMs: number;
+  loadTimeMs: number | null;
   consoleErrors: ConsoleErrorEntry[];
   networkSummary: NetworkSummaryEntry[];
   html?: string;

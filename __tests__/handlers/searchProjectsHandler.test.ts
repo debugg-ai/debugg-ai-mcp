@@ -57,13 +57,10 @@ describe('searchProjectsHandler', () => {
 
       expect(mockGetProject).toHaveBeenCalledWith(UUID);
       expect(mockListProjects).not.toHaveBeenCalled();
-      expect(body.filter).toEqual({ uuid: UUID });
-      expect(body.pageInfo.totalCount).toBe(1);
-      expect(body.pageInfo.totalPages).toBe(1);
-      expect(body.pageInfo.hasMore).toBe(false);
-      expect(body.projects).toHaveLength(1);
-      expect(body.projects[0].uuid).toBe(UUID);
-      expect(body.projects[0].framework).toBe('express');  // full richness
+      // the backend object — no echoed filter, no single-row pageInfo
+      expect(Object.keys(body)).toEqual(['project']);
+      expect(body.project.uuid).toBe(UUID);
+      expect(body.project.framework).toBe('express');  // full richness
     });
 
     test('uuid miss: returns isError:true NotFound', async () => {
@@ -91,7 +88,7 @@ describe('searchProjectsHandler', () => {
 
       expect(mockListProjects).toHaveBeenCalled();
       expect(mockGetProject).not.toHaveBeenCalled();
-      expect(body.filter).toEqual({ q: 'Project' });
+      expect(body).not.toHaveProperty('filter');
       expect(body.pageInfo.totalCount).toBe(2);
       expect(body.projects).toHaveLength(2);
       // Summary shape: uuid, name, slug, repoName
@@ -111,7 +108,7 @@ describe('searchProjectsHandler', () => {
       const body = JSON.parse(res.content[0].text!);
 
       expect(body.projects).toEqual([]);
-      expect(body.filter.q).toBeNull();
+      expect(body).not.toHaveProperty('filter');
     });
 
     test('pagination threaded through: page + pageSize forwarded to service', async () => {

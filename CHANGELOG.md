@@ -5,7 +5,67 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — BREAKING
+## [6.0.0] — 2026-10-04 — BREAKING
+
+### Changed — responses are the backend's data, not MCP-authored text
+
+Every tool response now relays the backend's fields under the backend's names,
+with its reasons verbatim. The MCP authors text only for what it observed itself
+(its poll deadline, a probe/tunnel failure, input validation).
+
+- `check_app_in_browser`: `outcome` is `pass | fail | error`, or `null` with
+  `skipped: true` and the backend's `skipReason` verbatim for a run that never
+  attempted a test (the raw run outcome is never read). Removed `success`,
+  `failureCategory`, `stepsTaken` / `stepsBudget` / `stepsRemaining` (use the
+  relayed `budget: {maxSteps, usedSteps}`), `failedNode` (use `errorInfo`),
+  `surferOutput`, and the node-rebuilt `actionTrace` / `evaluation` fallbacks.
+  `evaluation` now carries only keys the verdict lacks (it is omitted when it
+  would repeat `outcome` / `reason`). `credentialWarning` is `{requested, used}`
+  (no `message`). A tunnel fault keeps `error`, `backendVerdict`, `detail`; its
+  `message` and `failureCategory: 'infrastructure'` are gone and `reason` states
+  the recorded marker and the probe result.
+- `executions`: `outcome`, `verdict.outcome` and `evaluation.outcome` go through
+  the same `pass | fail | error` allowlist (null stays null for running rows and
+  for never-tested runs; a never-tested list row carries `skipReason`).
+- `trigger_crawl`: a never-tested run reads `outcome: null`, `skipped: true`,
+  `skipReason`.
+- `get` actions return `{project}` / `{execution}` / `{project, environment}` —
+  no echoed `filter`, no single-row `pageInfo`. `list` actions no longer echo
+  `filter`.
+- `environment` `sessions` → `{environmentUuid, sessions}`; `clearSessions` →
+  `{environmentUuid, invalidated}` (no `note`, `scope`, `usableCount`).
+- `authorizedCredentialHostsWarning` is `{requested, returned}` (no `message`).
+- `trigger_crawl`: `crawlSummary` / `knowledgeGraph` carry only reported keys
+  (no derived `imported`, no `0` / `''` defaults).
+- `probe_page`: an unreported `statusCode` / `loadTimeMs` / `finalUrl` is `null`,
+  not `0` or the input URL.
+- `test_suite`: an unreported `runStatus` / run counts are `null` (no invented
+  `NEVER_RUN` / `PENDING` / `0`); `results` per-test `lastRun.outcome` goes
+  through the `pass | fail | error` allowlist. `run`: no `note`. Error messages no longer append advice
+  ("Start your dev server…", "Common causes…", "Ensure the template is seeded…",
+  "Pass … explicitly", "Link this repo…").
+
+### Fixed — localhost URLs inside goal text now point at the tunnel
+
+`check_app_in_browser` rewrites every `http(s)://localhost[:port]` /
+`127.0.0.1` origin inside the goal text onto the run's tunnel origin, keeping path, query and
+fragment. The remote browser used to dial its own loopback for those URLs and the run was
+recorded as the app failing. With no tunnel the text is left unchanged.
+
+### Migration from 5.x
+
+| 5.x field | 6.0.0 |
+|---|---|
+| `success` | removed — read `outcome` (`pass` / `fail` / `error`, or `null` + `skipped` + `skipReason`) |
+| `failureCategory` | removed — read `outcome` and the backend `reason` |
+| `stepsTaken` / `stepsBudget` / `stepsRemaining` | removed — read `budget: {maxSteps, usedSteps}` |
+| `failedNode` | removed — read `errorInfo` |
+| `surferOutput`, rebuilt `actionTrace` / `evaluation` | removed |
+| `project` / `executions` / `environment` `get` → `projects[0]` / `executions[0]` / `environments[0]` + `pageInfo` + `filter` | `{project}` / `{execution}` / `{project, environment}` |
+| `list` → `filter` echo | removed |
+| `*Warning.message`, `note`, error-message advice | removed — structured fields only |
+
+## Earlier changes (recorded before versioned headings resumed)
 
 ### Changed — one ngrok tunnel per session instead of one per local port
 

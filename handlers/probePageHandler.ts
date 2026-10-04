@@ -171,7 +171,7 @@ export async function probePageHandler(
           if (!probe.reachable) {
             const payload = {
               error: 'LocalServerUnreachable',
-              message: `No server listening on 127.0.0.1:${port}. Start your dev server on that port before running probe_page. Probe result: ${probe.code} (${probe.detail ?? 'no detail'}).`,
+              message: `No server listening on 127.0.0.1:${port}.`,
               detail: {
                 port,
                 probeCode: probe.code,
@@ -200,10 +200,7 @@ export async function probePageHandler(
             } catch (provisionError) {
               const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
               const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
-              throw new Error(
-                `Failed to provision tunnel for ${ctx.originalUrl}. ` +
-                `(Detail: ${msg})${diag}`
-              );
+              throw new Error(`Failed to provision tunnel for ${ctx.originalUrl}: ${msg}${diag}`);
             }
             acquiredProvisions.push(tunnel);
             let tunneled: TunnelContext;
@@ -218,9 +215,7 @@ export async function probePageHandler(
               );
             } catch (tunnelError) {
               const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
-              throw new Error(
-                `Tunnel creation failed for ${ctx.originalUrl}. (Detail: ${msg})`
-              );
+              throw new Error(`Tunnel creation failed for ${ctx.originalUrl}: ${msg}`);
             }
 
             // NOTE: the tunnel health probe used to run right here, immediately
@@ -254,11 +249,7 @@ export async function probePageHandler(
       return client.workflows!.findTemplateBySlug(templateSlug);
     });
     if (!templateUuid) {
-      throw new Error(
-        `Page Probe Workflow Template not found (slug "${templateSlug}"). ` +
-        `Ensure the backend has that template seeded and accessible ` +
-        `(GET /api/v1/workflows/?slug=${templateSlug}).`,
-      );
+      throw new Error(`Page Probe workflow template not found (slug "${templateSlug}").`);
     }
 
     // ── Group targets by shared Caddy route (§4 multi-port batch decision) ──
@@ -316,7 +307,7 @@ export async function probePageHandler(
           if (!health.healthy) {
             const payload = {
               error: 'TunnelTrafficBlocked',
-              message: `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,
+              message: `Tunnel established; a request through it to 127.0.0.1:${extractLocalhostPort(groupCtx.originalUrl)} failed: ${health.detail ?? health.code}.`,
               detail: {
                 code: health.code,
                 status: health.status,
@@ -429,10 +420,10 @@ export async function probePageHandler(
             finalUrl: typeof data.capturedUrl === 'string' ? data.capturedUrl
                     : typeof data.finalUrl === 'string' ? data.finalUrl
                     : typeof data.url === 'string' ? data.url
-                    : target.url,
-            statusCode: typeof data.statusCode === 'number' ? data.statusCode : 0,
+                    : null,
+            statusCode: typeof data.statusCode === 'number' ? data.statusCode : null,
             title: typeof data.title === 'string' ? data.title : null,
-            loadTimeMs: typeof data.loadTimeMs === 'number' ? data.loadTimeMs : 0,
+            loadTimeMs: typeof data.loadTimeMs === 'number' ? data.loadTimeMs : null,
             consoleErrors: mapConsoleSlice(Array.isArray(data.consoleSlice) ? data.consoleSlice : []),
             networkSummary: reaggregateByOriginPath(Array.isArray(data.networkSummary) ? data.networkSummary : []),
           };

@@ -46,11 +46,7 @@ export async function searchProjectsHandler(
     if (input.uuid) {
       try {
         const project = await client.getProject(input.uuid);
-        const payload = {
-          filter: { uuid: input.uuid },
-          pageInfo: { page: 1, pageSize: 1, totalCount: 1, totalPages: 1, hasMore: false },
-          projects: [project],
-        };
+        const payload = { project };
         logger.toolComplete('search_projects', Date.now() - start);
         return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
       } catch (err: any) {
@@ -63,7 +59,6 @@ export async function searchProjectsHandler(
     const { pageInfo, projects } = await client.listProjects(pagination, input.q);
 
     const payload = {
-      filter: { q: input.q ?? null },
       pageInfo,
       projects: projects.map((p: any) => ({
         uuid: p.uuid,

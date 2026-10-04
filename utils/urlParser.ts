@@ -155,6 +155,41 @@ export function retargetTunnelUrl(tunnelOrigin: string, requestedUrl: string): s
 }
 
 /**
+ * Rewrite every localhost / 127.0.0.1 URL inside FREE TEXT onto the tunnel.
+ *
+ * The goal text is read by a browser running in OUR cloud, not on the user's
+ * machine, so "go to http://localhost:3017" tells it to dial its own loopback.
+ * It gets connection refused and the run is recorded as the app failing, while
+ * the tunnel was working the whole time (15 of 431 judged prod runs in 30 days,
+ * platform-98fv.16).
+ *
+ * Deliberately narrow:
+ *   - only a real origin match (scheme + host + optional port) is touched, so
+ *     a word like "localhostname" survives;
+ *   - path, query and fragment are preserved, because the goal usually depends
+ *     on them;
+ *   - with no tunnel URL, the text is returned UNCHANGED. Inventing a
+ *     destination would be worse than leaving a wrong one visible.
+ */
+export function rewriteLocalhostInText<T extends string | undefined>(
+  text: T,
+  tunnelUrl: string | undefined,
+): T {
+  if (!text || !tunnelUrl) return text;
+  let origin: string;
+  try {
+    const u = new URL(tunnelUrl);
+    origin = `${u.protocol}//${u.host}`;
+  } catch {
+    return text;
+  }
+  // scheme://(localhost|127.0.0.1)[:port] — the trailing boundary stops
+  // "localhostname" matching, while still allowing a path/query/fragment.
+  const LOCAL_ORIGIN = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?=[/?#\s]|$)/gi;
+  return text.replace(LOCAL_ORIGIN, origin) as T;
+}
+
+/**
  * Generate a tunneled URL for a localhost URL
  */
 export function generateTunnelUrl(originalUrl: string, tunnelId: string, tunnelDomain: string): string {

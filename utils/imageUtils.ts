@@ -104,7 +104,6 @@ export function artifactResourceLinks(
     out.push(resourceLinkBlock(value, name, {
       mimeType: MIME_BY_EXT[ext],
       title: titleize(key),
-      description: 'Execution artifact (presigned URL — open or fetch on demand).',
     }));
   }
   return out;

@@ -325,3 +325,26 @@ describe('pollExecution()', () => {
     expect(outcome.value!.nodeExecutions).toHaveLength(1);  // partial evidence preserved
   });
 });
+
+// ── listExecutions — the run verdict on a list row (platform-98fv.16) ────────
+// The backend's list row carries `outcome` (the run verdict: pass|fail|error, or
+// null for a run that never attempted a test) and `skip_reason` (camelCased to
+// `skipReason` by the transport). A never-tested row's reason must reach the
+// caller; without it a null outcome reads as "still running".
+describe('listExecutions()', () => {
+  test('relays skipReason on a never-tested row and omits it otherwise', async () => {
+    mockGet.mockResolvedValue({
+      count: 2,
+      next: null,
+      results: [
+        { uuid: 'a', status: 'failed', outcome: null, verdictOutcome: null, skipReason: 'CodeBuild failed: exit 1' },
+        { uuid: 'b', status: 'completed', outcome: 'pass', verdictOutcome: 'pass', skipReason: null },
+      ],
+    });
+    const r = await service.listExecutions({ page: 1, pageSize: 20 } as any);
+    expect(r.executions[0].outcome).toBeNull();
+    expect(r.executions[0].skipReason).toBe('CodeBuild failed: exit 1');
+    expect(r.executions[1].outcome).toBe('pass');
+    expect(r.executions[1]).not.toHaveProperty('skipReason');
+  });
+});
