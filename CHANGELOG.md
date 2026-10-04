@@ -13,7 +13,9 @@ Every tool response now relays the backend's fields under the backend's names,
 with its reasons verbatim. The MCP authors text only for what it observed itself
 (its poll deadline, a probe/tunnel failure, input validation).
 
-- `check_app_in_browser`: `outcome` is `pass | fail | error`. Removed `success`,
+- `check_app_in_browser`: `outcome` is `pass | fail | error`, or `null` with
+  `skipped: true` and the backend's `skipReason` verbatim for a run that never
+  attempted a test (the raw run outcome is never read). Removed `success`,
   `failureCategory`, `stepsTaken` / `stepsBudget` / `stepsRemaining` (use the
   relayed `budget: {maxSteps, usedSteps}`), `failedNode` (use `errorInfo`),
   `surferOutput`, and the node-rebuilt `actionTrace` / `evaluation` fallbacks.
@@ -23,7 +25,10 @@ with its reasons verbatim. The MCP authors text only for what it observed itself
   `message` and `failureCategory: 'infrastructure'` are gone and `reason` states
   the recorded marker and the probe result.
 - `executions`: `outcome`, `verdict.outcome` and `evaluation.outcome` go through
-  the same `pass | fail | error` allowlist (null stays null for running rows).
+  the same `pass | fail | error` allowlist (null stays null for running rows and
+  for never-tested runs; a never-tested list row carries `skipReason`).
+- `trigger_crawl`: a never-tested run reads `outcome: null`, `skipped: true`,
+  `skipReason`.
 - `get` actions return `{project}` / `{execution}` / `{project, environment}` —
   no echoed `filter`, no single-row `pageInfo`. `list` actions no longer echo
   `filter`.
