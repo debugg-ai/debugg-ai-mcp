@@ -20,15 +20,15 @@
  * what happened.
  *
  * Principle: relay, never invent — but never relay a non-answer either.
- *   - pass/fail are relayed verbatim; `success` = (outcome === 'pass').
- *   - everything else collapses to `error` with `failureCategory = 'error'`,
- *     never a fabricated 'assertion-mismatch'.
+ *   - pass/fail are relayed verbatim; everything else collapses to `error`.
+ *   - nothing derived from the outcome is added beside it (no `success`, no
+ *     `failureCategory`): a second copy of the verdict is a second thing to
+ *     disagree with it.
  *   - the backend's own `reason` is shown whenever it sends one. We only
  *     supply a reason when it did not.
  *   - a missing / null / unrecognized verdict is `error`, never `fail` and
  *     never the raw execution status.
- *   - Budget comes from the response, not a client-side constant (the constant
- *     is only a fallback for pre-contract backends).
+ *   - `budget` is the backend's container, relayed verbatim or not at all.
  *
  * `timeout` deserves its own note because it is OURS, not the backend's. The
  * MCP synthesises it when its own 10-minute poll deadline expires
@@ -71,6 +71,27 @@ export function toUserFacingOutcome(raw: unknown): VerdictOutcome {
   return v === 'pass' || v === 'fail' ? v : 'error';
 }
 
+/**
+ * An execution record as the executions tool relays it: the backend object
+ * verbatim, except the three fields a user reads as the run's verdict —
+ * `outcome`, `verdict.outcome`, `evaluation.outcome` — which go through the
+ * same allowlist as check_app_in_browser. A null/absent outcome (a run still
+ * going) stays null: "no verdict yet" is not an error. Internal run state
+ * (`state.*`, node output) keeps its raw values.
+ */
+export function withUserFacingOutcomes<T>(execution: T): T {
+  if (!execution || typeof execution !== 'object') return execution;
+  const mapIfSet = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? toUserFacingOutcome(v) : v);
+  const e: Record<string, any> = { ...(execution as Record<string, any>) };
+  if ('outcome' in e) e.outcome = mapIfSet(e.outcome);
+  for (const key of ['verdict', 'evaluation']) {
+    if (e[key] && typeof e[key] === 'object' && 'outcome' in e[key]) {
+      e[key] = { ...e[key], outcome: mapIfSet(e[key].outcome) };
+    }
+  }
+  return e as T;
+}
+
 export function noVerdictReason(rawOutcome: unknown): string {
   const seen = typeof rawOutcome === 'string' && rawOutcome.trim() !== '' ? rawOutcome.trim() : null;
   return seen
@@ -110,20 +131,16 @@ export function pollTimeoutReason(facts: PollTimeoutFacts): string {
 }
 
 export interface RelayVerdict {
-  /** Backend verdict.outcome, relayed verbatim; 'inconclusive' when absent/unknown. */
-  outcome: string;
-  /** Strictly (outcome === 'pass'). */
-  success: boolean;
-  /** = outcome when !success; omitted on success. */
-  failureCategory?: string;
-  /** Human-readable verdict.reason, when present. */
+  /** pass | fail | error — the backend verdict.outcome through toUserFacingOutcome. */
+  outcome: VerdictOutcome;
+  /** verdict.reason verbatim; an MCP-observed fact only when the backend sent none. */
   reason?: string;
-  /** budget.maxSteps (fallback: opts.fallbackBudget). */
-  stepsBudget: number;
-  /** budget.usedSteps (fallback: legacy state.stepsTaken, then 0). */
-  stepsTaken: number;
-  /** max(0, stepsBudget - stepsTaken). */
-  stepsRemaining: number;
+  /**
+   * The backend's `budget` container, relayed verbatim ({ maxSteps, usedSteps }).
+   * Omitted when the backend sent none — the MCP does not invent a budget, and
+   * does not restate it as stepsTaken / stepsBudget / stepsRemaining.
+   */
+  budget?: Record<string, unknown>;
   /** evidence.screenshot, when present (URL or base64 — relayed as-is). */
   screenshot?: string;
   /** evidence.actionTrace, when present. */
@@ -210,8 +227,6 @@ export function credentialSubstitutions(
 }
 
 export interface AdaptVerdictOptions {
-  /** Client-side step budget used only when the response carries no budget. */
-  fallbackBudget?: number;
   /**
    * Force the outcome (used by the poll-timeout path, bead 56kd.3, where there
    * is no terminal backend verdict to read).
@@ -251,25 +266,8 @@ export function adaptVerdict(
   // invents, and a verdict that never arrived.
   const outcome = toUserFacingOutcome(raw);
 
-  const success = outcome === 'pass';
-
-  // --- Budget (from the response; constant is a fallback only) ---
-  const fallbackBudget = opts.fallbackBudget ?? 0;
-  const stepsBudget = typeof budget?.maxSteps === 'number' ? budget.maxSteps : fallbackBudget;
-  const stepsTaken = typeof budget?.usedSteps === 'number'
-    ? budget.usedSteps
-    : (typeof state?.stepsTaken === 'number' ? state.stepsTaken : 0);
-  const stepsRemaining = Math.max(0, stepsBudget - stepsTaken);
-
-  const relay: RelayVerdict = {
-    outcome,
-    success,
-    stepsBudget,
-    stepsTaken,
-    stepsRemaining,
-  };
-
-  if (!success) relay.failureCategory = outcome;
+  const relay: RelayVerdict = { outcome };
+  if (budget && typeof budget === 'object') relay.budget = budget;
 
   // Reason precedence, and the order is the whole point:
   //   1. the backend's own words, relayed VERBATIM and never rephrased;

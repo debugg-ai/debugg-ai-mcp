@@ -149,11 +149,11 @@ export async function updateEnvironmentHandler(
     if (warnings.length > 0) payload.credentialWarnings = warnings;
     if (input.authorizedCredentialHosts !== undefined) {
       const hostsWarning = checkAuthorizedCredentialHostsEcho(
-        input.authorizedCredentialHosts, environment?.authorizedCredentialHosts, 'update',
+        input.authorizedCredentialHosts, environment?.authorizedCredentialHosts
       );
       if (hostsWarning) {
         payload.authorizedCredentialHostsWarning = hostsWarning;
-        logger.warn(`update_environment: ${hostsWarning.message}`);
+        logger.warn(`update_environment: authorizedCredentialHosts not persisted`, hostsWarning);
       }
     }
 

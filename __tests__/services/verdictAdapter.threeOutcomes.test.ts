@@ -39,7 +39,6 @@ describe('the user-facing verdict enum', () => {
     (raw) => {
       const v = adaptVerdict(makeExecution({ verdict: { outcome: raw } }));
       expect(v.outcome).toBe('error');
-      expect(v.success).toBe(false);
       // the actual value is reported, so two occurrences are distinguishable
       expect(v.reason).toBe(`Backend returned outcome '${raw}' with no reason.`);
     },

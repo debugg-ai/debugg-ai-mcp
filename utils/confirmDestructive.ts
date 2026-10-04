@@ -83,7 +83,6 @@ export async function ensureConfirmed(
   if (input.confirm === true) return null;
   return refusal(
     'confirmation_required',
-    `Refusing to ${verb.toLowerCase()} ${label} without confirmation. `
-    + 'Pass confirm:true, or use an elicitation-capable client.',
+    `Refusing to ${verb.toLowerCase()} ${label} without confirm:true.`,
   );
 }

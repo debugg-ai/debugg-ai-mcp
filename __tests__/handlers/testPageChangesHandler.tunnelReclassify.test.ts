@@ -284,9 +284,8 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
 
     const payload = JSON.parse(result.content[0].text!);
     expect(payload.error).toBe('TunnelOfflineDuringRun');
-    expect(payload.failureCategory).toBe('infrastructure');
+    expect(payload).not.toHaveProperty('failureCategory');
     expect(payload.outcome).toBe('error');
-    expect(payload.success).toBe(false);
     expect(result.isError).toBe(true);
 
     // The backend's original verdict is preserved, not swallowed.
@@ -295,6 +294,13 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
     // Our own observation is what we assert as the cause — nothing invented.
     expect(payload.detail.tunnelErrorCode).toBe('DEBUGG_TUNNEL_OFFLINE');
     expect(payload.detail.probeCode).toBe('TUNNEL_ERROR');
+
+    // The reason is the observation — marker + probe result — and nothing else:
+    // no commentary paragraph, no blame, no instruction to retry.
+    expect(payload).not.toHaveProperty('message');
+    expect(payload.reason).toBe(
+      'The run recorded the tunnel error page DEBUGG_TUNNEL_OFFLINE; post-run tunnel probe: TUNNEL_ERROR (HTTP 404).',
+    );
 
     // Run identity is still relayed so the caller can dig into the execution.
     expect(payload.executionId).toBe('exec-uuid-1');
@@ -314,8 +320,6 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
 
     const payload = JSON.parse(result.content[0].text!);
     expect(payload.outcome).toBe('fail');
-    expect(payload.success).toBe(false);
-    expect(payload.failureCategory).toBe('fail');
     expect(payload.reason).toBe(BACKEND_FAIL_REASON);
     expect(payload.error).toBeUndefined();
     expect(payload.backendVerdict).toBeUndefined();
@@ -333,7 +337,6 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
 
     const payload = JSON.parse(result.content[0].text!);
     expect(payload.outcome).toBe('fail');
-    expect(payload.failureCategory).toBe('fail');
     expect(payload.reason).toBe(BACKEND_FAIL_REASON);
     expect(payload.error).toBeUndefined();
     expect(result.isError).toBeUndefined();
@@ -356,7 +359,6 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
 
     const payload = JSON.parse(result.content[0].text!);
     expect(payload.outcome).toBe('pass');
-    expect(payload.success).toBe(true);
     expect(payload.error).toBeUndefined();
     expect(result.isError).toBeUndefined();
   });
@@ -386,7 +388,7 @@ describe('testPageChangesHandler — mid-run tunnel death is not a UI fail (bug 
 
     const payload = JSON.parse(result.content[0].text!);
     expect(payload.error).toBe('TunnelOfflineDuringRun');
-    expect(payload.failureCategory).toBe('infrastructure');
+    expect(payload).not.toHaveProperty('failureCategory');
     expect(payload.detail.tunnelErrorCode).toBe('DEBUGG_TUNNEL_OFFLINE');
     expect(payload.backendVerdict).toEqual({ outcome: 'fail', reason: BACKEND_FAIL_REASON });
     expect(result.isError).toBe(true);
@@ -430,8 +432,6 @@ describe('testPageChangesHandler — the re-probe alone must never launder a gen
 
     // The backend's honest verdict must survive completely untouched.
     expect(payload.outcome).toBe('fail');
-    expect(payload.success).toBe(false);
-    expect(payload.failureCategory).toBe('fail');
     expect(payload.reason).toBe(EVIDENCE_STRICTNESS_REASON);
 
     // No laundering: none of the infrastructure apparatus may appear.
@@ -457,7 +457,6 @@ describe('testPageChangesHandler — the re-probe alone must never launder a gen
     const payload = JSON.parse(result.content[0].text!);
 
     expect(payload.outcome).toBe('fail');
-    expect(payload.failureCategory).toBe('fail');
     expect(payload.reason).toBe(EVIDENCE_STRICTNESS_REASON);
     expect(payload.error).toBeUndefined();
     expect(payload.backendVerdict).toBeUndefined();

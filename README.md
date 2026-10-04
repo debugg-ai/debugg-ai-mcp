@@ -118,8 +118,7 @@ Results report the identity actually used, so a wrong one is visible rather than
 ],
 "credentialWarning": {
   "requested": "qa+invitefix@example.com",
-  "used": ["qatest123@example.com"],
-  "message": "This run signed in with an environment default credential even though '…' was specified. …"
+  "used": ["qatest123@example.com"]
 }
 ```
 
@@ -143,7 +142,7 @@ URLs are short-lived presigned S3 — refetch the parent execution via `executio
 
 #### `trigger_crawl`
 
-Fires a server-side browser-agent crawl to populate the project's knowledge graph. Localhost URLs tunnel automatically. Returns `{executionId, status, targetUrl, durationMs, outcome?, crawlSummary?, knowledgeGraph?, browserSession?}` with `knowledgeGraph.imported === true` on successful ingestion. The `browserSession` block (HAR + console-log URLs, same shape as above) is also present on completed crawls.
+Fires a server-side browser-agent crawl to populate the project's knowledge graph. Localhost URLs tunnel automatically. Returns `{executionId, status, targetUrl, durationMs, outcome?, crawlSummary?, knowledgeGraph?, browserSession?}` with `knowledgeGraph.skipped === false` on successful ingestion. `crawlSummary` and `knowledgeGraph` carry only the keys the backend's crawl / import nodes reported — a missing count is absent, never a filled-in `0`. The `browserSession` block (HAR + console-log URLs, same shape as above) is also present on completed crawls.
 
 #### `probe_page`
 
@@ -184,12 +183,12 @@ Team and repo resolve by **either** uuid **or** name (case-insensitive exact mat
 | `create` | `{name, url, description?, projectUuid?, credentials?, authorizedCredentialHosts?}` | Created env (optionally seeds credentials) |
 | `update` | `{uuid, name?, url?, description?, addCredentials?, updateCredentials?, removeCredentialIds?, authorizedCredentialHosts?}` | Patched env; credential ops run **remove → update → add** |
 | `delete` | `{uuid, projectUuid?, confirm?}` | Deletes env (cascades credentials) — **requires confirmation** |
-| `sessions` | `{uuid, username?, credentialId?}` | Captured login sessions the env holds, per account, with `isUsable` and a `usableCount` |
+| `sessions` | `{uuid, username?, credentialId?}` | Captured login sessions the env holds, per account, each with its own `isUsable` |
 | `clearSessions` | `{uuid, username?, credentialId?, confirm?}` | Invalidates them so the next run logs in for real — **unscoped clears require confirmation** |
 
 `projectUuid` auto-resolves from the git repo when omitted. Per-cred failures surface in `credentialWarnings[]` without blocking the env op.
 
-`authorizedCredentialHosts` lists hosts where a run may enter this environment's credentials besides the app's own host — **for cross-domain SSO, add the IdP host here** (e.g. `["auth.example.com"]`). Bare hostnames only: no scheme, path, port or wildcard (subdomains of the app's host are already in scope). On `update` it replaces the list; `[]` clears it. `get`/`list` return it when the server supports it. The response echoes the saved list; if the server did not persist it (older servers ignore the field), the result carries an `authorizedCredentialHostsWarning` saying so instead of a silent success.
+`authorizedCredentialHosts` lists hosts where a run may enter this environment's credentials besides the app's own host — **for cross-domain SSO, add the IdP host here** (e.g. `["auth.example.com"]`). Bare hostnames only: no scheme, path, port or wildcard (subdomains of the app's host are already in scope). On `update` it replaces the list; `[]` clears it. `get`/`list` return it when the server supports it. The response echoes the saved list; if the server did not persist it (older servers ignore the field), the result carries `authorizedCredentialHostsWarning: {requested, returned}` instead of a silent success.
 
 `sessions` / `clearSessions` manage the warm authenticated sessions the backend reuses to skip login (see [Session reuse](#session-reuse-why-a-check-can-report-no-login-form)). Session contents are never returned — a session cookie is a bearer credential. `clearSessions` marks sessions invalid rather than deleting the rows, so reuse stops immediately while the capture history stays readable.
 
@@ -222,17 +221,18 @@ Team and repo resolve by **either** uuid **or** name (case-insensitive exact mat
 
 ### Pagination
 
-Every filter-mode response is paginated. Response shape:
+Every `list` response is paginated. Response shape:
 
 ```json
 {
-  "filter": { "...echoed query params..." },
   "pageInfo": { "page": 1, "pageSize": 20, "totalCount": 47, "totalPages": 3, "hasMore": true },
   "<items>": [ ... ]
 }
 ```
 
 Pass optional `page` (1-indexed, default 1) and `pageSize` (default 20, max 200; oversized values are clamped). No response is ever silently truncated.
+
+A `get` returns the one object under its singular name — `{project}`, `{execution}`, `{project, environment}` — with no `pageInfo`.
 
 ## Resources
 

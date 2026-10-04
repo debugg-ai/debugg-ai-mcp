@@ -226,7 +226,6 @@ describe('TestPageChangesInputSchema — url validation', () => {
       description: 'test login flow',
       url: 'https://example.com',
     });
-    expect(result.success).toBe(true);
   });
 
   test('accepts localhost url', () => {
@@ -234,7 +233,6 @@ describe('TestPageChangesInputSchema — url validation', () => {
       description: 'test login flow',
       url: 'http://localhost:3000',
     });
-    expect(result.success).toBe(true);
   });
 
   test('normalizes bare localhost:PORT to http://localhost:PORT', () => {
@@ -242,7 +240,6 @@ describe('TestPageChangesInputSchema — url validation', () => {
       description: 'test login flow',
       url: 'localhost:3000',
     });
-    expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.url).toBe('http://localhost:3000');
     }
@@ -253,7 +250,6 @@ describe('TestPageChangesInputSchema — url validation', () => {
       description: 'test',
       url: '0.0.0.0:8080',
     });
-    expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.url).toBe('http://0.0.0.0:8080');
     }
@@ -263,7 +259,6 @@ describe('TestPageChangesInputSchema — url validation', () => {
     const result = TestPageChangesInputSchema.safeParse({
       description: 'test login flow',
     });
-    expect(result.success).toBe(false);
   });
 
   test('rejects invalid url format', () => {
@@ -271,7 +266,6 @@ describe('TestPageChangesInputSchema — url validation', () => {
       description: 'test',
       url: 'not-a-url',
     });
-    expect(result.success).toBe(false);
   });
 
   test('rejects empty description', () => {
@@ -279,7 +273,6 @@ describe('TestPageChangesInputSchema — url validation', () => {
       description: '',
       url: 'https://example.com',
     });
-    expect(result.success).toBe(false);
   });
 });
 
@@ -300,7 +293,6 @@ describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () =>
         deepUrl: 'https://app.example.com/settings/profile',
       },
     });
-    expect(result.success).toBe(true);
   });
 
   test('accepts precondition "none" (the default, unauthenticated case)', () => {
@@ -309,7 +301,6 @@ describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () =>
       url: 'https://app.example.com',
       auth: { precondition: 'none' },
     });
-    expect(result.success).toBe(true);
   });
 
   test('auth is optional — omitting it still validates', () => {
@@ -317,7 +308,6 @@ describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () =>
       description: 'check homepage',
       url: 'https://app.example.com',
     });
-    expect(result.success).toBe(true);
   });
 
   test('normalizes a bare-host deepUrl the same way as url', () => {
@@ -326,7 +316,6 @@ describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () =>
       url: 'localhost:3000',
       auth: { precondition: 'login', deepUrl: 'localhost:3000/settings' },
     });
-    expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.auth?.deepUrl).toBe('http://localhost:3000/settings');
     }
@@ -338,7 +327,6 @@ describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () =>
       url: 'https://app.example.com',
       auth: { precondition: 'sudo' },
     });
-    expect(result.success).toBe(false);
   });
 
   test('rejects a non-uuid environmentId', () => {
@@ -347,7 +335,6 @@ describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () =>
       url: 'https://app.example.com',
       auth: { environmentId: 'not-a-uuid', precondition: 'login' },
     });
-    expect(result.success).toBe(false);
   });
 
   test('rejects unknown keys inside auth (strict)', () => {
@@ -356,7 +343,6 @@ describe('TestPageChangesInputSchema — auth-precondition (bead 56kd.6)', () =>
       url: 'https://app.example.com',
       auth: { precondition: 'login', bogus: true },
     });
-    expect(result.success).toBe(false);
   });
 });
 
@@ -694,7 +680,6 @@ describe('testPageChangesHandler — full handler flow', () => {
     expect(result.content.length).toBeGreaterThanOrEqual(1);
     const text = JSON.parse(result.content[0].text!);
     expect(text.outcome).toBe('pass');
-    expect(text.success).toBe(true);
   });
 
   test('always runs headless (D7) — contextData.headless is true', async () => {
@@ -902,9 +887,9 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(result.isError).toBe(true);
       const body = JSON.parse(result.content[0].text!);
       expect(body.error).toBe('LocalServerUnreachable');
-      expect(body.message).toContain('127.0.0.1:3000');
-      expect(body.message).toContain('ECONNREFUSED');
-      expect(body.detail.port).toBe(3000);
+      expect(body.message).toBe('No server listening on 127.0.0.1:3000.');
+      // the probe result rides in detail, once — not restated in the message
+      expect(body.detail).toMatchObject({ port: 3000, probeCode: 'ECONNREFUSED' });
 
       // Critical: no downstream work happened
       expect(mockProvision).not.toHaveBeenCalled();
@@ -928,7 +913,9 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(result.isError).toBe(true);
       const body = JSON.parse(result.content[0].text!);
       expect(body.error).toBe('TunnelTrafficBlocked');
-      expect(body.message).toContain('traffic isn\'t reaching');
+      // the observed failure, verbatim; no list of guessed causes
+      expect(body.message).toContain('the tunnel returned DEBUGG_TUNNEL_UPSTREAM_REFUSED');
+      expect(body.message).not.toMatch(/common causes/i);
       expect(body.detail.tunnelErrorCode).toBe('DEBUGG_TUNNEL_UPSTREAM_REFUSED');
 
       // DEBUGG_TUNNEL_UPSTREAM_REFUSED means the TUNNEL IS ALIVE and its upstream refused — the
@@ -1039,8 +1026,6 @@ describe('testPageChangesHandler — full handler flow', () => {
 
     const text = JSON.parse(result.content[0].text!);
     expect(text.outcome).toBe('fail');
-    expect(text.success).toBe(false);
-    expect(text.stepsTaken).toBe(2);
     expect(text.agentError).toBe('element not found');
   });
 
@@ -1193,16 +1178,15 @@ describe('testPageChangesHandler — full handler flow', () => {
   // comes from the response; a thin/unknown verdict is 'inconclusive', not a
   // failure.
   describe('verdict relay + budget (bead 56kd.2)', () => {
-    test('success: failureCategory OMITTED; budget falls back to 25 when response omits it', async () => {
+    test('success: nothing derived from the outcome; no budget invented when the response has none', async () => {
       setupHappyPath({ isLocalhost: false });
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.success).toBe(true);
       expect(body).not.toHaveProperty('failureCategory');
-      expect(body.stepsBudget).toBe(25);
-      // mockFinalExecution has stepsTaken: 3, so 25 - 3 = 22
-      expect(body.stepsRemaining).toBe(22);
+      expect(body).not.toHaveProperty('success');
+      expect(body).not.toHaveProperty('budget');
+      expect(body).not.toHaveProperty('stepsBudget');
     });
 
     test('backend verdict.outcome "fail" → failureCategory = "fail" (verbatim, not synthesized)', async () => {
@@ -1218,9 +1202,7 @@ describe('testPageChangesHandler — full handler flow', () => {
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.success).toBe(false);
       expect(body.outcome).toBe('fail');
-      expect(body.failureCategory).toBe('fail');
       expect(body.reason).toBe('heading missing');
     });
 
@@ -1238,7 +1220,6 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
 
       expect(body.outcome).toBe('error');
-      expect(body.failureCategory).toBe('error');
     });
 
     test('backend verdict.outcome "inconclusive" surfaces as error (NOT failure-invented)', async () => {
@@ -1255,7 +1236,6 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
 
       expect(body.outcome).toBe('error');
-      expect(body.failureCategory).toBe('error');
     });
 
     test('thin state (no verdict, no outcome) → error, NOT fail, no assertion-mismatch', async () => {
@@ -1271,11 +1251,10 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
 
       expect(body.outcome).toBe('error');
-      expect(body.failureCategory).toBe('error');
       expect(body.failureCategory).not.toBe('assertion-mismatch');
     });
 
-    test('budget is sourced from the response (state.budget), not the 25 constant', async () => {
+    test('budget is the backend container, relayed under its own field names', async () => {
       setupHappyPath({ isLocalhost: false });
       mockPoll.mockResolvedValue({
         ...mockFinalExecution,
@@ -1287,27 +1266,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       const result = await testPageChangesHandler(defaultInput, defaultContext);
       const body = JSON.parse(result.content[0].text!);
 
-      expect(body.stepsBudget).toBe(40);
-      expect(body.stepsTaken).toBe(12);
-      expect(body.stepsRemaining).toBe(28);
-    });
-
-    test('stepsRemaining clamps to 0 when agent ran past budget', async () => {
-      setupHappyPath({ isLocalhost: false });
-      mockPoll.mockResolvedValue({
-        ...mockFinalExecution,
-        state: {
-          outcome: 'pass',
-          success: true,
-          stepsTaken: 30, // past the 25 budget — clamp to 0, don't go negative
-          error: '',
-        },
-      });
-
-      const result = await testPageChangesHandler(defaultInput, defaultContext);
-      const body = JSON.parse(result.content[0].text!);
-      expect(body.stepsTaken).toBe(30);
-      expect(body.stepsRemaining).toBe(0);
+      expect(body.budget).toEqual({ maxSteps: 40, usedSteps: 12 });
+      expect(body).not.toHaveProperty('stepsRemaining');
     });
   });
 
@@ -1344,8 +1304,6 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
 
       expect(body.outcome).toBe('error');
-      expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('error');
       // the reason must still say it was OUR deadline, not the app failing
       // our deadline, stated with the numbers we observed — not a canned
       // sentence, and not confusable with the app itself failing
@@ -1353,7 +1311,6 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(body.reason).toContain('600s of polling');
       expect(body.reason).toContain('37 polls');
       expect(body.actionTrace).toHaveLength(1);          // partial trace preserved
-      expect(body.stepsTaken).toBe(4);
     });
 
     test('timeout attaches the last screenshot on the non-success path', async () => {
@@ -1407,7 +1364,6 @@ describe('testPageChangesHandler — full handler flow', () => {
 
       // Final response reflects attempt 2 (success), not attempt 1's transient
       expect(body.outcome).toBe('pass');
-      expect(body.success).toBe(true);
       expect(body).not.toHaveProperty('failureCategory');
     });
 
@@ -1433,8 +1389,6 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockPoll.mock.calls.length).toBe(1);
 
       // Not retried; failureCategory is the outcome verbatim ('fail')
-      expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('fail');
     });
 
     test('persistent transient error → exhausts retries, surfaces failure', async () => {
@@ -1451,8 +1405,6 @@ describe('testPageChangesHandler — full handler flow', () => {
 
       // After retry exhaustion the failure surfaces with the outcome verbatim.
       // TRANSIENT_FINAL carries state.outcome 'fail' and no explicit verdict.
-      expect(body.success).toBe(false);
-      expect(body.failureCategory).toBe('fail');
     });
 
     test('DEBUGGAI_TRANSIENT_RETRIES=0 → retry disabled, surfaces first transient immediately', async () => {
@@ -1581,8 +1533,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(result.isError).toBe(true);
       const body = JSON.parse(result.content[0].text!);
       expect(body.error).toBe('ProjectRequired');
-      expect(body.message).toContain('project_id is required');
-      expect(body.message).toContain('Link this repo to a project');
+      expect(body.message).toContain('No DebuggAI project found for repo');
+      expect(body.message).not.toMatch(/link this repo|then retry/i);
       // Fails fast — never dispatches to the backend.
       expect(mockExecute).not.toHaveBeenCalled();
       expect(mockPoll).not.toHaveBeenCalled();

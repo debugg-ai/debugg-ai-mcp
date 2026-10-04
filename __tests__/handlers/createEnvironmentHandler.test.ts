@@ -133,11 +133,8 @@ describe('createEnvironmentHandler', () => {
       const body = JSON.parse(res.content[0].text!);
       expect(body.created).toBe(true);
       expect(body.environment.uuid).toBe(ENV_UUID);
-      expect(body.authorizedCredentialHostsWarning.requested).toEqual(['auth.idp.example']);
-      expect(body.authorizedCredentialHostsWarning.message).toMatch(/did not persist authorizedCredentialHosts/);
-      expect(body.authorizedCredentialHostsWarning.message).toMatch(/not yet supported/);
-      // Must not invite a retry that would create a duplicate environment.
-      expect(body.authorizedCredentialHostsWarning.message).toMatch(/do not re-run create/i);
+      // the comparison IS the message: what was sent, what came back
+      expect(body.authorizedCredentialHostsWarning).toEqual({ requested: ['auth.idp.example'], returned: null });
     });
 
     test('no hosts requested → no warning', async () => {

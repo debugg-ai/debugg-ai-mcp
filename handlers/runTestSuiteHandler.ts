@@ -64,7 +64,7 @@ export async function runTestSuiteHandler(
           if (!probe.reachable) {
             return errorResp(
               'LocalServerUnreachable',
-              `No server listening on 127.0.0.1:${port}. Start your dev server before running the suite. (${probe.code}: ${probe.detail ?? 'no detail'})`,
+              `No server listening on 127.0.0.1:${port}.`,
               { port, probeCode: probe.code, elapsedMs: probe.elapsedMs },
             );
           }
@@ -93,7 +93,7 @@ export async function runTestSuiteHandler(
             const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
             return errorResp(
               'TunnelProvisionFailed',
-              `Failed to provision tunnel for ${input.targetUrl}. (Detail: ${msg})${diag}`,
+              `Failed to provision tunnel for ${input.targetUrl}: ${msg}${diag}`,
             );
           }
           acquiredProvision = tunnel;
@@ -109,7 +109,7 @@ export async function runTestSuiteHandler(
             );
           } catch (tunnelError) {
             const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
-            return errorResp('TunnelCreationFailed', `Tunnel creation failed for ${input.targetUrl}. (Detail: ${msg})`);
+            return errorResp('TunnelCreationFailed', `Tunnel creation failed for ${input.targetUrl}: ${msg}`);
           }
 
           // Health probe — catches an upstream-refused tunnel and bind mismatches before
@@ -130,7 +130,7 @@ export async function runTestSuiteHandler(
               tunnelId = dedicated.tunnelId;
               return errorResp(
                 'TunnelTrafficBlocked',
-                `Tunnel established but traffic isn't reaching the dev server. ${health.detail ?? ''}`,
+                `Tunnel established; a request through it to 127.0.0.1:${port} failed: ${health.detail ?? health.code}.`,
                 { code: health.code, tunnelErrorCode: health.tunnelErrorCode, elapsedMs: health.elapsedMs },
               );
             }
@@ -151,7 +151,6 @@ export async function runTestSuiteHandler(
     const responsePayload: Record<string, any> = {
       ...result,
       ...(tunnelId ? { tunnelActive: true, originalUrl: input.targetUrl } : {}),
-      note: 'Tests are running asynchronously. Use get_test_suite_results to check progress.',
     };
 
     // Bead debugg_ai_mcp-6cfv.7: this handler previously had NO sanitize call

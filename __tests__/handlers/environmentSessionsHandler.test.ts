@@ -96,23 +96,23 @@ describe('action: sessions', () => {
       .toEqual(['qa-mcr@example.com', 'artist@example.com']);
   });
 
-  test('reports how many would actually be REUSED, not just how many exist', async () => {
+  test('relays each session\'s own isUsable — no derived counts beside the list', async () => {
     mockList.mockResolvedValue([session(), session({ isUsable: false })]);
 
     const body = payload(await environmentHandler(
       { action: 'sessions', uuid: ENV_UUID } as any, ctx,
     ));
 
-    expect(body.pageInfo).toEqual({ totalCount: 2, usableCount: 1 });
+    expect(body.sessions.map((s: any) => s.isUsable)).toEqual([true, false]);
+    expect(body).not.toHaveProperty('pageInfo');
   });
 
-  test('says plainly when nothing is cached, so "no login form" is not a mystery', async () => {
+  test('an empty list is just an empty list — no note', async () => {
     const body = payload(await environmentHandler(
       { action: 'sessions', uuid: ENV_UUID } as any, ctx,
     ));
 
-    expect(body.sessions).toEqual([]);
-    expect(body.note).toMatch(/logs in for real/);
+    expect(body).toEqual({ environmentUuid: ENV_UUID, sessions: [] });
   });
 
   test('narrowing filters reach the API', async () => {
@@ -139,7 +139,7 @@ describe('action: clearSessions', () => {
     ));
 
     expect(mockClear).toHaveBeenCalledWith(ENV_UUID, { username: 'artist@example.com' });
-    expect(body).toMatchObject({ invalidated: 1, scope: 'artist@example.com' });
+    expect(body).toEqual({ environmentUuid: ENV_UUID, invalidated: 1 });
   });
 
   test('an UNSCOPED clear is confirmed first — it costs every account a login', async () => {
@@ -160,15 +160,14 @@ describe('action: clearSessions', () => {
     ));
 
     expect(mockClear).toHaveBeenCalledWith(ENV_UUID, {});
-    expect(body).toMatchObject({ invalidated: 3, scope: 'all accounts' });
+    expect(body).toEqual({ environmentUuid: ENV_UUID, invalidated: 3 });
   });
 
-  test('clearing nothing is reported honestly, not as success', async () => {
+  test('clearing nothing is reported as the backend count, 0 — no note', async () => {
     const body = payload(await environmentHandler(
       { action: 'clearSessions', uuid: ENV_UUID, username: 'nobody@example.com' } as any, ctx,
     ));
 
-    expect(body.invalidated).toBe(0);
-    expect(body.note).toMatch(/Nothing to clear/);
+    expect(body).toEqual({ environmentUuid: ENV_UUID, invalidated: 0 });
   });
 });

@@ -116,7 +116,7 @@ export async function triggerCrawlHandler(
         if (!probe.reachable) {
           const payload = {
             error: 'LocalServerUnreachable',
-            message: `No server listening on 127.0.0.1:${localPort}. Start your dev server on that port before running trigger_crawl. Probe result: ${probe.code} (${probe.detail ?? 'no detail'}).`,
+            message: `No server listening on 127.0.0.1:${localPort}.`,
             detail: { port: localPort, probeCode: probe.code, probeDetail: probe.detail, elapsedMs: probe.elapsedMs },
           };
           logger.warn(`Pre-flight port probe failed for ${ctx.originalUrl}: ${probe.code} in ${probe.elapsedMs}ms`);
@@ -142,11 +142,7 @@ export async function triggerCrawlHandler(
           } catch (provisionError) {
             const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
             const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
-            throw new Error(
-              `Failed to provision tunnel for ${ctx.originalUrl}. ` +
-              `The remote browser needs a secure tunnel to reach your local dev server. ` +
-              `(Detail: ${msg})${diag}`,
-            );
+            throw new Error(`Failed to provision tunnel for ${ctx.originalUrl}: ${msg}${diag}`);
           }
           provision = tunnel;
           ctx = await ensureTunnel(
@@ -185,7 +181,7 @@ export async function triggerCrawlHandler(
           if (!health.healthy) {
             const payload = {
               error: 'TunnelTrafficBlocked',
-              message: `Tunnel was established but traffic isn't reaching the dev server. ${health.detail ?? ''} Common causes: dev server binds to 0.0.0.0 or ::1 but not 127.0.0.1; dev server crashed; firewall.`,
+              message: `Tunnel established; a request through it to 127.0.0.1:${extractLocalhostPort(ctx.originalUrl)} failed: ${health.detail ?? health.code}.`,
               detail: {
                 code: health.code,
                 status: health.status,
@@ -222,11 +218,7 @@ export async function triggerCrawlHandler(
       return client.workflows!.findTemplateBySlug(templateSlug);
     });
     if (!templateUuid) {
-      throw new Error(
-        `Crawl Workflow Template not found (slug "${templateSlug}"). ` +
-        `Ensure the backend has that template seeded and accessible ` +
-        `(GET /api/v1/workflows/?slug=${templateSlug}).`,
-      );
+      throw new Error(`Crawl workflow template not found (slug "${templateSlug}").`);
     }
 
     // --- Build contextData + env ---
@@ -348,7 +340,7 @@ export async function triggerCrawlHandler(
       }
     }
     if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
-    if (finalExecution.errorInfo?.failedNodeId) responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
+    if (finalExecution.errorInfo) responsePayload.errorInfo = finalExecution.errorInfo;
     if (executeResponse.resolvedEnvironmentId) responsePayload.resolvedEnvironmentId = executeResponse.resolvedEnvironmentId;
     if (executeResponse.resolvedCredentialId) responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
     // Backend release 2026-04-25: browser_session block on execution detail.
@@ -358,35 +350,24 @@ export async function triggerCrawlHandler(
       responsePayload.browserSession = finalExecution.browserSession;
     }
 
-    // Extract crawl metrics from surfer.crawl node (absent in older graph shapes)
-    const crawlNode = nodes.find(n => n.nodeType === 'surfer.crawl');
-    if (crawlNode?.outputData) {
-      const d = crawlNode.outputData;
-      responsePayload.crawlSummary = {
-        pagesDiscovered: d.pagesDiscovered,
-        actionsExecuted: d.actionsExecuted,
-        stepsTaken: d.stepsTaken,
-        transitionsRecorded: d.transitionsRecorded,
-        knowledgeGraphStates: d.knowledgeGraphStates,
-        success: d.success,
-        ...(d.error ? { error: d.error } : {}),
-      };
-    }
-
-    // Extract KG import result from knowledge_graph.import node (absent in older graph shapes)
-    const kgNode = nodes.find(n => n.nodeType === 'knowledge_graph.import');
-    if (kgNode?.outputData) {
-      const d = kgNode.outputData;
-      responsePayload.knowledgeGraph = {
-        imported: !d.skipped,
-        skipped: d.skipped ?? false,
-        reason: d.reason ?? '',
-        edgesImported: d.edgesImported ?? 0,
-        statesImported: d.statesImported ?? 0,
-        knowledgeGraphId: d.knowledgeGraphId ?? '',
-        ...(Array.isArray(d.importErrors) && d.importErrors.length > 0 ? { importErrors: d.importErrors } : {}),
-      };
-    }
+    // Node output, relayed under the backend's own keys. Only the listed keys,
+    // and only when the node reported them: a missing count is absent, never a
+    // fabricated 0 / '' that reads as "the backend said zero".
+    const pick = (src: Record<string, any> | undefined, keys: string[]) => {
+      if (!src) return undefined;
+      const out: Record<string, any> = {};
+      for (const k of keys) if (src[k] !== undefined && src[k] !== null) out[k] = src[k];
+      return out;
+    };
+    const crawlSummary = pick(nodes.find(n => n.nodeType === 'surfer.crawl')?.outputData, [
+      'pagesDiscovered', 'actionsExecuted', 'stepsTaken', 'transitionsRecorded',
+      'knowledgeGraphStates', 'success', 'error',
+    ]);
+    if (crawlSummary) responsePayload.crawlSummary = crawlSummary;
+    const knowledgeGraph = pick(nodes.find(n => n.nodeType === 'knowledge_graph.import')?.outputData, [
+      'skipped', 'reason', 'edgesImported', 'statesImported', 'knowledgeGraphId', 'importErrors',
+    ]);
+    if (knowledgeGraph) responsePayload.knowledgeGraph = knowledgeGraph;
 
     logger.toolComplete('trigger_crawl', duration);
     // Bead 0bq: final progress is emitted INSIDE pollExecution's onUpdate when

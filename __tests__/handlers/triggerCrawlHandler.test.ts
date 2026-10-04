@@ -406,8 +406,8 @@ describe('triggerCrawlHandler', () => {
     const body = JSON.parse(result.content[0].text!);
 
     expect(body.knowledgeGraph).toBeDefined();
+    expect(body.knowledgeGraph).not.toHaveProperty('imported'); // `skipped` already says it
     expect(body.knowledgeGraph).toMatchObject({
-      imported: true,          // derived: !skipped
       skipped: false,
       edgesImported: 12,
       statesImported: 7,
@@ -415,7 +415,7 @@ describe('triggerCrawlHandler', () => {
     });
   });
 
-  test('knowledgeGraph.imported is false and reason is "no_environment" when KG import skipped', async () => {
+  test('a skipped KG import relays skipped + the backend reason verbatim', async () => {
     setupHappyPath({ isLocalhost: false });
     const skippedKg = {
       ...COMPLETED_EXECUTION,
@@ -430,7 +430,6 @@ describe('triggerCrawlHandler', () => {
     const result = await triggerCrawlHandler(publicInput, defaultContext);
     const body = JSON.parse(result.content[0].text!);
 
-    expect(body.knowledgeGraph.imported).toBe(false);
     expect(body.knowledgeGraph.skipped).toBe(true);
     expect(body.knowledgeGraph.reason).toBe('no_environment');
     expect(body.knowledgeGraph.statesImported).toBe(0);

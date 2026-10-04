@@ -237,9 +237,7 @@ describe('updateEnvironmentHandler', () => {
 
       const body = JSON.parse(res.content[0].text!);
       expect(body.authorizedCredentialHostsWarning).toBeDefined();
-      expect(body.authorizedCredentialHostsWarning.requested).toEqual(['auth.idp.example']);
-      expect(body.authorizedCredentialHostsWarning.message).toMatch(/did not persist authorizedCredentialHosts/);
-      expect(body.authorizedCredentialHostsWarning.message).toMatch(/not yet supported/);
+      expect(body.authorizedCredentialHostsWarning).toEqual({ requested: ['auth.idp.example'], returned: null });
     });
 
     test('a backend that echoes a different list is reported too', async () => {
@@ -251,8 +249,7 @@ describe('updateEnvironmentHandler', () => {
       }, ctx);
 
       const body = JSON.parse(res.content[0].text!);
-      expect(body.authorizedCredentialHostsWarning.message).toMatch(/did not persist authorizedCredentialHosts/);
-      expect(body.authorizedCredentialHostsWarning.returned).toEqual([]);
+      expect(body.authorizedCredentialHostsWarning).toEqual({ requested: ['auth.idp.example'], returned: [] });
     });
 
     test('the echo is compared as a set, case-insensitively (the backend normalizes)', async () => {

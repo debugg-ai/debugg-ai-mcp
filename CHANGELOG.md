@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] — BREAKING
 
+### Changed — responses are the backend's data, not MCP-authored text
+
+Every tool response now relays the backend's fields under the backend's names,
+with its reasons verbatim. The MCP authors text only for what it observed itself
+(its poll deadline, a probe/tunnel failure, input validation).
+
+- `check_app_in_browser`: `outcome` is `pass | fail | error`. Removed `success`,
+  `failureCategory`, `stepsTaken` / `stepsBudget` / `stepsRemaining` (use the
+  relayed `budget: {maxSteps, usedSteps}`), `failedNode` (use `errorInfo`),
+  `surferOutput`, and the node-rebuilt `actionTrace` / `evaluation` fallbacks.
+  `evaluation` now carries only keys the verdict lacks (it is omitted when it
+  would repeat `outcome` / `reason`). `credentialWarning` is `{requested, used}`
+  (no `message`). A tunnel fault keeps `error`, `backendVerdict`, `detail`; its
+  `message` and `failureCategory: 'infrastructure'` are gone and `reason` states
+  the recorded marker and the probe result.
+- `executions`: `outcome`, `verdict.outcome` and `evaluation.outcome` go through
+  the same `pass | fail | error` allowlist (null stays null for running rows).
+- `get` actions return `{project}` / `{execution}` / `{project, environment}` —
+  no echoed `filter`, no single-row `pageInfo`. `list` actions no longer echo
+  `filter`.
+- `environment` `sessions` → `{environmentUuid, sessions}`; `clearSessions` →
+  `{environmentUuid, invalidated}` (no `note`, `scope`, `usableCount`).
+- `authorizedCredentialHostsWarning` is `{requested, returned}` (no `message`).
+- `trigger_crawl`: `crawlSummary` / `knowledgeGraph` carry only reported keys
+  (no derived `imported`, no `0` / `''` defaults).
+- `probe_page`: an unreported `statusCode` / `loadTimeMs` / `finalUrl` is `null`,
+  not `0` or the input URL.
+- `test_suite run`: no `note`. Error messages no longer append advice
+  ("Start your dev server…", "Common causes…", "Ensure the template is seeded…",
+  "Pass … explicitly", "Link this repo…").
+
 ### Changed — one ngrok tunnel per session instead of one per local port
 
 `check_app_in_browser`, `probe_page`, and `trigger_crawl` now share a **single**

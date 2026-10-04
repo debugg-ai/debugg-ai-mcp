@@ -40,43 +40,37 @@ function makeExecution(fields: Partial<WorkflowExecution> = {}): WorkflowExecuti
 }
 
 describe('adaptVerdict — explicit verdict relay', () => {
-  test('verdict.outcome "pass" → outcome verbatim, success true, no failureCategory', () => {
+  test('verdict.outcome "pass" → outcome verbatim, nothing derived beside it', () => {
     const exec = makeExecution({ verdict: { outcome: 'pass', reason: 'looks good' } });
     const v = adaptVerdict(exec);
     expect(v.outcome).toBe('pass');
-    expect(v.success).toBe(true);
-    expect(v.failureCategory).toBeUndefined();
     expect(v.reason).toBe('looks good');
+    // a second copy of the verdict is a second thing to disagree with it
+    expect(v).not.toHaveProperty('success');
+    expect(v).not.toHaveProperty('failureCategory');
   });
 
-  test('verdict.outcome "fail" → verbatim, success false, failureCategory = outcome', () => {
+  test('verdict.outcome "fail" → verbatim', () => {
     const v = adaptVerdict(makeExecution({ verdict: { outcome: 'fail' } }));
     expect(v.outcome).toBe('fail');
-    expect(v.success).toBe(false);
-    expect(v.failureCategory).toBe('fail'); // NOT a fabricated 'assertion-mismatch'
   });
 
   test.each(['inconclusive', 'error', 'timeout'])(
-    'verdict.outcome "%s" → error, success false, failureCategory = error',
+    'verdict.outcome "%s" → error',
     (outcome) => {
       const v = adaptVerdict(makeExecution({ verdict: { outcome } }));
       expect(v.outcome).toBe('error');
-      expect(v.success).toBe(false);
-      expect(v.failureCategory).toBe('error'); // NOT a fabricated 'assertion-mismatch'
     },
   );
 
   test('thin state (no verdict, no outcome) → error, NOT fail', () => {
     const v = adaptVerdict(makeExecution({ state: { outcome: '', success: false, stepsTaken: 0, error: '' } }));
     expect(v.outcome).toBe('error');
-    expect(v.success).toBe(false);
-    expect(v.failureCategory).toBe('error');
   });
 
   test('null state and no verdict → error (never throws)', () => {
     const v = adaptVerdict(makeExecution({ state: null }));
     expect(v.outcome).toBe('error');
-    expect(v.success).toBe(false);
   });
 
   test('unknown/garbage verdict.outcome → error (not relayed verbatim)', () => {
@@ -96,7 +90,6 @@ describe('adaptVerdict — explicit verdict relay', () => {
   test('legacy state.outcome (defensive fallback) still relayed when it is a known verdict', () => {
     const v = adaptVerdict(makeExecution({ state: { outcome: 'fail', success: false, stepsTaken: 2, error: 'x' } }));
     expect(v.outcome).toBe('fail');
-    expect(v.failureCategory).toBe('fail');
   });
 
   test('top-level verdict wins over legacy state.outcome', () => {
@@ -105,7 +98,6 @@ describe('adaptVerdict — explicit verdict relay', () => {
       state: { outcome: 'fail', success: false, stepsTaken: 1, error: '' },
     }));
     expect(v.outcome).toBe('pass');
-    expect(v.success).toBe(true);
   });
 
   test('outcomeOverride wins (used by the timeout path)', () => {
@@ -114,32 +106,24 @@ describe('adaptVerdict — explicit verdict relay', () => {
     // 'timeout' is ours and maps to error; what matters here is that the
     // override BEAT the backend's 'pass' rather than being ignored.
     expect(v.outcome).toBe('error');
-    expect(v.success).toBe(false);
-    expect(v.failureCategory).toBe('error');
   });
 });
 
-describe('adaptVerdict — budget sourced from the response', () => {
-  test('budget.maxSteps / usedSteps drive stepsBudget / stepsTaken / stepsRemaining', () => {
+describe('adaptVerdict — budget relayed as the backend sent it', () => {
+  test('the backend budget container is relayed verbatim, under its own field names', () => {
     const exec = makeExecution({ verdict: { outcome: 'pass' }, budget: { maxSteps: 40, usedSteps: 12 } });
-    const v = adaptVerdict(exec, { fallbackBudget: 25 });
-    expect(v.stepsBudget).toBe(40); // from response, NOT the 25 fallback
-    expect(v.stepsTaken).toBe(12);
-    expect(v.stepsRemaining).toBe(28);
-  });
-
-  test('no budget in response → falls back to the provided client constant', () => {
-    const exec = makeExecution({ verdict: { outcome: 'pass' }, state: { outcome: 'pass', success: true, stepsTaken: 3, error: '' } });
-    const v = adaptVerdict(exec, { fallbackBudget: 25 });
-    expect(v.stepsBudget).toBe(25);
-    expect(v.stepsTaken).toBe(3); // legacy state.stepsTaken
-    expect(v.stepsRemaining).toBe(22);
-  });
-
-  test('stepsRemaining clamps at 0 (agent ran past budget)', () => {
-    const exec = makeExecution({ budget: { maxSteps: 25, usedSteps: 30 }, verdict: { outcome: 'pass' } });
     const v = adaptVerdict(exec);
-    expect(v.stepsRemaining).toBe(0);
+    expect(v.budget).toEqual({ maxSteps: 40, usedSteps: 12 });
+    // no renamed / derived copies
+    expect(v).not.toHaveProperty('stepsBudget');
+    expect(v).not.toHaveProperty('stepsTaken');
+    expect(v).not.toHaveProperty('stepsRemaining');
+  });
+
+  test('no budget in the response → no budget in the relay (none invented)', () => {
+    const exec = makeExecution({ verdict: { outcome: 'pass' }, state: { outcome: 'pass', success: true, stepsTaken: 3, error: '' } });
+    const v = adaptVerdict(exec);
+    expect(v).not.toHaveProperty('budget');
   });
 });
 

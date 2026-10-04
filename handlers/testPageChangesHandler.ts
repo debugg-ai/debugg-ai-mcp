@@ -17,7 +17,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { getEvalTemplateSlug } from '../services/workflows.js';
-import { adaptVerdict, toUserFacingOutcome, credentialSubstitutions } from '../services/verdictAdapter.js';
+import { adaptVerdict, credentialSubstitutions } from '../services/verdictAdapter.js';
 import { TunnelProvisionError, type TunnelProvision } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
@@ -242,7 +242,7 @@ async function testPageChangesHandlerInner(
         if (!probe.reachable) {
           const payload = {
             error: 'LocalServerUnreachable',
-            message: `No server listening on 127.0.0.1:${localPort}. Start your dev server on that port before running check_app_in_browser. Probe result: ${probe.code} (${probe.detail ?? 'no detail'}).`,
+            message: `No server listening on 127.0.0.1:${localPort}.`,
             detail: {
               port: localPort,
               probeCode: probe.code,
@@ -274,12 +274,7 @@ async function testPageChangesHandlerInner(
           } catch (provisionError) {
             const msg = provisionError instanceof Error ? provisionError.message : String(provisionError);
             const diag = provisionError instanceof TunnelProvisionError ? ` ${provisionError.diagnosticSuffix()}` : '';
-            throw new Error(
-              `Failed to provision tunnel for ${ctx.originalUrl}. ` +
-              `The remote browser needs a secure tunnel to reach your local dev server. ` +
-              `Make sure your dev server is running on the specified port and try again. ` +
-              `(Detail: ${msg})${diag}`
-            );
+            throw new Error(`Failed to provision tunnel for ${ctx.originalUrl}: ${msg}${diag}`);
           }
           provision = tunnel;
           try {
@@ -298,12 +293,7 @@ async function testPageChangesHandlerInner(
             );
           } catch (tunnelError) {
             const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
-            throw new Error(
-              `Tunnel creation failed for ${ctx.originalUrl}. ` +
-              `Could not establish a secure connection between the remote browser and your local port. ` +
-              `Verify your dev server is running and the port is accessible. ` +
-              `(Detail: ${msg})`
-            );
+            throw new Error(`Tunnel creation failed for ${ctx.originalUrl}: ${msg}`);
           }
           logger.info(`Tunnel ready: ${ctx.targetUrl} (id: ${ctx.tunnelId})`);
         }
@@ -337,7 +327,7 @@ async function testPageChangesHandlerInner(
           if (!health.healthy) {
             const payload = {
               error: 'TunnelTrafficBlocked',
-              message: `Tunnel was established but traffic isn't reaching the dev server. ${health.detail ?? ''} Common causes: dev server binds to 0.0.0.0 or ::1 but not 127.0.0.1; dev server crashed; firewall.`,
+              message: `Tunnel established; a request through it to 127.0.0.1:${extractLocalhostPort(ctx.originalUrl)} failed: ${health.detail ?? health.code}.`,
               detail: {
                 code: health.code,
                 status: health.status,
@@ -390,25 +380,18 @@ async function testPageChangesHandlerInner(
     ]);
 
     if (!templateUuid) {
-      throw new Error(
-        'App Evaluation Workflow Template not found. ' +
-        'Ensure the template is seeded in the backend (GET /api/v1/workflows/?is_template=true).'
-      );
+      throw new Error(`App Evaluation workflow template not found (slug "${getEvalTemplateSlug()}").`);
     }
     // Fail fast + actionable when project_id can't be resolved (pinned backend
     // semantics: project_id is required). Surfacing "link this repo to a
     // project" now — before executeWorkflow — beats letting a backend workflow
     // node fail mid-run several minutes into the evaluation.
     if (!projectUuid) {
-      const detail = repoName
-        ? `Repo "${repoName}" isn't linked to a DebuggAI project.`
-        : 'No git repository was detected to resolve a project from.';
       const payload = {
         error: 'ProjectRequired',
-        message:
-          `project_id is required but could not be resolved. ${detail} ` +
-          'Link this repo to a project at https://debugg.ai (Projects → connect your repository), then retry. ' +
-          'To evaluate a different repo than the current one, pass repoName.',
+        message: repoName
+          ? `No DebuggAI project found for repo "${repoName}".`
+          : 'No git repository detected and no repoName passed.',
       };
       logger.warn(`check_app_in_browser: ${payload.message}`);
       return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
@@ -450,11 +433,8 @@ async function testPageChangesHandlerInner(
           const payload = {
             error: 'AuthUrlPortMismatch',
             message:
-              `auth.${field} points at localhost:${rewrite.port} but url points at ` +
-              `localhost:${rewrite.primaryPort}. A single call tunnels exactly one local ` +
-              `port, so the remote browser cannot reach both. Put the login page and the ` +
-              `target page on the same port, or drop auth.${field} and pass username/password ` +
-              `at the top level so the agent signs in on the page it already reached.`,
+              `auth.${field} points at localhost:${rewrite.port}; url points at ` +
+              `localhost:${rewrite.primaryPort}. One call tunnels one local port.`,
             detail: { field, authPort: rewrite.port, urlPort: rewrite.primaryPort, url: originalUrl },
           };
           logger.warn(`check_app_in_browser: ${payload.message}`);
@@ -609,11 +589,12 @@ async function testPageChangesHandlerInner(
       // next line (line 183 in services/workflows.ts), so there's no
       // post-pollExecution progress emission that could race the response.
       if (TERMINAL_STATUSES.has(exec.status)) {
-        const terminalOutcome = exec.state?.outcome ?? exec.status;
+        // Status only: state.outcome is an internal value and can be one the
+        // user-facing verdict retired ('inconclusive', 'unverified').
         await progressCallback({
           progress: TOTAL_STEPS,
           total: TOTAL_STEPS,
-          message: `Complete: ${terminalOutcome}`,
+          message: `Complete: ${exec.status}`,
         });
         return;
       }
@@ -686,104 +667,33 @@ async function testPageChangesHandlerInner(
 
     // --- Format result ---
     const nodes = finalExecution.nodeExecutions ?? [];
-
-    // subworkflow.run is the current graph shape — carries outcome, actionHistory, screenshot
+    // subworkflow.run carries an inline base64 screenshot on some graph shapes;
+    // only used for the image block below.
     const subworkflowNode = nodes.find(n => n.nodeType === 'subworkflow.run');
-    // surfer.execute_task and brain.step/brain.evaluate are older graph shapes
-    const surferNode = nodes.find(n => n.nodeType === 'surfer.execute_task');
-
-    // Action trace: brain.step nodes (old) → subworkflow.run actionHistory (new)
-    const brainSteps = nodes
-      .filter(n => n.nodeType === 'brain.step' && n.outputData)
-      .sort((a, b) => a.executionOrder - b.executionOrder);
-
-    const actionTrace = brainSteps.map((n, i) => {
-      const d = n.outputData!.decision ?? n.outputData!;
-      return {
-        step: i + 1,
-        action: d.actionType ?? d.action_type,
-        intent: d.intent,
-        target: d.target,
-        value: d.value ?? undefined,
-        success: n.outputData!.success ?? n.status === 'success',
-        durationMs: n.executionTimeMs,
-      };
-    });
-
-    const subworkflowHistory = subworkflowNode?.outputData?.actionHistory;
-    if (actionTrace.length === 0 && Array.isArray(subworkflowHistory) && subworkflowHistory.length > 0) {
-      subworkflowHistory.forEach((step: any, i: number) => {
-        actionTrace.push({
-          step: i + 1,
-          action: step.actionType ?? step.action_type ?? step.action,
-          intent: step.intent,
-          target: step.target,
-          value: step.value ?? undefined,
-          success: step.success ?? true,
-          durationMs: step.durationMs ?? step.duration_ms ?? undefined,
-        });
-      });
-    }
-
-    // Evaluation: RELAY the backend's block; derive one only for older backends.
-    //
-    // The backend computes `evaluation` from the SAME verdict as the headline
-    // outcome (sentinal-sk5sl.1) precisely so one payload cannot say
-    // outcome='inconclusive' at the top and evaluation.outcome='unknown'
-    // underneath. Rebuilding it here from raw subworkflow node output
-    // reintroduced that contradiction client-side, and worse: the node's
-    // `success` is a bare boolean, so "could not determine" arrived as
-    // passed:false. The backend deliberately sends passed:null for
-    // inconclusive — an undetermined run is not a failed one.
-    //
-    // Deriving from nodes stays ONLY as the pre-contract fallback.
-    const evalNode = nodes.find(n => n.nodeType === 'brain.evaluate');
-    let evaluation: Record<string, any> | undefined;
-    if (finalExecution.evaluation && typeof finalExecution.evaluation === 'object') {
-      // Relayed verbatim EXCEPT `outcome`, which goes through the same mapper as
-      // the headline. The backend keeps the two consistent by deriving both from
-      // one verdict; re-mapping only the headline would put outcome='error' on
-      // top and evaluation.outcome='inconclusive' underneath, in one payload.
-      evaluation = { ...finalExecution.evaluation };
-      if ('outcome' in evaluation) {
-        evaluation.outcome = toUserFacingOutcome(evaluation.outcome);
-      }
-    } else if (evalNode?.outputData) {
-      evaluation = {
-        passed: evalNode.outputData.passed,
-        outcome: evalNode.outputData.outcome,
-        reason: evalNode.outputData.reason,
-        verifications: evalNode.outputData.verifications,
-      };
-    } else if (subworkflowNode?.outputData) {
-      const sw = subworkflowNode.outputData;
-      evaluation = {
-        passed: sw.success,
-        outcome: sw.outcome,
-        reason: sw.error || undefined,
-      };
-    }
 
     // --- Relay the backend's explicit verdict (bead 56kd.2) ---
     // ONE adapter owns the backend-field → MCP mapping (services/verdictAdapter).
-    // We consume the verdict/budget/evidence VERBATIM — no fabricated outcome,
-    // no success default-false, no synthesized 'assertion-mismatch'. A
-    // missing/unknown verdict surfaces as 'inconclusive', never as a failure.
     // On a poll-deadline timeout (bead 56kd.3) pollExecution returns the last
     // observed execution flagged `timedOut`; force outcome 'timeout' since there
-    // is no terminal backend verdict, and shape its partial evidence below.
+    // is no terminal backend verdict.
     const timedOut = finalExecution.timedOut === true;
     const verdict = adaptVerdict(finalExecution, {
-      fallbackBudget: MAX_EXEC_STEPS,
       outcomeOverride: timedOut ? 'timeout' : undefined,
       // real numbers from the deadline path, so the reason is a record of what
       // we observed rather than a fixed sentence
       pollTimeout: timedOut ? finalExecution.pollTimeout : undefined,
     });
+    const relayActionTrace = verdict.actionTrace;
 
-    // Evidence: prefer the backend's contract evidence.actionTrace; fall back to
-    // the legacy node-extracted trace while the backend contract deploys.
-    const relayActionTrace = verdict.actionTrace ?? actionTrace;
+    // Evaluation: the backend derives it from the SAME verdict as the headline
+    // (sentinal-sk5sl.1), so its passed/outcome/reason are that verdict a second
+    // time — and passed is just outcome === 'pass'. Relay only what the verdict
+    // does not already carry (e.g. verifications); omit it when that is nothing.
+    let evaluation: Record<string, any> | undefined;
+    if (finalExecution.evaluation && typeof finalExecution.evaluation === 'object') {
+      const { passed: _p, outcome: _o, reason: _r, ...rest } = finalExecution.evaluation as Record<string, any>;
+      if (Object.keys(rest).length > 0) evaluation = rest;
+    }
 
     // --- Post-hoc tunnel reclassification (bugs z15n, 4bui) ---
     // The pre-flight probe above proves the tunnel was alive when we handed it to
@@ -853,28 +763,14 @@ async function testPageChangesHandlerInner(
 
     const responsePayload: Record<string, any> = {
       outcome: verdict.outcome,
-      success: verdict.success,
+      ...(verdict.reason ? { reason: verdict.reason } : {}),
       status: finalExecution.status,
-      stepsTaken: verdict.stepsTaken,
-      stepsBudget: verdict.stepsBudget,          // from the response (bead 56kd.2)
-      stepsRemaining: verdict.stepsRemaining,
-      targetUrl: originalUrl,
       executionId: executionUuid,
+      targetUrl: originalUrl,
       durationMs: finalExecution.durationMs ?? duration,
     };
+    if (verdict.budget) responsePayload.budget = verdict.budget;
 
-    // failureCategory = the outcome verbatim (fail | inconclusive | error |
-    // timeout); OMITTED on success. No inference, no 'assertion-mismatch'.
-    if (verdict.failureCategory) responsePayload.failureCategory = verdict.failureCategory;
-    if (verdict.reason) responsePayload.reason = verdict.reason;
-
-    // --- Which identity did the run actually sign in as? ---
-    // A login as the wrong account and an app rejecting the right one produce
-    // the SAME symptom ("login failed") and used to be indistinguishable from
-    // the result, so an environment-default substitution read as an application
-    // bug. Relay the logins verbatim, and when the caller named an account but
-    // an environment default was used anyway, say so explicitly rather than
-    // leaving the caller to infer it from a failed check.
     // For "navigate and describe what you see", the answer IS the deliverable —
     // and it reached callers only incidentally, buried in actionTrace[0].intent,
     // which the verify-gate rewrites when it disagrees with the page. Surface it.
@@ -882,10 +778,12 @@ async function testPageChangesHandlerInner(
     if (verdict.logins) responsePayload.logins = verdict.logins;
     if (verdict.loginError) responsePayload.loginError = verdict.loginError;
 
-    // Bead b5x6: only a SUBMITTED env-default login under a DIFFERENT account
-    // counts. A refused/skipped login (offscope_host, no form) typed nothing,
-    // and the env's stored credential may be the very account that was named —
-    // warning on either states something that did not happen.
+    // Bead b5x6: the caller named an account and the run SUBMITTED an
+    // environment default for a different one. Stated as the two facts — what
+    // was asked for, what was used — and nothing about what to conclude.
+    // Only a SUBMITTED env-default login under a DIFFERENT account counts: a
+    // refused/skipped login typed nothing, and the env's stored credential may
+    // be the very account that was named.
     const requestedIdentity = input.username
       ?? input.auth?.username
       ?? input.loginCredentials?.[0]?.username;
@@ -898,10 +796,6 @@ async function testPageChangesHandlerInner(
       responsePayload.credentialWarning = {
         requested: requestedIdentity,
         used: [...new Set(substituted.map(l => l.username as string))],
-        message:
-          `This run signed in with an environment default credential even though ` +
-          `'${requestedIdentity}' was specified. Treat a login failure here as a ` +
-          `credential-resolution problem, not an application failure.`,
       };
       logger.warn(
         `check_app_in_browser: requested identity '${requestedIdentity}' but the run used ` +
@@ -909,36 +803,22 @@ async function testPageChangesHandlerInner(
       );
     }
 
-    // Bug z15n: OUR tunnel died mid-run, so this 'fail' describes our error page,
-    // not the user's app. Relay it as a distinct, retryable infrastructure class
-    // so an automated caller doesn't record a UI regression that never happened.
-    // The backend's original verdict is preserved verbatim, never swallowed.
-    //
-    // Bug 4bui: the stated cause leads with the MARKER, because the marker is the
-    // evidence that justified getting here — the run itself recorded the tunnel's
-    // interstitial. The probe only corroborates (and may legitimately say the
-    // tunnel has recovered by now), so it rides in `detail`, never as the cause.
+    // Bug z15n: the run itself recorded our tunnel's DEBUGG_TUNNEL_* interstitial,
+    // so its 'fail' describes our error page, not the user's app. That is an
+    // MCP-observed fact, so the MCP may state it: outcome 'error', a reason
+    // built from the marker and the probe result, the backend's own verdict kept
+    // verbatim under `backendVerdict`. No commentary on top.
     if (tunnelFault) {
       const { probe, tunnelErrorCode } = tunnelFault;
       responsePayload.backendVerdict = { outcome: verdict.outcome, reason: verdict.reason };
       responsePayload.outcome = 'error';
-      responsePayload.success = false;
-      responsePayload.failureCategory = 'infrastructure';
       responsePayload.error = 'TunnelOfflineDuringRun';
-      responsePayload.message =
-        'During this run the remote browser landed on our tunnel\'s error page instead of your ' +
-        'app, so the check evaluated our error page rather than your UI. This is an infrastructure ' +
-        'fault on our side, not a failed check — retry it. The backend\'s original verdict is ' +
-        'preserved under `backendVerdict`.';
-      responsePayload.reason =
-        `The run recorded our tunnel's ${tunnelErrorCode} interstitial, so the remote browser reached ` +
-        'our tunnel error page instead of your app.' +
-        (probe
-          ? probe.healthy
-            ? ' (Our re-probe after the run found the tunnel reachable again, so it has since recovered.)'
-            : ` (Our re-probe after the run also failed: ${probe.code}` +
-              `${probe.status ? ` (HTTP ${probe.status})` : ''}.)`
-          : '');
+      const probeFact = probe
+        ? probe.healthy
+          ? 'post-run tunnel probe: reachable'
+          : `post-run tunnel probe: ${probe.code}${probe.status ? ` (HTTP ${probe.status})` : ''}`
+        : 'post-run tunnel probe: not run';
+      responsePayload.reason = `The run recorded the tunnel error page ${tunnelErrorCode}; ${probeFact}.`;
       responsePayload.detail = {
         tunnelErrorCode,
         probeCode: probe?.code,
@@ -952,16 +832,11 @@ async function testPageChangesHandlerInner(
     if (evaluation) responsePayload.evaluation = evaluation;
     if (finalExecution.state?.error) responsePayload.agentError = finalExecution.state.error;
     if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
-    if (finalExecution.errorInfo?.failedNodeId) responsePayload.failedNode = finalExecution.errorInfo.failedNodeId;
+    if (finalExecution.errorInfo) responsePayload.errorInfo = finalExecution.errorInfo;
     if (executeResponse.resolvedEnvironmentId) responsePayload.resolvedEnvironmentId = executeResponse.resolvedEnvironmentId;
     if (executeResponse.resolvedCredentialId) responsePayload.resolvedCredentialId = executeResponse.resolvedCredentialId;
-    if (surferNode?.outputData) {
-      responsePayload.surferOutput = sanitizeResponseUrls(surferNode.outputData, ctx);
-    }
-    // Backend release 2026-04-25: browser_session block on execution detail
-    // carries presigned S3 URLs for HAR + console log + recording. Pass through
-    // verbatim — sanitizeResponseUrls below only strips tunnel hosts so S3 URLs
-    // are preserved. Resolves client-feedback items #1 (network) + #7 (console).
+    // browser_session block: presigned S3 URLs for HAR + console log + recording,
+    // passed through verbatim.
     if (finalExecution.browserSession) {
       responsePayload.browserSession = finalExecution.browserSession;
     }
@@ -1048,7 +923,6 @@ async function testPageChangesHandlerInner(
         ? [resourceLinkBlock(gifUrl, 'run-recording.gif', {
             mimeType: 'image/gif',
             title: 'Run recording',
-            description: 'Animated recording of the run (presigned URL — open or fetch on demand).',
           })]
         : []),
       ...artifactResourceLinks((sanitizedPayload as Record<string, unknown>).browserSession),

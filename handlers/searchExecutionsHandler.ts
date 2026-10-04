@@ -19,6 +19,7 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { config } from '../config/index.js';
 import { toPaginationParams } from '../utils/pagination.js';
+import { withUserFacingOutcomes } from '../services/verdictAdapter.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 
 const logger = new Logger({ module: 'searchExecutionsHandler' });
@@ -47,11 +48,7 @@ export async function searchExecutionsHandler(
     if (input.uuid) {
       try {
         const execution = await client.workflows!.getExecution(input.uuid);
-        const payload = {
-          filter: { uuid: input.uuid },
-          pageInfo: { page: 1, pageSize: 1, totalCount: 1, totalPages: 1, hasMore: false },
-          executions: [execution],
-        };
+        const payload = { execution: withUserFacingOutcomes(execution) };
         logger.toolComplete('search_executions', Date.now() - start);
 
         const content: ToolResponse['content'] = [
@@ -106,7 +103,6 @@ export async function searchExecutionsHandler(
             ? [resourceLinkBlock(gifUrl, `run-recording-${input.uuid}.gif`, {
                 mimeType: 'image/gif',
                 title: 'Run recording',
-                description: 'Animated recording of the execution (presigned URL — open or fetch on demand).',
               })]
             : []),
           ...artifactResourceLinks((execution as unknown as { browserSession?: unknown }).browserSession),
@@ -135,12 +131,8 @@ export async function searchExecutionsHandler(
     });
 
     const payload = {
-      filter: {
-        status: input.status ?? null,
-        projectUuid: input.projectUuid ?? null,
-      },
       pageInfo,
-      executions,
+      executions: executions.map(withUserFacingOutcomes),
     };
     logger.toolComplete('search_executions', Date.now() - start);
     return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
