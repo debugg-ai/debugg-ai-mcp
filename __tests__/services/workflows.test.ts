@@ -256,6 +256,35 @@ describe('getExecution()', () => {
     await expect(service.getExecution('exec-gone')).rejects.toThrow('Execution not found');
   });
 
+  // platform-98fv.25: the backend used to echo a run's password back in
+  // contextData.env / state.env / every node payload. The relay never passes one
+  // on, whatever the backend sends.
+  test('redacts run secrets anywhere in the execution', async () => {
+    const execution = makeExecution({
+      uuid: 'exec-pw',
+      status: 'completed',
+      contextData: {
+        env: { username: 'qa@example.com', password: 'plain-pw-1',
+               taskCredentials: [{ username: 'b@example.com', password: 'plain-pw-2' }] },
+        auth: { username: 'qa@example.com', password: 'plain-pw-3' },
+        browserSessionId: 'bs-1',
+      },
+      state: { env: { password: 'sealed:v1:abc' }, projectSecrets: { KEY: 'plain-secret' } },
+      nodeExecutions: [{ nodeType: 'auth.resolve', inputData: { env: { passwd: 'plain-pw-4' } } }],
+    } as any);
+    mockGet.mockResolvedValue(execution);
+
+    const result: any = await service.getExecution('exec-pw');
+    const text = JSON.stringify(result);
+
+    for (const secret of ['plain-pw-1', 'plain-pw-2', 'plain-pw-3', 'plain-pw-4', 'plain-secret', 'sealed:v1:']) {
+      expect(text).not.toContain(secret);
+    }
+    expect(result.contextData.env.password).toBe('[REDACTED]');
+    expect(result.contextData.env.username).toBe('qa@example.com');
+    expect(result.contextData.browserSessionId).toBe('bs-1');
+  });
+
   test('undefined response: throws "Execution not found"', async () => {
     mockGet.mockResolvedValue(undefined);
 
