@@ -359,6 +359,10 @@ async function testPageChangesHandlerInner(
     }
 
     const repoName = input.repoName || detectRepoName();
+    // An environment belongs to one project, so naming one names the project:
+    // the backend files the run under it (platform-98fv.21). The working folder's
+    // repo name is only a guess, used when no environment is named.
+    const namedEnvironmentId = input.environmentId || input.auth?.environmentId;
 
     const [templateUuid, projectUuid] = await Promise.all([
       // Cache key = the dispatch slug so the cache key and the lookup can never
@@ -367,7 +371,7 @@ async function testPageChangesHandlerInner(
       getCachedTemplateUuid(getEvalTemplateSlug(), async () => {
         return client.workflows!.findEvaluationTemplate();
       }),
-      repoName
+      !namedEnvironmentId && repoName
         ? getCachedProjectUuid(repoName, async (repo) => {
             try {
               return await client.findProjectByRepoName(repo);
@@ -386,7 +390,7 @@ async function testPageChangesHandlerInner(
     // semantics: project_id is required). Surfacing "link this repo to a
     // project" now — before executeWorkflow — beats letting a backend workflow
     // node fail mid-run several minutes into the evaluation.
-    if (!projectUuid) {
+    if (!projectUuid && !namedEnvironmentId) {
       const payload = {
         error: 'ProjectRequired',
         message: repoName

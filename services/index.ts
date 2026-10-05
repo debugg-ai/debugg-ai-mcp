@@ -104,8 +104,9 @@ export class DebuggAIServerClient  {
     );
     if (repoMatch) return repoMatch;
 
-    // Fallback to first search result
-    return projects[0];
+    // No match is no project. The first search hit is a different project whose
+    // name merely contains this one (platform-98fv.21).
+    return null;
   }
 
   /**

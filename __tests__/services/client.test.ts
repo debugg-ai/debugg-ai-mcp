@@ -173,3 +173,27 @@ describe('environment authorizedCredentialHosts', () => {
     expect(environments[1]).not.toHaveProperty('authorizedCredentialHosts');
   });
 });
+
+// ── findProjectByRepoName: no guessing (platform-98fv.21) ────────────────────
+// The fallback returned the FIRST search hit when nothing matched, so a folder
+// named like an unrelated project filed runs under that project.
+describe('findProjectByRepoName', () => {
+  test('returns the project whose name or repo matches', async () => {
+    mockGet.mockResolvedValue({ results: [
+      { uuid: 'p-other', name: 'web-platform', slug: 'web-platform' },
+      { uuid: 'p-match', name: 'Platform', slug: 'x', repo: { name: 'acme/platform' } },
+    ] });
+    const client = new DebuggAIServerClient('test-key');
+    await client.init();
+    expect((await client.findProjectByRepoName('acme/platform'))?.uuid).toBe('p-match');
+  });
+
+  test('returns null when no result matches, never the first search hit', async () => {
+    mockGet.mockResolvedValue({ results: [
+      { uuid: 'p-other', name: 'web-platform', slug: 'web-platform', repo: { name: 'acme/web-platform' } },
+    ] });
+    const client = new DebuggAIServerClient('test-key');
+    await client.init();
+    expect(await client.findProjectByRepoName('platform')).toBeNull();
+  });
+});
