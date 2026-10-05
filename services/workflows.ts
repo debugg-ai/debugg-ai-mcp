@@ -5,6 +5,7 @@
 
 import { AxiosTransport } from '../utils/axiosTransport.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import { redactRunSecrets } from '../utils/redactRunSecrets.js';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 // Exponential backoff polling: short executions (10-15s crawls) detect terminal
@@ -235,7 +236,9 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       if (!response) {
         throw new Error(`Execution not found: ${executionUuid}`);
       }
-      return response;
+      // platform-98fv.25: every caller (executions tool, check_app polling) reads
+      // the execution through here, so this is where the relay drops run secrets.
+      return redactRunSecrets(response);
     },
 
     async listExecutions(filters) {
