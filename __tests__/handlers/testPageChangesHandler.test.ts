@@ -1566,6 +1566,46 @@ describe('testPageChangesHandler — full handler flow', () => {
     });
   });
 
+  // ── platform-98fv.21: a named environment decides the project ─────────────
+  // The working folder's repo name is a guess; the environment the caller picked
+  // belongs to exactly one project. With one named, the MCP sends no projectId
+  // and the backend files the run under the environment's project.
+  describe('environment decides the project (platform-98fv.21)', () => {
+    test('environmentId: no repo-name lookup, no projectId sent', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      await testPageChangesHandler({ ...defaultInput, environmentId: 'env-uuid-1' } as any, defaultContext);
+
+      expect(mockFindProject).not.toHaveBeenCalled();
+      const contextData = mockExecute.mock.calls[0][1] as Record<string, any>;
+      expect(contextData.projectId).toBeUndefined();
+      const env = mockExecute.mock.calls[0][2] as Record<string, any>;
+      expect(env.environmentId).toBe('env-uuid-1');
+    });
+
+    test('auth.environmentId counts too', async () => {
+      setupHappyPath({ isLocalhost: false });
+
+      await testPageChangesHandler(
+        { ...defaultInput, auth: { precondition: 'login', environmentId: 'env-uuid-2' } } as any,
+        defaultContext,
+      );
+
+      expect(mockFindProject).not.toHaveBeenCalled();
+      expect((mockExecute.mock.calls[0][1] as Record<string, any>).projectId).toBeUndefined();
+    });
+
+    test('an unlinked repo does not block a call that names an environment', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockFindProject.mockResolvedValue(null);
+
+      const result = await testPageChangesHandler({ ...defaultInput, environmentId: 'env-uuid-1' } as any, defaultContext);
+
+      expect(result.isError).toBeFalsy();
+      expect(mockExecute).toHaveBeenCalled();
+    });
+  });
+
   // ── Bead 56kd.6: forward the auth-precondition deep-link intent ────────────
   // The MCP relays the caller's "log in THEN deep-navigate" intent verbatim into
   // contextData.auth per backend contract sentinal-k8x1f.8. It invents nothing:
