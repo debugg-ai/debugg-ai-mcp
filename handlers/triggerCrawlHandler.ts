@@ -18,7 +18,7 @@ import {
   ProgressCallback,
 } from '../types/index.js';
 import { config } from '../config/index.js';
-import { toUserFacingOutcome, noVerdictReason } from '../services/verdictAdapter.js';
+import { adaptVerdict } from '../services/verdictAdapter.js';
 import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { DebuggAIServerClient } from '../services/index.js';
@@ -329,22 +329,21 @@ export async function triggerCrawlHandler(
       targetUrl: ctx.originalUrl,
       durationMs: finalExecution.durationMs ?? duration,
     };
-    // Map onto the user-facing enum instead of relaying raw. This path never
-    // went through adaptVerdict, so it would otherwise emit whatever the
-    // backend sent — including retired non-answers like 'inconclusive'.
-    const rawOutcome = finalExecution.state?.outcome;
-    if (finalExecution.verdict?.skipped === true && !finalExecution.verdict.outcome) {
+    // THE run verdict (platform-4cvj.72): the backend's recorded `verdict`, through
+    // the same adaptVerdict path check_app_in_browser uses — never the raw
+    // `state.outcome` (the run's internal record), which can say pass for a run
+    // the verdict calls error. No verdict yet (still running) -> outcome null.
+    const relay = adaptVerdict(finalExecution);
+    responsePayload.outcome = relay.outcome;
+    if (relay.skipped) {
       // platform-98fv.16: the run never attempted a test — no verdict, the
-      // backend's recorded reason verbatim. Never the raw run outcome.
-      responsePayload.outcome = null;
+      // backend's recorded reason verbatim.
       responsePayload.skipped = true;
-      const skipReason = finalExecution.verdict.reason;
-      if (typeof skipReason === 'string' && skipReason.trim() !== '') responsePayload.skipReason = skipReason;
-    } else if (rawOutcome !== undefined && rawOutcome !== null) {
-      responsePayload.outcome = toUserFacingOutcome(rawOutcome);
-      if (responsePayload.outcome === 'error' && !finalExecution.errorMessage) {
-        responsePayload.reason = noVerdictReason(rawOutcome);
-      }
+      if (relay.skipReason) responsePayload.skipReason = relay.skipReason;
+    } else if (relay.outcome === 'error' && relay.reason) {
+      const backendReason = typeof finalExecution.verdict?.reason === 'string'
+        && finalExecution.verdict.reason.trim() !== '';
+      if (backendReason || !finalExecution.errorMessage) responsePayload.reason = relay.reason;
     }
     if (finalExecution.errorMessage) responsePayload.errorMessage = finalExecution.errorMessage;
     if (finalExecution.errorInfo) responsePayload.errorInfo = finalExecution.errorInfo;
