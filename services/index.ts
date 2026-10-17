@@ -51,6 +51,22 @@ function pickAuthorizedCredentialHosts(e: any): { authorizedCredentialHosts?: st
     : {};
 }
 
+/**
+ * The outcome a suite's run SHOWS (platform-4cvj.72): the run's recorded verdict
+ * when the backend sent one, else its raw `outcome`, both through the user-facing
+ * allowlist. A run with neither keeps its null.
+ */
+export function suiteRunOutcome(run: any): string | null {
+  const verdict = run?.verdict;
+  const fromVerdict = verdict && typeof verdict === 'object' ? verdict.outcome : undefined;
+  if (typeof fromVerdict === 'string' && fromVerdict.trim() !== '') {
+    return toUserFacingOutcome(fromVerdict);
+  }
+  const raw = run?.outcome;
+  if (typeof raw === 'string' && raw.trim() !== '') return toUserFacingOutcome(raw);
+  return raw ?? null;
+}
+
 export class DebuggAIServerClient  {
   tx: DebuggTransport | undefined;
   url: URL | undefined;
@@ -745,11 +761,11 @@ export class DebuggAIServerClient  {
           lastRun: lastRun ? {
             uuid: lastRun.uuid,
             status: lastRun.status,
-            // the user-facing verdict allowlist, same as every other surface;
-            // a run with no outcome yet keeps its null
-            outcome: typeof lastRun.outcome === 'string' && lastRun.outcome.trim() !== ''
-              ? toUserFacingOutcome(lastRun.outcome)
-              : lastRun.outcome ?? null,
+            // platform-4cvj.72: THE run verdict (`verdict.outcome`, what the run
+            // page shows) wins; the raw recorded `outcome` is only read for a run
+            // the backend sent no verdict for. Same user-facing allowlist as every
+            // other surface; a run with no outcome yet keeps its null.
+            outcome: suiteRunOutcome(lastRun),
             executionTime: lastRun.executionTime ?? lastRun.execution_time ?? null,
             timestamp: lastRun.timestamp,
           } : null,

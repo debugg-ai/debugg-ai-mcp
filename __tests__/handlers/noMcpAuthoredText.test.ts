@@ -349,6 +349,38 @@ describe('trigger_crawl relays node output, never fills in defaults', () => {
     expectOnlyRelayedStrings(b, exec, { url: 'https://app.example.com' });
   });
 
+  // platform-4cvj.72: the headline is THE run verdict, never the raw state.outcome.
+  const crawlExec = (over: Record<string, any>) => ({
+    uuid: 'exec-1', status: 'completed', durationMs: 10,
+    errorMessage: '', errorInfo: null, nodeExecutions: [], ...over,
+  });
+
+  test('a raw pass the verdict calls error reads error, with the backend reason verbatim', async () => {
+    const exec = crawlExec({
+      state: { outcome: 'pass' },
+      verdict: { outcome: 'error', reason: 'SENTINEL The run stopped on an error before it finished.' },
+    });
+    m.poll.mockResolvedValue(exec);
+    const b = body(await triggerCrawlHandler({ url: 'https://app.example.com' } as any, ctx));
+    expect(b.outcome).toBe('error');
+    expect(b.reason).toBe(exec.verdict.reason);
+    expectOnlyRelayedStrings(b, exec, { url: 'https://app.example.com' });
+  });
+
+  test('a raw fail the verdict calls pass reads pass', async () => {
+    m.poll.mockResolvedValue(crawlExec({ state: { outcome: 'fail' }, verdict: { outcome: 'pass', reason: 'r' } }));
+    const b = body(await triggerCrawlHandler({ url: 'https://app.example.com' } as any, ctx));
+    expect(b.outcome).toBe('pass');
+    expect(b).not.toHaveProperty('reason');
+  });
+
+  test('a run still going has no verdict yet: outcome null, whatever state.outcome says', async () => {
+    m.poll.mockResolvedValue(crawlExec({ status: 'running', state: { outcome: 'pass' }, verdict: null }));
+    const b = body(await triggerCrawlHandler({ url: 'https://app.example.com' } as any, ctx));
+    expect(b.outcome).toBeNull();
+    expect(b).not.toHaveProperty('skipped');
+  });
+
   test('LocalServerUnreachable carries no instructions', async () => {
     localhostMode = true;
     probeLocalPort.mockResolvedValue({ reachable: false, code: 'ECONNREFUSED', elapsedMs: 3 });

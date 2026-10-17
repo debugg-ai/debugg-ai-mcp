@@ -36,6 +36,21 @@ describe('getTestSuiteDetail', () => {
   });
 });
 
+describe('getTestSuiteDetail reads THE run verdict (platform-4cvj.72)', () => {
+  test('a run\'s verdict wins over its raw outcome; a null verdict falls back to the raw outcome', async () => {
+    const detail = await clientReturning({
+      uuid: 's', name: 'S',
+      tests: [
+        { uuid: 'a', name: 'A', curRun: { uuid: 'r1', status: 'completed', outcome: 'pass', verdict: { outcome: 'error', reason: 'r' }, timestamp: 't' } },
+        { uuid: 'b', name: 'B', curRun: { uuid: 'r2', status: 'completed', outcome: 'error', verdict: { outcome: 'fail' }, timestamp: 't' } },
+        { uuid: 'c', name: 'C', curRun: { uuid: 'r3', status: 'completed', outcome: 'fail', verdict: null, timestamp: 't' } },
+        { uuid: 'd', name: 'D', last_run: { uuid: 'r4', status: 'completed', outcome: 'pass', verdict: { outcome: 'inconclusive' }, timestamp: 't' } },
+      ],
+    }).getTestSuiteDetail('s');
+    expect(detail.tests.map((t) => t.lastRun?.outcome)).toEqual(['error', 'fail', 'fail', 'error']);
+  });
+});
+
 describe('runTestSuite', () => {
   test('a missing runStatus is null, not an invented PENDING', async () => {
     const r = await clientReturning({ tests: [] }, 'post').runTestSuite('s', {});
