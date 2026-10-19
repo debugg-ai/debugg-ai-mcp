@@ -80,11 +80,18 @@ export function toUserFacingOutcome(raw: unknown): VerdictOutcome {
 
 /**
  * An execution record as the executions tool relays it: the backend object
- * verbatim, except the three fields a user reads as the run's verdict —
- * `outcome`, `verdict.outcome`, `evaluation.outcome` — which go through the
- * same allowlist as check_app_in_browser. A null/absent outcome (a run still
- * going) stays null: "no verdict yet" is not an error. Internal run state
- * (`state.*`, node output) keeps its raw values.
+ * verbatim, except the fields a user reads as the run's verdict — `outcome`,
+ * `verdict.outcome`, `evaluation.outcome` — which go through the same allowlist
+ * as check_app_in_browser. A null/absent outcome (a run still going) stays null:
+ * "no verdict yet" is not an error.
+ *
+ * `state.outcome` / `state.success` on a FINISHED run are the recorded verdict
+ * too (platform-4cvj.78). The backend keeps the agent's own claim there by
+ * design and stamps the verdict beside it (`state.verdictOutcome`), so relayed
+ * raw, a run that never signed in read `completed` + `state.outcome: pass` +
+ * `success: true` next to `outcome: error`. A run that never attempted a test
+ * has no verdict: `state.outcome` null. Other state keys and node output keep
+ * their raw values.
  */
 export function withUserFacingOutcomes<T>(execution: T): T {
   if (!execution || typeof execution !== 'object') return execution;
@@ -96,7 +103,31 @@ export function withUserFacingOutcomes<T>(execution: T): T {
       e[key] = { ...e[key], outcome: mapIfSet(e[key].outcome) };
     }
   }
+  const recorded = recordedVerdict(e);
+  if (recorded !== undefined && e.state && typeof e.state === 'object') {
+    e.state = { ...e.state, outcome: recorded, success: recorded === 'pass' };
+  }
   return e as T;
+}
+
+const FINISHED = new Set(['completed', 'failed', 'cancelled']);
+
+/**
+ * The verdict a finished run recorded: the detail's top-level `verdict` (the
+ * backend derives it from the same rule as its stamp), else the stamp
+ * `state.verdictOutcome`. `null` for a run that never attempted a test;
+ * `undefined` when there is nothing recorded to show (a run still going).
+ */
+function recordedVerdict(e: Record<string, any>): VerdictOutcome | null | undefined {
+  if (!FINISHED.has(String(e.status ?? ''))) return undefined;
+  const v = e.verdict;
+  if (v && typeof v === 'object' && 'outcome' in v) {
+    if (v.skipped === true || v.outcome === null) return null;
+    if (typeof v.outcome === 'string' && v.outcome.trim() !== '') return toUserFacingOutcome(v.outcome);
+  }
+  const stamp = e.state?.verdictOutcome;
+  if (typeof stamp !== 'string' || stamp.trim() === '') return undefined;
+  return stamp.trim() === 'skipped' ? null : toUserFacingOutcome(stamp);
 }
 
 export function noVerdictReason(rawOutcome: unknown): string {

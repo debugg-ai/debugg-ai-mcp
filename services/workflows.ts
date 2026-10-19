@@ -15,7 +15,14 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const POLL_INTERVAL_INITIAL_MS = 1000;
 const POLL_INTERVAL_MAX_MS = 5000;
 const POLL_BACKOFF_MULTIPLIER = 1.5;
-const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+const DEFAULT_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+
+/** The poll deadline: DEBUGGAI_EXECUTION_TIMEOUT_MS when set to a positive number,
+ * else 10 minutes. Read per call so a test or a verification run can shorten it. */
+function executionTimeoutMs(): number {
+  const v = Number(process.env.DEBUGGAI_EXECUTION_TIMEOUT_MS);
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_EXECUTION_TIMEOUT_MS;
+}
 
 /**
  * Stable dispatch slugs for the three MCP browser workflows (bug clka /
@@ -279,7 +286,8 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       onUpdate?: (execution: WorkflowExecution) => Promise<void>,
       signal?: AbortSignal
     ): Promise<WorkflowExecution> {
-      const deadline = Date.now() + EXECUTION_TIMEOUT_MS;
+      const timeoutMs = executionTimeoutMs();
+      const deadline = Date.now() + timeoutMs;
       const pollStart = Date.now();
       let pollCount = 0;
       let intervalMs = POLL_INTERVAL_INITIAL_MS;
@@ -350,7 +358,7 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         };
       }
       throw new Error(
-        `Execution ${executionUuid} timed out after ${EXECUTION_TIMEOUT_MS / 1000}s`
+        `Execution ${executionUuid} timed out after ${timeoutMs / 1000}s`
       );
     }
   };

@@ -44,6 +44,7 @@ import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handler
 import { getPageProbeTemplateSlug } from '../services/workflows.js';
 import { reaggregateByOriginPath, mapConsoleSlice } from '../utils/harSummarizer.js';
 import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
+import { pollTimeoutReason } from '../services/verdictAdapter.js';
 
 const logger = new Logger({ module: 'probePageHandler' });
 
@@ -90,6 +91,62 @@ function groupTargetsByRoute(targetContexts: TunnelContext[]): TargetGroup[] {
     group.indices.push(i);
   }
   return groups;
+}
+
+/**
+ * Pick each target's browser.capture row BY TARGET (platform-4cvj.77).
+ *
+ * The backend stamps every capture with the loop's `targetIndex` (position in the
+ * targets[] THIS execution was sent) and `requestedUrl`. Matching on those means a
+ * run that stopped early, or an iteration that left no row, can never put one
+ * target's page under another target's URL. Positional zip is kept ONLY for a
+ * backend that stamps neither (deployed before the stamp) — the old behaviour.
+ */
+export function matchCapturesToTargets(
+  captureNodes: Array<{ executionOrder?: number; outputData?: any }>,
+  sentUrls: string[],
+): Array<any | undefined> {
+  const ordered = [...captureNodes].sort((a, b) => (a.executionOrder ?? 0) - (b.executionOrder ?? 0));
+  const stamped = ordered.some(n => {
+    const d = n.outputData ?? {};
+    return typeof d.targetIndex === 'number' || typeof d.requestedUrl === 'string';
+  });
+  if (!stamped) return sentUrls.map((_, i) => ordered[i]);
+  const out: Array<any | undefined> = new Array(sentUrls.length).fill(undefined);
+  for (const node of ordered) {
+    const d = node.outputData ?? {};
+    let idx = -1;
+    if (typeof d.targetIndex === 'number' && d.targetIndex >= 0 && d.targetIndex < sentUrls.length) {
+      idx = d.targetIndex;
+    } else if (typeof d.requestedUrl === 'string') {
+      idx = sentUrls.findIndex((u, i) => u === d.requestedUrl && out[i] === undefined);
+    }
+    // Latest row wins for an index (a retried iteration supersedes its first try).
+    if (idx >= 0) out[idx] = node;
+  }
+  return out;
+}
+
+/**
+ * Why an execution has no answer for some targets, from what we observed — or
+ * null when it finished cleanly. A poll-deadline timeout (pollExecution's
+ * `timedOut`) and a backend-failed run are both "no result", never silent nulls.
+ */
+function runProblem(exec: any, executionUuid: string): string | null {
+  if (exec?.timedOut) {
+    return pollTimeoutReason({
+      executionUuid,
+      elapsedMs: exec.pollTimeout?.elapsedMs,
+      pollCount: exec.pollTimeout?.pollCount,
+      lastStatus: typeof exec.status === 'string' ? exec.status : undefined,
+    });
+  }
+  if (exec?.status === 'failed' || exec?.status === 'cancelled') {
+    const text = [exec.errorMessage, exec.errorInfo?.message, exec.state?.error]
+      .find((t: unknown) => typeof t === 'string' && t.trim() !== '');
+    return `Execution ${executionUuid} ended ${exec.status}${text ? `: ${String(text).trim()}` : '.'}`;
+  }
+  return null;
 }
 
 export async function probePageHandler(
@@ -272,6 +329,10 @@ export async function probePageHandler(
     const browserSessions: any[] = [];
     let lastExecutionDurationMs: number | undefined;
     let completedOffset = 0;
+    // platform-4cvj.77: the first reason an execution gave no full answer, and
+    // whether ANY target got a capture — so a timeout or failed run is loud.
+    let firstProblem: string | null = null;
+    let anyCaptured = false;
 
     for (const group of groups) {
       // §2.4: acquire this session's shared Caddy route for the group's port
@@ -394,14 +455,18 @@ export async function probePageHandler(
 
         // ── Format this group's results into the shared, ORIGINAL-order arrays ──
         const captureNodes = (finalExecution.nodeExecutions ?? [])
-          .filter(n => n.nodeType === 'browser.capture')
-          .sort((a, b) => a.executionOrder - b.executionOrder);
+          .filter(n => n.nodeType === 'browser.capture');
+        const sentUrls = group.indices.map(i => targetContexts[i].targetUrl ?? input.targets[i].url);
+        const matched = matchCapturesToTargets(captureNodes, sentUrls);
+        const problem = runProblem(finalExecution, executionUuid);
+        if (problem && !firstProblem) firstProblem = problem;
 
         for (let gi = 0; gi < group.indices.length; gi++) {
           const originalIndex = group.indices[gi];
           const target = input.targets[originalIndex];
-          const node = captureNodes[gi];
+          const node = matched[gi];
           const data: any = node?.outputData ?? {};
+          if (node) anyCaptured = true;
           captureDataByIndex[originalIndex] = data;
 
           // Backend (post-154e1e69) emits browser.capture output_data with:
@@ -433,6 +498,11 @@ export async function probePageHandler(
           }
           if (typeof data.error === 'string' && data.error) {
             result.error = data.error;
+          } else if (!node) {
+            // No capture row for this target: say so, with the facts of why,
+            // instead of a result of nulls that reads like a probed blank page.
+            result.error = `No capture for this target. ${problem
+              ?? `Execution ${executionUuid} finished ${finalExecution.status} without capturing it.`}`;
           }
           if (typeof data.surferPageUuid === 'string' && data.surferPageUuid) {
             result.surferPageUuid = data.surferPageUuid;
@@ -474,6 +544,13 @@ export async function probePageHandler(
         : duration,
       results,
     };
+    // platform-4cvj.77: a run that timed out or failed has no full answer. Say so
+    // at the top in the same vocabulary as check_app (pass | fail | error), with
+    // the observed reason. Absent on a clean run, so that shape is unchanged.
+    if (firstProblem) {
+      responsePayload.outcome = 'error';
+      responsePayload.reason = firstProblem;
+    }
     // Multi-group batches ran more than one backend execution — surface all
     // of their ids/sessions additively, without changing the single-group
     // (single-execution) response shape any existing caller already parses.
@@ -514,7 +591,10 @@ export async function probePageHandler(
       }
     }
 
-    return { content: responseContent };
+    // Nothing captured at all on a run that did not finish: the call failed.
+    return firstProblem && !anyCaptured
+      ? { content: responseContent, isError: true }
+      : { content: responseContent };
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('probe_page', error as Error, duration);

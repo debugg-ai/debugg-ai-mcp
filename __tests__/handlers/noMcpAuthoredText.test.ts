@@ -474,7 +474,9 @@ describe('lookup tools return the backend object, not an MCP envelope', () => {
     };
     m.getExecution.mockResolvedValue(execution);
     const b = body(await executionsHandler({ action: 'get', uuid: 'exec-1' } as any, ctx));
-    expect(b).toEqual({ execution });
+    // platform-4cvj.78: state carries the recorded verdict too — none, for a
+    // run that never attempted a test.
+    expect(b).toEqual({ execution: { ...execution, state: { outcome: null, success: false } } });
   });
 
   test('executions get maps every user-visible verdict field through the same allowlist', async () => {
@@ -489,8 +491,10 @@ describe('lookup tools return the backend object, not an MCP envelope', () => {
     expect(execution.outcome).toBe('error');
     expect(execution.verdict.outcome).toBe('error');
     expect(execution.evaluation.outcome).toBe('error');
-    // internal run state is raw backend data, left as-is
-    expect(execution.state.outcome).toBe('unverified');
+    // platform-4cvj.78: state.outcome/success show the recorded verdict, never a
+    // second, raw answer beside it
+    expect(execution.state.outcome).toBe('error');
+    expect(execution.state.success).toBe(false);
   });
 
   test('environment get returns the environment — no echoed filter, no fabricated pageInfo', async () => {

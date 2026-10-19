@@ -353,6 +353,21 @@ describe('pollExecution()', () => {
     expect(outcome.value!.status).toBe('running');          // last observed status
     expect(outcome.value!.nodeExecutions).toHaveLength(1);  // partial evidence preserved
   });
+
+  test('DEBUGGAI_EXECUTION_TIMEOUT_MS overrides the poll deadline (default stays 10 min)', async () => {
+    mockGet.mockResolvedValue(makeExecution({ status: 'running' }));
+    process.env.DEBUGGAI_EXECUTION_TIMEOUT_MS = '5000';
+    try {
+      jest.useFakeTimers();
+      const settled = service.pollExecution('exec-short');
+      for (let i = 0; i < 4; i++) await jest.advanceTimersByTimeAsync(3000);
+      const v = await settled;
+      expect(v.timedOut).toBe(true);
+      expect(v.pollTimeout!.elapsedMs!).toBeLessThan(15000);
+    } finally {
+      delete process.env.DEBUGGAI_EXECUTION_TIMEOUT_MS;
+    }
+  });
 });
 
 // ── listExecutions — the run verdict on a list row (platform-98fv.16) ────────
