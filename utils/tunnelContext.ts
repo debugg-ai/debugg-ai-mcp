@@ -229,5 +229,11 @@ export function touchTunnelById(tunnelId?: string): void {
 export function sanitizeResponseUrls(value: unknown, ctx: TunnelContext): unknown {
   if (!ctx.isLocalhost) return value;
   const origin = new URL(ctx.originalUrl).origin;
-  return replaceTunnelUrls(value, origin);
+  const ids: string[] = [];
+  if (ctx.tunnelId) ids.push(ctx.tunnelId);
+  try {
+    const sessionTunnel = tunnelManager.getSessionTunnelInfo(getSessionKey());
+    if (sessionTunnel?.tunnelId) ids.push(sessionTunnel.tunnelId);
+  } catch { /* no session tunnel: ctx.tunnelId alone decides */ }
+  return replaceTunnelUrls(value, origin, ids);
 }

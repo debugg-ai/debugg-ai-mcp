@@ -233,3 +233,20 @@ describe('extractLocalhostPort defaults', () => {
     expect(extractLocalhostPort('https://localhost')).toBe(443);
   });
 });
+
+describe('replaceTunnelUrls with ownTunnelIds (platform-o7wv)', () => {
+  const origin = 'http://localhost:3037';
+  const foreign = 'https://pub-rt-abc123.tunnel.debugg.ai';
+  test('maps only listed ids', () => {
+    expect(replaceTunnelUrls(`https://mine.tunnel.debugg.ai/a?b=1 ${foreign}/c`, origin, ['mine']))
+      .toBe(`http://localhost:3037/a?b=1 ${foreign}/c`);
+  });
+  test('empty id list maps nothing', () => {
+    expect(replaceTunnelUrls(foreign, origin, [])).toBe(foreign);
+    expect(replaceTunnelUrls(foreign, origin, [undefined])).toBe(foreign);
+  });
+  test('nested', () => {
+    expect(replaceTunnelUrls({ x: [foreign, 'https://mine.ngrok.debugg.ai/z'] }, origin, ['mine']))
+      .toEqual({ x: [foreign, 'http://localhost:3037/z'] });
+  });
+});
