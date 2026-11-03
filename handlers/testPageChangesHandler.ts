@@ -44,7 +44,7 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
-import { projectRequiredMessage } from '../utils/projectRequired.js';
+import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
@@ -238,12 +238,14 @@ async function testPageChangesHandlerInner(
     // repo name is only a guess, used when no environment is named.
     const namedEnvironmentId = input.environmentId || input.auth?.environmentId;
 
+    let lookupError: unknown;
     const projectUuid = !namedEnvironmentId && repoName
       ? await getCachedProjectUuid(repoName, async (repo) => {
           try {
             return await client.findProjectByRepoName(repo);
           } catch (err) {
             logger.warn(`Failed to look up project for repo "${repo}": ${err}`);
+            lookupError = err;
             return null;
           }
         })
@@ -253,6 +255,12 @@ async function testPageChangesHandlerInner(
     // semantics: project_id is required). Checked BEFORE any tunnel is
     // provisioned (platform-xmkv): a tunnel bought for a call that cannot run
     // is a billed leak, and beats a backend node failing mid-run.
+    if (!projectUuid && !namedEnvironmentId && lookupError !== undefined && repoName) {
+      // The lookup FAILED — not "no project linked" (platform-y2ob.4).
+      const payload = projectLookupFailedPayload(repoName, lookupError);
+      logger.warn(`check_app_in_browser: ${payload.message}`);
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+    }
     if (!projectUuid && !namedEnvironmentId) {
       const payload = {
         error: 'ProjectRequired',

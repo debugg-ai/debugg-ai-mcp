@@ -1530,6 +1530,33 @@ describe('testPageChangesHandler — full handler flow', () => {
 
   // ── Bead 56kd.5: fail-fast on unresolved-but-required project_id ──────────
   describe('fail-fast on unresolved project_id (bead 56kd.5)', () => {
+
+    test('lookup ERROR (405) is reported as a lookup failure, not "not linked" (platform-y2ob.4)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockFindProject.mockRejectedValue(Object.assign(new Error('Method "POST" not allowed.'), { statusCode: 405 }));
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('HTTP 405');
+      expect(body.message).toContain('Method "POST" not allowed.');
+      expect(body.message).not.toContain('no project is linked');
+      expect(body.detail.statusCode).toBe(405);
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('network-class lookup error names the code and still is not "not linked"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockFindProject.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { networkCode: 'ECONNREFUSED' }));
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('ECONNREFUSED');
+    });
     test('repo detected but not linked → ProjectRequired, no execute/poll', async () => {
       setupHappyPath({ isLocalhost: false });
       mockFindProject.mockResolvedValue(null); // repo resolves, but no linked project

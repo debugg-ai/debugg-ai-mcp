@@ -342,6 +342,35 @@ describe('triggerCrawlHandler', () => {
   describe('project resolution (platform-xmkv)', () => {
     const PROJ = '269532cb-0000-0000-0000-000000000000';
 
+
+    test('lookup ERROR (405) is reported as a lookup failure, not "not linked" (platform-y2ob.4)', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockDetectRepoName.mockReturnValue('debugg-ai/platform');
+      mockFindProject.mockRejectedValue(Object.assign(new Error('Method "POST" not allowed.'), { statusCode: 405 }));
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('HTTP 405');
+      expect(body.message).toContain('Method "POST" not allowed.');
+      expect(body.message).not.toContain('no project is linked');
+      expect(body.detail.statusCode).toBe(405);
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('network-class lookup error names the code and still is not "not linked"', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockDetectRepoName.mockReturnValue('debugg-ai/platform');
+      mockFindProject.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { networkCode: 'ECONNREFUSED' }));
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('ECONNREFUSED');
+    });
     test('no project resolvable + localhost: ProjectRequired BEFORE any tunnel, names projectUuid + repoName', async () => {
       setupHappyPath({ isLocalhost: true });
       mockDetectRepoName.mockReturnValue('debugg-ai/platform');
