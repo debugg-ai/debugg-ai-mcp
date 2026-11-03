@@ -1,6 +1,7 @@
 /**
  * HTTP(S) proxy support for the debugg tunnel's control websocket
- * (bead platform-neog).
+ * (bead platform-neog) and, via the same selection, the REST client
+ * (utils/axiosTransport.ts, bead platform-y2ob.3).
  *
  * When HTTPS_PROXY / https_proxy / ALL_PROXY / all_proxy is set and the relay
  * host is not excluded by NO_PROXY / no_proxy, the websocket is opened through

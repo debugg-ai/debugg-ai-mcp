@@ -6,6 +6,8 @@ import {
   objToSnakeCase,
 } from "./objectNaming.js";
 
+import { resolveTunnelProxy, type TunnelProxy } from "../services/tunnel/proxy.js";
+
 import type {
   AxiosInstance,
   AxiosRequestConfig,
@@ -19,6 +21,8 @@ import type {
     tokenType?: 'token' | 'bearer';
     /** You can pass a pre‑configured axios instance (e.g. for tests) */
     instance?: AxiosInstance;
+    /** Environment used for proxy selection (default process.env). */
+    env?: NodeJS.ProcessEnv;
   }
   
   /**
@@ -28,7 +32,15 @@ import type {
   export class AxiosTransport {
     readonly axios: AxiosInstance;
   
-    constructor({ baseUrl, apiKey, tokenType = 'token', instance }: AxiosTransportOptions) {
+    constructor({ baseUrl, apiKey, tokenType = 'token', instance, env = process.env }: AxiosTransportOptions) {
+      // HTTPS_PROXY / NO_PROXY via the same selection the tunnel websocket uses
+      // (platform-y2ob.3). axios's built-in env proxy sends an absolute-URI
+      // request, which CONNECT-only proxies answer 405; use a CONNECT tunnel.
+      // No proxy applies => the config below is exactly what it always was.
+      const proxy: TunnelProxy | undefined = instance ? undefined : resolveTunnelProxy(baseUrl, env);
+      const proxyConfig = proxy
+        ? { proxy: false as const, httpAgent: proxy.agent, httpsAgent: proxy.agent }
+        : {};
       // Use an injected instance or create one that mimics `axiosServices`
       // Use provided apiKey as the Token. Must be requested on the app.
       this.axios =
@@ -36,6 +48,7 @@ import type {
         axios.create({
           baseURL: baseUrl.replace(/\/+$/, "/"),
           timeout: 30_000,
+          ...proxyConfig,
           headers: {
             Accept: "application/json",
             "Content-Type": "application/json",
@@ -51,6 +64,15 @@ import type {
           return res;
         },
         (err) => {
+          if (proxy && err.response?.status === 407) {
+            const e407 = new Error(
+              `the HTTP proxy ${proxy.display} (from ${proxy.varName}) demanded authentication for the connection to ` +
+              `${new URL(baseUrl).host} (HTTP 407). Put valid credentials in the proxy URL ` +
+              `(http://user:password@${proxy.display}) or ask your network admin to allow it.`,
+            );
+            (e407 as any).statusCode = 407;
+            return Promise.reject(e407);
+          }
           const data = err.response?.data;
           if (data) {
             const strField = (v: unknown): string | null =>

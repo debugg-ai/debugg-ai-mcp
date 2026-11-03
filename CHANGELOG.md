@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — REST client now CONNECT-tunnels through HTTPS_PROXY / honors NO_PROXY (platform-y2ob.3)
+- The API client (axios) sent an absolute-URI request to the proxy, which CONNECT-only proxies reject with HTTP 405, so a proxied user failed before any tunnel was attempted. It now opens a CONNECT tunnel via the same proxy selection and NO_PROXY matching as the tunnel websocket. A 407 names the proxy host (never its credentials). No proxy, or a NO_PROXY match: unchanged.
+
+### Fixed — a failed project lookup no longer reads as "no project linked" (platform-y2ob.4)
+- check_app_in_browser and trigger_crawl swallowed any error from the repo-to-project lookup and then said no project is linked to the repo. A lookup error now returns `ProjectLookupFailed` with the HTTP status and the backend's message; only a successful lookup that finds nothing says `ProjectRequired`.
+
 ### Fixed — probe_page no longer hides a failed run; check_app_in_browser ProjectRequired says what to pass (platform-y2ob.1, platform-y2ob.2)
 
 - `probe_page`: when the backend records the execution as failed/error, the response is `isError` and carries the recorded `status`, `errorMessage`, `agentError` and `errorInfo` verbatim, and each result's `error` is that message. A target that returns no page data now reports the execution status and that no page data came back instead of null fields with no reason.

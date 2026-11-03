@@ -42,7 +42,7 @@ import { detectLocalGitRef, detectRepoName } from '../utils/gitContext.js';
 import { getCrawlTemplateSlug } from '../services/workflows.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
-import { projectRequiredMessage } from '../utils/projectRequired.js';
+import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
 
 const logger = new Logger({ module: 'triggerCrawlHandler' });
 
@@ -115,6 +115,7 @@ export async function triggerCrawlHandler(
     // tool parameter. Precedence: projectUuid > a named environment (it belongs
     // to one project, the backend resolves it) > repoName > the git checkout.
     let projectUuid: string | undefined = input.projectUuid;
+    let lookupError: unknown;
     const repoName = input.repoName || detectRepoName();
     if (!projectUuid && !input.environmentId && repoName) {
       projectUuid = await getCachedProjectUuid(repoName, async (repo) => {
@@ -122,9 +123,16 @@ export async function triggerCrawlHandler(
           return await client.findProjectByRepoName(repo);
         } catch (err) {
           logger.warn(`Failed to look up project for repo "${repo}": ${err}`);
+          lookupError = err;
           return null;
         }
       });
+    }
+    if (!projectUuid && !input.environmentId && lookupError !== undefined && repoName) {
+      // The lookup FAILED — not "no project linked" (platform-y2ob.4).
+      const payload = projectLookupFailedPayload(repoName, lookupError);
+      logger.warn(`trigger_crawl: ${payload.message}`);
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
     }
     if (!projectUuid && !input.environmentId) {
       const payload = {
