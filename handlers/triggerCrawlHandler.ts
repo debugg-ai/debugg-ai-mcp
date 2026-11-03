@@ -37,8 +37,8 @@ import {
   touchTunnelById,
 } from '../utils/tunnelContext.js';
 import { randomUUID } from 'node:crypto';
-import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
-import { detectLocalGitRef } from '../utils/gitContext.js';
+import { getCachedTemplateUuid, getCachedProjectUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
+import { detectLocalGitRef, detectRepoName } from '../utils/gitContext.js';
 import { getCrawlTemplateSlug } from '../services/workflows.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
@@ -107,6 +107,36 @@ export async function triggerCrawlHandler(
   }
 
   try {
+    // --- Project: resolve BEFORE any tunnel (platform-xmkv) ---
+    // The backend requires a project; failing here costs nothing, failing after
+    // provisioning leaves a billed tunnel behind and surfaces as a raw backend
+    // "Missing required field(s) in context_data: project_id" that names no
+    // tool parameter. Precedence: projectUuid > a named environment (it belongs
+    // to one project, the backend resolves it) > repoName > the git checkout.
+    let projectUuid: string | undefined = input.projectUuid;
+    const repoName = input.repoName || detectRepoName();
+    if (!projectUuid && !input.environmentId && repoName) {
+      projectUuid = await getCachedProjectUuid(repoName, async (repo) => {
+        try {
+          return await client.findProjectByRepoName(repo);
+        } catch (err) {
+          logger.warn(`Failed to look up project for repo "${repo}": ${err}`);
+          return null;
+        }
+      });
+    }
+    if (!projectUuid && !input.environmentId) {
+      const payload = {
+        error: 'ProjectRequired',
+        message: (repoName
+          ? `Could not determine the DebuggAI project: no project is linked to git repo "${repoName}".`
+          : 'Could not determine the DebuggAI project: this is not a git repo and no repoName was passed.')
+          + ' Pass `projectUuid` (list yours with the `project` tool, action "list") or `repoName` (the "org/repo" of a linked project).',
+      };
+      logger.warn(`trigger_crawl: ${payload.message}`);
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+    }
+
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
       // Bead 1om: pre-flight local port probe BEFORE provision/tunnel/backend.
@@ -225,7 +255,7 @@ export async function triggerCrawlHandler(
     const contextData: Record<string, any> = {
       targetUrl: ctx.targetUrl ?? ctx.originalUrl,
     };
-    if (input.projectUuid) contextData.projectId = input.projectUuid;
+    if (projectUuid) contextData.projectId = projectUuid;
     contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
     if (typeof input.timeoutSeconds === 'number') contextData.timeoutSeconds = input.timeoutSeconds;
 

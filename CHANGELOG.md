@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed — foreign tunnel addresses no longer rewritten to localhost (platform-o7wv)
 - `replaceTunnelUrls` / `sanitizeResponseUrls` rewrote EVERY `*.tunnel.debugg.ai` host in a response to the caller's localhost origin, hiding real fixed addresses (e.g. a `pub-rt-...` tunnel). Now only the hostname(s) of the tunnel this session opened (`ctx.tunnelId` / session tunnel) are mapped back; all other tunnel-domain addresses are left as is. The session's own tunnel behaves as before.
 
+### Fixed — trigger_crawl fails before the tunnel when no project can be determined (platform-xmkv)
+
+- `trigger_crawl` never resolved a project (the `projectUuid` doc said "auto-detected" but only an explicit value was sent), so from a repo with no matching project the backend answered `Missing required field(s) in context_data: project_id`, which names no tool parameter and reads as a tunnel failure. It now resolves `projectUuid` > a named `environmentId` > `repoName` > the git checkout, sends the result as `projectId`, and returns `ProjectRequired` (input-validation text, tells you to pass `projectUuid` or `repoName`) BEFORE the port probe or any tunnel.
+- `check_app_in_browser` runs the same `ProjectRequired` check before provisioning a tunnel instead of after.
+- `probe_page` revokes a tunnel key whose `ensureTunnel` failed (bead xkoh.9). The old cleanup indexed a list that is empty exactly on that path, and was misaligned when a public target preceded a localhost one.
+
 ## [6.0.0] — 2026-10-04 — BREAKING
 
 ### Changed — responses are the backend's data, not MCP-authored text

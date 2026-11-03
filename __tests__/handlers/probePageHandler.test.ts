@@ -15,6 +15,7 @@ const mockFindTemplateBySlug = jest.fn<(kw: string) => Promise<any>>();
 const mockExecute = jest.fn<(...args: any[]) => Promise<any>>();
 const mockPoll = jest.fn<() => Promise<any>>();
 const mockRevokeKey = jest.fn<() => Promise<void>>();
+const mockRevokeTunnel = jest.fn<(...a: any[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockInit = jest.fn<() => Promise<void>>();
 
 const mockEnsureTunnel = jest.fn<(...args: any[]) => Promise<any>>();
@@ -37,7 +38,7 @@ const mockProbeTunnelHealth = jest.fn<(url: string) => Promise<any>>();
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
     init: mockInit,
-    tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
+    tunnels: { provision: mockProvision, provisionWithRetry: mockProvision, revoke: mockRevokeTunnel },
     workflows: {
       findTemplateBySlug: mockFindTemplateBySlug,
       executeWorkflow: mockExecute,
@@ -545,6 +546,29 @@ describe('probePageHandler — localhost pre-flight', () => {
   // A teardown plus the re-provision
   // it forces costs two billed hours. Only a code proving the endpoint is gone
   // may evict; everything else keeps the tunnel for the next call.
+  // platform-xmkv: a provisioned-but-never-connected tunnel key must be revoked.
+  describe('orphaned provision cleanup (platform-xmkv)', () => {
+    test('ensureTunnel fails after provision -> the provisioned key is revoked', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockProbeLocalPort.mockResolvedValue({ reachable: true, code: 'OK', elapsedMs: 5 });
+      mockBuildContext.mockReturnValue({
+        originalUrl: 'http://localhost:3011', targetUrl: 'http://localhost:3011', isLocalhost: true,
+      });
+      mockResolveTargetUrl.mockReturnValue('http://localhost:3011');
+      mockFindExistingTunnel.mockReturnValue(null);
+      const prov = { tunnelKey: 'key', tunnelId: 't-orphan', keyId: 'kid-orphan' };
+      mockProvision.mockResolvedValue(prov);
+      mockEnsureTunnel.mockRejectedValue(new Error('relay down'));
+
+      await expect(
+        probePageHandler({ targets: [{ url: 'http://localhost:3011' }] } as any, defaultContext),
+      ).rejects.toThrow();
+
+      expect(mockRevokeTunnel).toHaveBeenCalledWith(prov);
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
   describe('unhealthy tunnel disposition', () => {
     // setupHappyPath re-arms probeTunnelHealth as healthy for the localhost path,
     // so the failing verdict has to be installed after it.

@@ -105,7 +105,7 @@ describe('triggerCrawlHandler — dev mode', () => {
   });
 
   test('localhost url passes through without tunnel provisioning', async () => {
-    const res = await triggerCrawlHandler({ url: LOCALHOST_URL }, ctx);
+    const res = await triggerCrawlHandler({ url: LOCALHOST_URL, projectUuid: '269532cb-0000-0000-0000-000000000000' }, ctx);
 
     expect(res.isError).toBeFalsy();
     expect(mockProvision).not.toHaveBeenCalled();
@@ -114,13 +114,13 @@ describe('triggerCrawlHandler — dev mode', () => {
   });
 
   test('TCP pre-flight still runs in dev mode', async () => {
-    await triggerCrawlHandler({ url: LOCALHOST_URL }, ctx);
+    await triggerCrawlHandler({ url: LOCALHOST_URL, projectUuid: '269532cb-0000-0000-0000-000000000000' }, ctx);
 
     expect(mockProbeLocalPort).toHaveBeenCalledWith(3000);
   });
 
   test('localhost url is forwarded to executeWorkflow as-is', async () => {
-    await triggerCrawlHandler({ url: LOCALHOST_URL }, ctx);
+    await triggerCrawlHandler({ url: LOCALHOST_URL, projectUuid: '269532cb-0000-0000-0000-000000000000' }, ctx);
 
     expect(mockExecute).toHaveBeenCalledWith(
       'tmpl-crawl-uuid',
