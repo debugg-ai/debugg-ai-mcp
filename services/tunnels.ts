@@ -4,6 +4,7 @@
  * Called before executeWorkflow so the tunnel URL is known before execution starts.
  */
 
+import { config } from '../config/index.js';
 import { AxiosTransport } from '../utils/axiosTransport.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
 import {
@@ -167,7 +168,11 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
         transport?: string;
         relayUrl?: string;
         tunnelDomain?: string;
-      }>('api/v1/tunnels/', { purpose, transports: [...SUPPORTED_TRANSPORTS] });
+      }>('api/v1/tunnels/', {
+        purpose,
+        transports: [...SUPPORTED_TRANSPORTS],
+        client_version: config.server.version,
+      });
     } catch (err) {
       throw classifyProvisionError(err);
     }
@@ -193,9 +198,9 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
         message:
           'Tunnel provisioning selected the ngrok transport, which this version of ' +
           '@debugg-ai/debugg-ai-mcp no longer implements (it offered: ' +
-          `${SUPPORTED_TRANSPORTS.join(', ')}). Either the backend has not been moved off ngrok yet, ` +
-          'or this account is still pinned to it. Pin @debugg-ai/debugg-ai-mcp@4.4.1 until the ' +
-          'backend serves debugg tunnels.',
+          `${SUPPORTED_TRANSPORTS.join(', ')}). Run ` +
+          '`npx @debugg-ai/debugg-ai-mcp@latest` and restart your MCP client. If the backend still ' +
+          'answers ngrok, the backend is out of date; please report it.',
         retryable: false,
       });
     }
@@ -214,8 +219,8 @@ export const createTunnelsService = (tx: AxiosTransport): TunnelsService => {
       throw new TunnelProvisionError({
         message:
           'Tunnel provisioning returned no relayUrl/tunnelDomain, so there is no debugg tunnel to ' +
-          'connect to. This backend predates the debugg tunnel server; pin ' +
-          '@debugg-ai/debugg-ai-mcp@4.4.1 until it is upgraded.',
+          'connect to. Run `npx @debugg-ai/debugg-ai-mcp@latest` and restart your MCP client. If the ' +
+          'backend still answers without a relayUrl, the backend is out of date; please report it.',
         retryable: false,
       });
     }

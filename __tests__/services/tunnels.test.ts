@@ -42,10 +42,10 @@ describe('provision()', () => {
     // The body also advertises the transports this client speaks, and the
     // result carries the connect details the backend issued — see
     // __tests__/services/tunnels.transport.test.ts (bead debugg_ai_mcp-xkoh.5).
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', expect.objectContaining({
       purpose: 'workflow',
       transports: ['debugg'],
-    });
+    }));
     expect(result).toEqual({
       tunnelId: 'tun-123',
       tunnelKey: 'key-abc',
@@ -61,10 +61,10 @@ describe('provision()', () => {
 
     await service.provision('live_session');
 
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', expect.objectContaining({
       purpose: 'live_session',
       transports: ['debugg'],
-    });
+    }));
   });
 
   test('no args: defaults to "workflow" purpose', async () => {
@@ -72,10 +72,10 @@ describe('provision()', () => {
 
     await service.provision();
 
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', expect.objectContaining({
       purpose: 'workflow',
       transports: ['debugg'],
-    });
+    }));
   });
 
   test('response missing tunnelId: throws TunnelProvisionError with retryable:false', async () => {
@@ -338,14 +338,14 @@ describe('provisionWithRetry()', () => {
       backoffMs: [1],
     });
 
-    expect(mockPost).toHaveBeenNthCalledWith(1, 'api/v1/tunnels/', {
+    expect(mockPost).toHaveBeenNthCalledWith(1, 'api/v1/tunnels/', expect.objectContaining({
       purpose: 'live_session',
       transports: ['debugg'],
-    });
-    expect(mockPost).toHaveBeenNthCalledWith(2, 'api/v1/tunnels/', {
+    }));
+    expect(mockPost).toHaveBeenNthCalledWith(2, 'api/v1/tunnels/', expect.objectContaining({
       purpose: 'live_session',
       transports: ['debugg'],
-    });
+    }));
   });
 
   test('backoff: attempts sleep with the i-th backoff value (500ms default schedule)', async () => {
