@@ -72,7 +72,8 @@ maybeDescribe('live debugg tunnel against a deployed backend', () => {
     // here already means a usable debugg tunnel. There is no "skip because the
     // backend chose ngrok" branch any more — that outcome is a hard failure,
     // and a live run that hits it is telling us something real.
-    expect(provision.relayUrl).toMatch(/^wss:\/\//);
+    // The client accepts wss, or ws only against a loopback host (local stack).
+    expect(provision.relayUrl).toMatch(/^(wss:\/\/|ws:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$))/);
     expect(provision.tunnelDomain).toContain('.');
 
     const info = await (tm as any).ensureSessionTunnel(
