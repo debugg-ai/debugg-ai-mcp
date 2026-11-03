@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `check_app_in_browser` runs the same `ProjectRequired` check before provisioning a tunnel instead of after.
 - `probe_page` revokes a tunnel key whose `ensureTunnel` failed (bead xkoh.9). The old cleanup indexed a list that is empty exactly on that path, and was misaligned when a public target preceded a localhost one.
 
+### Added — the debugg tunnel honours HTTPS_PROXY (platform-neog)
+
+The tunnel's control websocket now goes through an HTTP CONNECT proxy when
+`HTTPS_PROXY` / `https_proxy` / `ALL_PROXY` / `all_proxy` is set, unless the relay
+host matches `NO_PROXY` / `no_proxy` (host, `.suffix`, `*.suffix`, `host:port`, `*`).
+`http://user:pass@host:port` proxy auth works. A proxy 407 or an unreachable proxy
+now says so, naming only the proxy host:port (never credentials). With no proxy
+variable set, behaviour is unchanged. Replaces the old "proxies are not supported"
+message. New dependency: `https-proxy-agent`.
+
 ## [6.0.0] — 2026-10-04 — BREAKING
 
 ### Changed — responses are the backend's data, not MCP-authored text
