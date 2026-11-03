@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — tunnel provision reports its client version; no downgrade advice (platform-65o4)
+
+- `POST api/v1/tunnels/` now sends `client_version`, so the backend's `Tunnel.client_version` is no longer empty and failing client versions can be told apart.
+- The two error branches that said "Pin @debugg-ai/debugg-ai-mcp@4.4.1" now say to run `npx @debugg-ai/debugg-ai-mcp@latest` and restart the MCP client; a backend that still answers ngrok is reported as out of date.
+- The live tunnel test accepts a loopback `ws://` relay, so it runs against a local stack.
+
 ### Fixed — foreign tunnel addresses no longer rewritten to localhost (platform-o7wv)
 - `replaceTunnelUrls` / `sanitizeResponseUrls` rewrote EVERY `*.tunnel.debugg.ai` host in a response to the caller's localhost origin, hiding real fixed addresses (e.g. a `pub-rt-...` tunnel). Now only the hostname(s) of the tunnel this session opened (`ctx.tunnelId` / session tunnel) are mapped back; all other tunnel-domain addresses are left as is. The session's own tunnel behaves as before.
 
