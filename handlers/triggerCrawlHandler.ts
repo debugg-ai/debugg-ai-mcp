@@ -42,6 +42,7 @@ import { detectLocalGitRef, detectRepoName } from '../utils/gitContext.js';
 import { getCrawlTemplateSlug } from '../services/workflows.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import { projectRequiredMessage } from '../utils/projectRequired.js';
 
 const logger = new Logger({ module: 'triggerCrawlHandler' });
 
@@ -128,10 +129,7 @@ export async function triggerCrawlHandler(
     if (!projectUuid && !input.environmentId) {
       const payload = {
         error: 'ProjectRequired',
-        message: (repoName
-          ? `Could not determine the DebuggAI project: no project is linked to git repo "${repoName}".`
-          : 'Could not determine the DebuggAI project: this is not a git repo and no repoName was passed.')
-          + ' Pass `projectUuid` (list yours with the `project` tool, action "list") or `repoName` (the "org/repo" of a linked project).',
+        message: projectRequiredMessage(repoName),
       };
       logger.warn(`trigger_crawl: ${payload.message}`);
       return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };

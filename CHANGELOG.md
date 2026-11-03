@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — probe_page no longer hides a failed run; check_app_in_browser ProjectRequired says what to pass (platform-y2ob.1, platform-y2ob.2)
+
+- `probe_page`: when the backend records the execution as failed/error, the response is `isError` and carries the recorded `status`, `errorMessage`, `agentError` and `errorInfo` verbatim, and each result's `error` is that message. A target that returns no page data now reports the execution status and that no page data came back instead of null fields with no reason.
+- `check_app_in_browser`: `ProjectRequired` now uses the same text as `trigger_crawl` (shared in `utils/projectRequired.ts`), naming `projectUuid` and `repoName`.
+
 ### Fixed — tunnel provision reports its client version; no downgrade advice (platform-65o4)
 
 - `POST api/v1/tunnels/` now sends `client_version`, so the backend's `Tunnel.client_version` is no longer empty and failing client versions can be told apart.

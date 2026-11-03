@@ -44,6 +44,7 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import { projectRequiredMessage } from '../utils/projectRequired.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
@@ -255,9 +256,7 @@ async function testPageChangesHandlerInner(
     if (!projectUuid && !namedEnvironmentId) {
       const payload = {
         error: 'ProjectRequired',
-        message: repoName
-          ? `No DebuggAI project found for repo "${repoName}".`
-          : 'No git repository detected and no repoName passed.',
+        message: projectRequiredMessage(repoName),
       };
       logger.warn(`check_app_in_browser: ${payload.message}`);
       return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
