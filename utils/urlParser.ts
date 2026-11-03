@@ -3,7 +3,7 @@
  * Helper functions for parsing and validating URLs, specifically for detecting localhost URLs
  */
 
-import { tunnelUrlPattern } from './tunnelDomains.js';
+import { tunnelUrlPattern, extractTunnelIdFromHost } from './tunnelDomains.js';
 
 /**
  * Represents a parsed URL with localhost detection
@@ -114,18 +114,35 @@ export function isLocalhostUrl(urlString: string): boolean {
  * Covers EVERY known tunnel domain (utils/tunnelDomains.ts), including the
  * retired `ngrok.debugg.ai` one a historical run's stored URLs still carry: a
  * domain this does not know is a hostname that leaks to the caller.
+ *
+ * When `ownTunnelIds` is given, ONLY hosts whose tunnel id (leftmost label) is
+ * listed are rewritten; foreign tunnel-domain addresses are left untouched.
+ * Omitted = legacy rewrite-everything behavior.
  */
-export function replaceTunnelUrls(value: unknown, localhostOrigin: string): unknown {
+export function replaceTunnelUrls(
+  value: unknown,
+  localhostOrigin: string,
+  ownTunnelIds?: ReadonlyArray<string | undefined>,
+): unknown {
   if (typeof value === 'string') {
-    return value.replace(tunnelUrlPattern(), localhostOrigin.replace(/\/$/, ''));
+    const target = localhostOrigin.replace(/\/$/, '');
+    if (ownTunnelIds === undefined) return value.replace(tunnelUrlPattern(), target);
+    const own = new Set(ownTunnelIds.filter((id): id is string => !!id).map(id => id.toLowerCase()));
+    // Only hosts of tunnels THIS session opened are mapped back; any other
+    // tunnel-domain address (a fixed runner/pub- tunnel, another user's) is
+    // a real public address and stays exactly as is.
+    return value.replace(tunnelUrlPattern(), (match) => {
+      const id = extractTunnelIdFromHost(match);
+      return id !== null && own.has(id.toLowerCase()) ? target : match;
+    });
   }
   if (Array.isArray(value)) {
-    return value.map(item => replaceTunnelUrls(item, localhostOrigin));
+    return value.map(item => replaceTunnelUrls(item, localhostOrigin, ownTunnelIds));
   }
   if (value !== null && typeof value === 'object') {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      result[k] = replaceTunnelUrls(v, localhostOrigin);
+      result[k] = replaceTunnelUrls(v, localhostOrigin, ownTunnelIds);
     }
     return result;
   }

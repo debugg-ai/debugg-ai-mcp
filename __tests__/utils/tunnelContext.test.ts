@@ -344,14 +344,14 @@ describe('sanitizeResponseUrls', () => {
   });
 
   test('localhost ctx: replaces the tunnel URL with the localhost origin in a string', () => {
-    const ctx = buildContext('http://localhost:3000');
+    const ctx = { ...buildContext('http://localhost:3000'), tunnelId: 'abc' };
     const value = 'Visit https://abc.tunnel.debugg.ai/page for details';
     const result = sanitizeResponseUrls(value, ctx);
     expect(result).toBe('Visit http://localhost:3000/page for details');
   });
 
   test('localhost ctx: handles nested object', () => {
-    const ctx = buildContext('http://localhost:3000');
+    const ctx = { ...buildContext('http://localhost:3000'), tunnelId: 'xyz' };
     const value = {
       url: 'https://xyz.tunnel.debugg.ai/api',
       nested: {
@@ -364,11 +364,42 @@ describe('sanitizeResponseUrls', () => {
   });
 
   test('localhost ctx: handles array values', () => {
-    const ctx = buildContext('http://localhost:3000');
+    const ctx = { ...buildContext('http://localhost:3000'), tunnelId: 'abc' };
     const value = ['https://abc.tunnel.debugg.ai', 'plain text'];
     const result = sanitizeResponseUrls(value, ctx) as string[];
     expect(result[0]).toBe('http://localhost:3000');
     expect(result[1]).toBe('plain text');
+  });
+
+  describe('foreign tunnel hosts (platform-o7wv)', () => {
+    const FOREIGN = 'https://pub-rt-abc123.tunnel.debugg.ai';
+    const mk = () => ({ ...buildContext('http://localhost:3037'), tunnelId: 'mine' });
+
+    test('foreign host in a string is left exactly as is', () => {
+      expect(sanitizeResponseUrls(`open ${FOREIGN}/x?y=1`, mk())).toBe(`open ${FOREIGN}/x?y=1`);
+    });
+
+    test('mixed text: own mapped back, foreign untouched', () => {
+      const out = sanitizeResponseUrls(
+        `a https://mine.tunnel.debugg.ai/p?q=1#h b ${FOREIGN}/z`, mk());
+      expect(out).toBe(`a http://localhost:3037/p?q=1#h b ${FOREIGN}/z`);
+    });
+
+    test('nested objects and arrays', () => {
+      const out = sanitizeResponseUrls({
+        a: [FOREIGN, 'https://mine.tunnel.debugg.ai/s'],
+        b: { c: `${FOREIGN}/k`, d: 'https://mine.tunnel.debugg.ai' },
+      }, mk()) as any;
+      expect(out.a).toEqual([FOREIGN, 'http://localhost:3037/s']);
+      expect(out.b).toEqual({ c: `${FOREIGN}/k`, d: 'http://localhost:3037' });
+    });
+
+    test('session tunnel from the manager is mapped even if ctx has no tunnelId', () => {
+      mockGetSessionTunnelInfo.mockReturnValueOnce({ tunnelId: 'sess1' });
+      const ctx = buildContext('http://localhost:3037');
+      expect(sanitizeResponseUrls(`https://sess1.tunnel.debugg.ai/a ${FOREIGN}`, ctx))
+        .toBe(`http://localhost:3037/a ${FOREIGN}`);
+    });
   });
 
   test('non-string/object/array values pass through', () => {

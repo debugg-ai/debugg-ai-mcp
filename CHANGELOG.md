@@ -5,6 +5,11 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — foreign tunnel addresses no longer rewritten to localhost (platform-o7wv)
+- `replaceTunnelUrls` / `sanitizeResponseUrls` rewrote EVERY `*.tunnel.debugg.ai` host in a response to the caller's localhost origin, hiding real fixed addresses (e.g. a `pub-rt-...` tunnel). Now only the hostname(s) of the tunnel this session opened (`ctx.tunnelId` / session tunnel) are mapped back; all other tunnel-domain addresses are left as is. The session's own tunnel behaves as before.
+
 ## [6.0.0] — 2026-10-04 — BREAKING
 
 ### Changed — responses are the backend's data, not MCP-authored text
