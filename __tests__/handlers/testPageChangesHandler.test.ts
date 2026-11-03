@@ -1546,14 +1546,17 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(mockPoll).not.toHaveBeenCalled();
     });
 
-    test('fail-fast is after template resolution but before executeWorkflow', async () => {
-      setupHappyPath({ isLocalhost: false });
+    test('fail-fast is before the tunnel and before executeWorkflow (platform-xmkv)', async () => {
+      setupHappyPath({ isLocalhost: true });
       mockFindProject.mockResolvedValue(null);
 
-      await testPageChangesHandler(defaultInput, defaultContext);
+      const result = await testPageChangesHandler({ ...defaultInput, url: 'http://localhost:3000' } as any, defaultContext);
 
-      expect(mockFindTemplate).toHaveBeenCalled(); // template resolution ran
-      expect(mockExecute).not.toHaveBeenCalled();  // execution did not
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text!).error).toBe('ProjectRequired');
+      expect(mockProvision).not.toHaveBeenCalled(); // no tunnel was provisioned
+      expect(mockEnsureTunnel).not.toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
     });
 
     test('resolved project → proceeds and passes project_id in contextData', async () => {

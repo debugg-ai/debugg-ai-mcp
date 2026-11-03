@@ -211,19 +211,12 @@ maybeDescribe('probe_page through a debugg tunnel', () => {
     expect(observed.revokedTunnelId).toBe(TUNNEL_ID);
   }, 30000);
 
-  // Pins a KNOWN DEFECT, filed as bead debugg_ai_mcp-xkoh.9 and deliberately
-  // not fixed in this arc.
-  //
-  // probePageHandler's orphan-revoke loop reads
-  //   const tc = targetContexts[i]; if (tc && !tc.tunnelId && provision) ...
-  // but when ensureTunnel throws, `targetContexts.push(tunneled)` never runs,
-  // so `tc` is undefined and nothing is revoked — a provisioned tunnel is
-  // leaked until it expires. It predates this arc (the same loop skipped
-  // the client's own revoke) and probe_page is the only handler with
-  // it, because it is the batch one.
-  //
-  // Whoever fixes xkoh.9 flips this assertion to expect 'tunnels.revoke'.
-  test('a tunnel that never connects is NOT revoked today — pins bead xkoh.9', async () => {
+  // Was a pinned defect (bead debugg_ai_mcp-xkoh.9): probePageHandler's orphan
+  // loop indexed targetContexts, which is undefined exactly when ensureTunnel
+  // throws, so a provisioned tunnel leaked until it expired. Fixed in
+  // platform-xmkv: the handler tracks which provisions connected and revokes
+  // the rest.
+  test('a tunnel that never connects IS revoked (xkoh.9, fixed in platform-xmkv)', async () => {
     server.authorize = () => 401;
 
     await expect(
@@ -238,6 +231,6 @@ maybeDescribe('probe_page through a debugg tunnel', () => {
     ).rejects.toThrow();
 
     await new Promise((r) => setTimeout(r, 100));
-    expect(observed.revokedVia).toBeUndefined();
+    expect(observed.revokedVia).toBe('tunnels.revoke');
   }, 30000);
 });

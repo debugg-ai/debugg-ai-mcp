@@ -149,6 +149,9 @@ export async function probePageHandler(
   // bare key ids because revoking follows the transport the backend picked
   // (it routes to the tunnel's own revoke endpoint).
   const acquiredProvisions: TunnelProvision[] = [];
+  // Provisions whose ensureTunnel completed with a live tunnelId. Anything in
+  // acquiredProvisions but not here is an orphaned key (platform-xmkv).
+  const connectedProvisions = new Set<TunnelProvision>();
 
   // Progress budget: 1 pre-flight + 1 template + 1 execute + N per-target captures + 1 done
   const TOTAL_STEPS = 3 + input.targets.length + 1;
@@ -217,6 +220,7 @@ export async function probePageHandler(
               const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
               throw new Error(`Tunnel creation failed for ${ctx.originalUrl}: ${msg}`);
             }
+            if (tunneled.tunnelId) connectedProvisions.add(tunnel);
 
             // NOTE: the tunnel health probe used to run right here, immediately
             // after ensureTunnel. Under the session-tunnel + Caddy model that is
@@ -528,18 +532,15 @@ export async function probePageHandler(
     // Tunnels intentionally NOT torn down — reuse pattern (bead vwd) +
     // 55-min idle auto-shutoff. Revoke only orphaned keys (we acquired the
     // key but tunnel creation failed before ensureTunnel completed).
-    // NOTE (bead debugg_ai_mcp-xkoh.9): `tc` is undefined when ensureTunnel
-    // threw, so this condition does not fire on the very path it describes.
-    // That is a pre-existing defect with its own bead and is deliberately NOT
-    // fixed here; only the endpoint the revoke goes to changed.
-    for (let i = 0; i < acquiredProvisions.length; i++) {
-      const provision = acquiredProvisions[i];
-      const tc = targetContexts[i];
-      if (tc && !tc.tunnelId && provision) {
-        client.tunnels!.revoke(provision).catch(err =>
-          logger.warn(`Failed to revoke unused tunnel ${provision.tunnelId}: ${err}`),
-        );
-      }
+    // Revoke only orphaned keys: provisioned, but ensureTunnel threw or
+    // returned no tunnelId. (The old check indexed targetContexts by provision
+    // position, which is undefined exactly when ensureTunnel threw, and
+    // misaligned whenever a public target preceded a localhost one.)
+    for (const provision of acquiredProvisions) {
+      if (connectedProvisions.has(provision)) continue;
+      client.tunnels!.revoke(provision).catch(err =>
+        logger.warn(`Failed to revoke unused tunnel ${provision.tunnelId}: ${err}`),
+      );
     }
   }
 }

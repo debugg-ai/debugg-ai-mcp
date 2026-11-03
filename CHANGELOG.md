@@ -5,6 +5,14 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — trigger_crawl fails before the tunnel when no project can be determined (platform-xmkv)
+
+- `trigger_crawl` never resolved a project (the `projectUuid` doc said "auto-detected" but only an explicit value was sent), so from a repo with no matching project the backend answered `Missing required field(s) in context_data: project_id`, which names no tool parameter and reads as a tunnel failure. It now resolves `projectUuid` > a named `environmentId` > `repoName` > the git checkout, sends the result as `projectId`, and returns `ProjectRequired` (input-validation text, tells you to pass `projectUuid` or `repoName`) BEFORE the port probe or any tunnel.
+- `check_app_in_browser` runs the same `ProjectRequired` check before provisioning a tunnel instead of after.
+- `probe_page` revokes a tunnel key whose `ensureTunnel` failed (bead xkoh.9). The old cleanup indexed a list that is empty exactly on that path, and was misaligned when a public target preceded a localhost one.
+
 ## [6.0.0] — 2026-10-04 — BREAKING
 
 ### Changed — responses are the backend's data, not MCP-authored text
