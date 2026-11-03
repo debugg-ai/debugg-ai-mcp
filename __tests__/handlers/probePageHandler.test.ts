@@ -309,6 +309,60 @@ describe('probePageHandler — batch behavior', () => {
   });
 });
 
+describe('probePageHandler — failed / empty executions are not clean successes (platform-y2ob.1)', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    setupHappyPath();
+  });
+
+  test('execution failed with errorMessage: relayed verbatim per result and at top level, isError', async () => {
+    const msg = 'Browser service unreachable: browser-mgr at http://host.docker.internal:8000 is not accepting connections';
+    mockPoll.mockResolvedValue({
+      uuid: 'exec-uuid-1', status: 'failed', durationMs: 10, errorMessage: msg,
+      nodeExecutions: [], state: { outcome: 'failed', success: false, stepsTaken: 0, error: '' },
+    });
+    const result = await probePageHandler(singleInput, defaultContext);
+    expect(result.isError).toBe(true);
+    const body = JSON.parse(result.content[0].text!);
+    expect(body.status).toBe('failed');
+    expect(body.errorMessage).toBe(msg);
+    expect(body.results[0].error).toBe(msg);
+  });
+
+  test('execution failed with only state.error: relayed as agentError and result error', async () => {
+    mockPoll.mockResolvedValue({
+      uuid: 'exec-uuid-1', status: 'failed', durationMs: 10,
+      nodeExecutions: [], state: { outcome: 'failed', success: false, stepsTaken: 0, error: 'agent blew up' },
+    });
+    const result = await probePageHandler(singleInput, defaultContext);
+    expect(result.isError).toBe(true);
+    const body = JSON.parse(result.content[0].text!);
+    expect(body.agentError).toBe('agent blew up');
+    expect(body.results[0].error).toBe('agent blew up');
+  });
+
+  test('completed but no capture node data: result says status and no page data, not clean', async () => {
+    mockPoll.mockResolvedValue({
+      uuid: 'exec-uuid-1', status: 'completed', durationMs: 10,
+      nodeExecutions: [{ nodeType: 'browser.capture', executionOrder: 1, status: 'success', outputData: {} }],
+      state: { outcome: 'completed', success: true, stepsTaken: 0, error: '' },
+    });
+    const result = await probePageHandler(singleInput, defaultContext);
+    const body = JSON.parse(result.content[0].text!);
+    expect(body.results[0].error).toContain('completed');
+    expect(body.results[0].error).toContain('no page data');
+  });
+
+  test('healthy case unchanged: no error, no top-level status, not isError', async () => {
+    const result = await probePageHandler(singleInput, defaultContext);
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(result.content[0].text!);
+    expect(body.results[0].error).toBeUndefined();
+    expect(body.status).toBeUndefined();
+    expect(body.errorMessage).toBeUndefined();
+  });
+});
+
 // §4 multi-port batch decision + §5.6 new tests: single-port batches (incl.
 // the existing all-public-URL batch above) dispatch exactly as before — one
 // repoint, one backend execution. Cross-port batches decompose into one
