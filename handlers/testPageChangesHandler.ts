@@ -44,6 +44,7 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
 
@@ -230,6 +231,45 @@ async function testPageChangesHandlerInner(
   const TOTAL_STEPS = SETUP_STEPS + MAX_EXEC_STEPS;
 
   try {
+    // --- Project: resolve + validate BEFORE any tunnel ---
+    const repoName = input.repoName || detectRepoName();
+    // An environment belongs to one project, so naming one names the project:
+    // the backend files the run under it (platform-98fv.21). The working folder's
+    // repo name is only a guess, used when no environment is named.
+    const namedEnvironmentId = input.environmentId || input.auth?.environmentId;
+
+    let lookupError: unknown;
+    const projectUuid = !namedEnvironmentId && repoName
+      ? await getCachedProjectUuid(repoName, async (repo) => {
+          try {
+            return await client.findProjectByRepoName(repo);
+          } catch (err) {
+            logger.warn(`Failed to look up project for repo "${repo}": ${err}`);
+            lookupError = err;
+            return null;
+          }
+        })
+      : undefined;
+
+    // Fail fast + actionable when project_id can't be resolved (pinned backend
+    // semantics: project_id is required). Checked BEFORE any tunnel is
+    // provisioned (platform-xmkv): a tunnel bought for a call that cannot run
+    // is a billed leak, and beats a backend node failing mid-run.
+    if (!projectUuid && !namedEnvironmentId && lookupError !== undefined && repoName) {
+      // The lookup FAILED — not "no project linked" (platform-y2ob.4).
+      const payload = projectLookupFailedPayload(repoName, lookupError);
+      logger.warn(`check_app_in_browser: ${payload.message}`);
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+    }
+    if (!projectUuid && !namedEnvironmentId) {
+      const payload = {
+        error: 'ProjectRequired',
+        message: projectRequiredMessage(repoName),
+      };
+      logger.warn(`check_app_in_browser: ${payload.message}`);
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+    }
+
     // --- Tunnel: reuse existing or provision a fresh one ---
     if (ctx.isLocalhost) {
       // Bead 1om: pre-flight local port probe BEFORE committing to backend
@@ -358,47 +398,16 @@ async function testPageChangesHandlerInner(
       await progressCallback({ progress: 2, total: TOTAL_STEPS, message: 'Locating evaluation workflow template...' });
     }
 
-    const repoName = input.repoName || detectRepoName();
-    // An environment belongs to one project, so naming one names the project:
-    // the backend files the run under it (platform-98fv.21). The working folder's
-    // repo name is only a guess, used when no environment is named.
-    const namedEnvironmentId = input.environmentId || input.auth?.environmentId;
+    // --- Resolve template (post-tunnel) ---
 
-    const [templateUuid, projectUuid] = await Promise.all([
-      // Cache key = the dispatch slug so the cache key and the lookup can never
-      // drift apart (bug clka: the key used to be a decoupled 'app evaluation'
-      // literal while the lookup searched a different string).
-      getCachedTemplateUuid(getEvalTemplateSlug(), async () => {
-        return client.workflows!.findEvaluationTemplate();
-      }),
-      !namedEnvironmentId && repoName
-        ? getCachedProjectUuid(repoName, async (repo) => {
-            try {
-              return await client.findProjectByRepoName(repo);
-            } catch (err) {
-              logger.warn(`Failed to look up project for repo "${repo}": ${err}`);
-              return null;
-            }
-          })
-        : Promise.resolve(undefined),
-    ]);
-
+    // Cache key = the dispatch slug so the cache key and the lookup can never
+    // drift apart (bug clka: the key used to be a decoupled 'app evaluation'
+    // literal while the lookup searched a different string).
+    const templateUuid = await getCachedTemplateUuid(getEvalTemplateSlug(), async () => {
+      return client.workflows!.findEvaluationTemplate();
+    });
     if (!templateUuid) {
       throw new Error(`App Evaluation workflow template not found (slug "${getEvalTemplateSlug()}").`);
-    }
-    // Fail fast + actionable when project_id can't be resolved (pinned backend
-    // semantics: project_id is required). Surfacing "link this repo to a
-    // project" now — before executeWorkflow — beats letting a backend workflow
-    // node fail mid-run several minutes into the evaluation.
-    if (!projectUuid && !namedEnvironmentId) {
-      const payload = {
-        error: 'ProjectRequired',
-        message: repoName
-          ? `No DebuggAI project found for repo "${repoName}".`
-          : 'No git repository detected and no repoName passed.',
-      };
-      logger.warn(`check_app_in_browser: ${payload.message}`);
-      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
     }
 
     // --- Build context data (camelCase here — axiosTransport auto-converts to snake_case) ---

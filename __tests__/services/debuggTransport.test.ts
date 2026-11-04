@@ -245,8 +245,8 @@ describe('handshake rejections', () => {
 
 describe('a connection that never reaches the relay says what has to be allowed', () => {
   // This is the ONE user-visible regression from the ngrok cutover: its agent
-  // honours HTTPS_PROXY and this client does not (owner decision: accepted
-  // risk). A generic "tunnel failed" would send someone hunting in the wrong
+  // honours HTTPS_PROXY; this client now does too (platform-neog), and says how to
+  // set it when egress is blocked. A generic "tunnel failed" would send someone hunting in the wrong
   // place, so the message names the host, the port, and the proxy limitation.
   const ORIGINAL_PROXY = process.env.HTTPS_PROXY;
 
@@ -271,17 +271,15 @@ describe('a connection that never reaches the relay says what has to be allowed'
     expect(error.message).toContain('443');
     expect(error.message).toMatch(/outbound/i);
     expect(error.message).toMatch(/firewall|VPN|network/i);
-    expect(error.message).toMatch(/prox/i);
     // Egress can be restored without re-provisioning, so the ladder may retry.
     expect(error.retryable).not.toBe(false);
   });
 
-  test('when a proxy env var is set, it says plainly that the tunnel ignores it', async () => {
-    process.env.HTTPS_PROXY = 'http://corp-proxy:8080';
+  test('without a proxy it tells the user how to configure one', async () => {
+    delete process.env.HTTPS_PROXY;
     const error = await failConnect('ETIMEDOUT');
-
     expect(error.message).toContain('HTTPS_PROXY');
-    expect(error.message).toMatch(/not use|not supported/i);
+    expect(error.message).not.toMatch(/not supported/i);
   });
 });
 

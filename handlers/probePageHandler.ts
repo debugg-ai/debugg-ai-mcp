@@ -149,6 +149,9 @@ export async function probePageHandler(
   // bare key ids because revoking follows the transport the backend picked
   // (it routes to the tunnel's own revoke endpoint).
   const acquiredProvisions: TunnelProvision[] = [];
+  // Provisions whose ensureTunnel completed with a live tunnelId. Anything in
+  // acquiredProvisions but not here is an orphaned key (platform-xmkv).
+  const connectedProvisions = new Set<TunnelProvision>();
 
   // Progress budget: 1 pre-flight + 1 template + 1 execute + N per-target captures + 1 done
   const TOTAL_STEPS = 3 + input.targets.length + 1;
@@ -217,6 +220,7 @@ export async function probePageHandler(
               const msg = tunnelError instanceof Error ? tunnelError.message : String(tunnelError);
               throw new Error(`Tunnel creation failed for ${ctx.originalUrl}: ${msg}`);
             }
+            if (tunneled.tunnelId) connectedProvisions.add(tunnel);
 
             // NOTE: the tunnel health probe used to run right here, immediately
             // after ensureTunnel. Under the session-tunnel + Caddy model that is
@@ -272,6 +276,9 @@ export async function probePageHandler(
     const browserSessions: any[] = [];
     let lastExecutionDurationMs: number | undefined;
     let completedOffset = 0;
+    // Executions the backend recorded as failed/error (platform-y2ob.1) —
+    // surfaced verbatim at top level, never swallowed into empty results.
+    const failedExecutions: any[] = [];
 
     for (const group of groups) {
       // §2.4: acquire this session's shared Caddy route for the group's port
@@ -390,6 +397,8 @@ export async function probePageHandler(
         }, abortController.signal);
 
         lastExecutionDurationMs = finalExecution.durationMs ?? undefined;
+        const executionFailed = isFailedStatus(finalExecution.status);
+        if (executionFailed) failedExecutions.push(finalExecution);
         if (finalExecution.browserSession) browserSessions.push(finalExecution.browserSession);
 
         // ── Format this group's results into the shared, ORIGINAL-order arrays ──
@@ -437,6 +446,13 @@ export async function probePageHandler(
           if (typeof data.surferPageUuid === 'string' && data.surferPageUuid) {
             result.surferPageUuid = data.surferPageUuid;
           }
+          // platform-y2ob.1: a target with no page data must never read as a
+          // clean success. Relay the backend's recorded failure verbatim; when
+          // it recorded none, state what was observed.
+          if (!result.error && !hasPageData(data)) {
+            result.error = executionFailureText(finalExecution)
+              ?? `Execution status: ${finalExecution.status ?? 'unknown'}; no page data was returned for this target.`;
+          }
 
           // Bead debugg_ai_mcp-6cfv.6 fix: sanitize each result against ITS
           // OWN target's tunnel context, never the whole accumulated payload.
@@ -478,6 +494,15 @@ export async function probePageHandler(
     // of their ids/sessions additively, without changing the single-group
     // (single-execution) response shape any existing caller already parses.
     if (executionIds.length > 1) responsePayload.executionIds = executionIds;
+    if (failedExecutions.length > 0) {
+      // Backend's recorded status + message, verbatim (same fields
+      // check_app_in_browser relays: errorMessage, agentError, errorInfo).
+      const f = failedExecutions[0];
+      responsePayload.status = f.status;
+      if (f.errorMessage) responsePayload.errorMessage = f.errorMessage;
+      if (f.state?.error) responsePayload.agentError = f.state.error;
+      if (f.errorInfo) responsePayload.errorInfo = f.errorInfo;
+    }
     if (browserSessions.length === 1) {
       responsePayload.browserSession = browserSessions[0];
     } else if (browserSessions.length > 1) {
@@ -514,7 +539,9 @@ export async function probePageHandler(
       }
     }
 
-    return { content: responseContent };
+    return failedExecutions.length > 0
+      ? { content: responseContent, isError: true }
+      : { content: responseContent };
   } catch (error) {
     const duration = Date.now() - startTime;
     logger.toolError('probe_page', error as Error, duration);
@@ -528,18 +555,30 @@ export async function probePageHandler(
     // Tunnels intentionally NOT torn down — reuse pattern (bead vwd) +
     // 55-min idle auto-shutoff. Revoke only orphaned keys (we acquired the
     // key but tunnel creation failed before ensureTunnel completed).
-    // NOTE (bead debugg_ai_mcp-xkoh.9): `tc` is undefined when ensureTunnel
-    // threw, so this condition does not fire on the very path it describes.
-    // That is a pre-existing defect with its own bead and is deliberately NOT
-    // fixed here; only the endpoint the revoke goes to changed.
-    for (let i = 0; i < acquiredProvisions.length; i++) {
-      const provision = acquiredProvisions[i];
-      const tc = targetContexts[i];
-      if (tc && !tc.tunnelId && provision) {
-        client.tunnels!.revoke(provision).catch(err =>
-          logger.warn(`Failed to revoke unused tunnel ${provision.tunnelId}: ${err}`),
-        );
-      }
+    // Revoke only orphaned keys: provisioned, but ensureTunnel threw or
+    // returned no tunnelId. (The old check indexed targetContexts by provision
+    // position, which is undefined exactly when ensureTunnel threw, and
+    // misaligned whenever a public target preceded a localhost one.)
+    for (const provision of acquiredProvisions) {
+      if (connectedProvisions.has(provision)) continue;
+      client.tunnels!.revoke(provision).catch(err =>
+        logger.warn(`Failed to revoke unused tunnel ${provision.tunnelId}: ${err}`),
+      );
     }
   }
+}
+
+function isFailedStatus(status: unknown): boolean {
+  return typeof status === 'string' && ['failed', 'error'].includes(status.toLowerCase());
+}
+
+function hasPageData(data: any): boolean {
+  return ['capturedUrl', 'finalUrl', 'url', 'title'].some(k => typeof data?.[k] === 'string' && data[k])
+    || typeof data?.statusCode === 'number';
+}
+
+/** The backend's own recorded failure text for an execution, verbatim. */
+function executionFailureText(exec: any): string | null {
+  if (!isFailedStatus(exec?.status)) return null;
+  return exec.errorMessage || exec.state?.error || `Execution status: ${exec.status}`;
 }

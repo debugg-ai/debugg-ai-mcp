@@ -60,6 +60,7 @@
     "@modelcontextprotocol/sdk": "^1.27.0",
     "@radically-straightforward/caddy": "^2.0.12",
     "axios": "^1.9.0",
+    "https-proxy-agent": "^7.0.6",
     "mkdirp": "^3.0.1",
     "posthog-node": "^5.26.0",
     "uuid": "^11.1.0",

@@ -1530,6 +1530,33 @@ describe('testPageChangesHandler — full handler flow', () => {
 
   // ── Bead 56kd.5: fail-fast on unresolved-but-required project_id ──────────
   describe('fail-fast on unresolved project_id (bead 56kd.5)', () => {
+
+    test('lookup ERROR (405) is reported as a lookup failure, not "not linked" (platform-y2ob.4)', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockFindProject.mockRejectedValue(Object.assign(new Error('Method "POST" not allowed.'), { statusCode: 405 }));
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('HTTP 405');
+      expect(body.message).toContain('Method "POST" not allowed.');
+      expect(body.message).not.toContain('no project is linked');
+      expect(body.detail.statusCode).toBe(405);
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('network-class lookup error names the code and still is not "not linked"', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockFindProject.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { networkCode: 'ECONNREFUSED' }));
+
+      const result = await testPageChangesHandler(defaultInput, defaultContext);
+
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('ECONNREFUSED');
+    });
     test('repo detected but not linked → ProjectRequired, no execute/poll', async () => {
       setupHappyPath({ isLocalhost: false });
       mockFindProject.mockResolvedValue(null); // repo resolves, but no linked project
@@ -1539,21 +1566,26 @@ describe('testPageChangesHandler — full handler flow', () => {
       expect(result.isError).toBe(true);
       const body = JSON.parse(result.content[0].text!);
       expect(body.error).toBe('ProjectRequired');
-      expect(body.message).toContain('No DebuggAI project found for repo');
+      expect(body.message).toContain('no project is linked to git repo');
+      expect(body.message).toContain('projectUuid');
+      expect(body.message).toContain('repoName');
       expect(body.message).not.toMatch(/link this repo|then retry/i);
       // Fails fast — never dispatches to the backend.
       expect(mockExecute).not.toHaveBeenCalled();
       expect(mockPoll).not.toHaveBeenCalled();
     });
 
-    test('fail-fast is after template resolution but before executeWorkflow', async () => {
-      setupHappyPath({ isLocalhost: false });
+    test('fail-fast is before the tunnel and before executeWorkflow (platform-xmkv)', async () => {
+      setupHappyPath({ isLocalhost: true });
       mockFindProject.mockResolvedValue(null);
 
-      await testPageChangesHandler(defaultInput, defaultContext);
+      const result = await testPageChangesHandler({ ...defaultInput, url: 'http://localhost:3000' } as any, defaultContext);
 
-      expect(mockFindTemplate).toHaveBeenCalled(); // template resolution ran
-      expect(mockExecute).not.toHaveBeenCalled();  // execution did not
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text!).error).toBe('ProjectRequired');
+      expect(mockProvision).not.toHaveBeenCalled(); // no tunnel was provisioned
+      expect(mockEnsureTunnel).not.toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
     });
 
     test('resolved project → proceeds and passes project_id in contextData', async () => {

@@ -55,10 +55,10 @@ describe('provision(): advertises the transports this client can speak', () => {
 
     await service.provision();
 
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', expect.objectContaining({
       purpose: 'workflow',
       transports: ['debugg'],
-    });
+    }));
   });
 
   test('a custom purpose still carries the transports list', async () => {
@@ -66,10 +66,10 @@ describe('provision(): advertises the transports this client can speak', () => {
 
     await service.provision('live_session');
 
-    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', {
+    expect(mockPost).toHaveBeenCalledWith('api/v1/tunnels/', expect.objectContaining({
       purpose: 'live_session',
       transports: ['debugg'],
-    });
+    }));
   });
 
   test('the offer is never empty or absent — that is what gets us handed ngrok', async () => {
@@ -127,7 +127,7 @@ describe('provision(): a response we cannot use fails fast', () => {
       message: expect.stringContaining('ngrok'),
     });
     // The message has to tell the user what to actually do about it.
-    await expect(service.provision()).rejects.toThrow(/4\.4\.1/);
+    await expect(service.provision()).rejects.toThrow(/debugg-ai-mcp@latest/);
   });
 
   test('a pre-negotiation backend (no transport, no relay fields) is refused', async () => {

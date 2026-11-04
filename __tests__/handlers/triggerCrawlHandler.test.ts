@@ -37,10 +37,13 @@ const mockReleasePortRoute = jest.fn();
 // sentinal-lwtaw.13: the handler attaches the LOCAL git ref to contextData.
 // Mock the git read so the test is hermetic (doesn't depend on this checkout).
 const mockDetectLocalGitRef = jest.fn<() => Promise<{ branch?: string; commitSha?: string }>>();
+const mockDetectRepoName = jest.fn<() => string | null>();
+const mockFindProject = jest.fn<(repo: string) => Promise<any>>();
 
 jest.unstable_mockModule('../../services/index.js', () => ({
   DebuggAIServerClient: jest.fn().mockImplementation(() => ({
     init: mockInit,
+    findProjectByRepoName: mockFindProject,
     tunnels: { provision: mockProvision, provisionWithRetry: mockProvision },
     workflows: {
       findTemplateBySlug: mockFindTemplateBySlug,
@@ -86,7 +89,7 @@ jest.unstable_mockModule('../../services/tunnel/tunnelManager.js', () => ({
 
 jest.unstable_mockModule('../../utils/gitContext.js', () => ({
   detectLocalGitRef: mockDetectLocalGitRef,
-  detectRepoName: jest.fn<() => string | null>().mockReturnValue(null),
+  detectRepoName: mockDetectRepoName,
 }));
 
 let triggerCrawlHandler: typeof import('../../handlers/triggerCrawlHandler.js').triggerCrawlHandler;
@@ -177,6 +180,9 @@ function setupHappyPath(options: { isLocalhost: boolean } = { isLocalhost: false
   mockRevokeKey.mockResolvedValue(undefined);
   // Default: honest no-git (git-present cases override per-test).
   mockDetectLocalGitRef.mockResolvedValue({});
+  // Default: the checkout's repo is linked to a DebuggAI project.
+  mockDetectRepoName.mockReturnValue('debugg-ai/some-repo');
+  mockFindProject.mockResolvedValue({ uuid: 'auto-proj-uuid', name: 'some-repo' });
 
   if (options.isLocalhost) {
     mockFindExistingTunnel.mockReturnValue(null);
@@ -330,6 +336,106 @@ describe('triggerCrawlHandler', () => {
     await triggerCrawlHandler({ url: 'https://example.com' }, defaultContext);
     const [, contextData] = mockExecute.mock.calls[0];
     expect((contextData as any).headless).toBe(true);
+  });
+
+  // ── Project resolution happens BEFORE any tunnel (platform-xmkv) ───────────
+  describe('project resolution (platform-xmkv)', () => {
+    const PROJ = '269532cb-0000-0000-0000-000000000000';
+
+
+    test('lookup ERROR (405) is reported as a lookup failure, not "not linked" (platform-y2ob.4)', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockDetectRepoName.mockReturnValue('debugg-ai/platform');
+      mockFindProject.mockRejectedValue(Object.assign(new Error('Method "POST" not allowed.'), { statusCode: 405 }));
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('HTTP 405');
+      expect(body.message).toContain('Method "POST" not allowed.');
+      expect(body.message).not.toContain('no project is linked');
+      expect(body.detail.statusCode).toBe(405);
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('network-class lookup error names the code and still is not "not linked"', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockDetectRepoName.mockReturnValue('debugg-ai/platform');
+      mockFindProject.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { networkCode: 'ECONNREFUSED' }));
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectLookupFailed');
+      expect(body.message).toContain('ECONNREFUSED');
+    });
+    test('no project resolvable + localhost: ProjectRequired BEFORE any tunnel, names projectUuid + repoName', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockDetectRepoName.mockReturnValue('debugg-ai/platform');
+      mockFindProject.mockResolvedValue(null);
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      const body = JSON.parse(result.content[0].text!);
+      expect(body.error).toBe('ProjectRequired');
+      expect(body.message).toContain('projectUuid');
+      expect(body.message).toContain('repoName');
+      expect(body.message).toContain('debugg-ai/platform');
+      expect(body.message).not.toMatch(/context_data/);
+      expect(mockProbeLocalPort).not.toHaveBeenCalled();
+      expect(mockProvision).not.toHaveBeenCalled();
+      expect(mockEnsureTunnel).not.toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('not a git repo and no projectUuid: ProjectRequired, no tunnel, no execute', async () => {
+      setupHappyPath({ isLocalhost: true });
+      mockDetectRepoName.mockReturnValue(null);
+
+      const result = await triggerCrawlHandler(localhostInput, defaultContext);
+
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text!).error).toBe('ProjectRequired');
+      expect(mockProvision).not.toHaveBeenCalled();
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    test('explicit projectUuid skips the git lookup entirely', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockDetectRepoName.mockReturnValue(null);
+      await triggerCrawlHandler({ url: 'https://example.com', projectUuid: PROJ }, defaultContext);
+      expect(mockFindProject).not.toHaveBeenCalled();
+      expect((mockExecute.mock.calls[0][1] as any).projectId).toBe(PROJ);
+    });
+
+    test('repoName input is looked up and its project id is sent as projectId', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockDetectRepoName.mockReturnValue(null);
+      mockFindProject.mockResolvedValue({ uuid: 'by-repo-uuid' });
+      await triggerCrawlHandler({ url: 'https://example.com', repoName: 'org/other' }, defaultContext);
+      expect(mockFindProject).toHaveBeenCalledWith('org/other');
+      expect((mockExecute.mock.calls[0][1] as any).projectId).toBe('by-repo-uuid');
+    });
+
+    test('git auto-detected project id is sent as projectId', async () => {
+      setupHappyPath({ isLocalhost: false });
+      await triggerCrawlHandler(publicInput, defaultContext);
+      expect((mockExecute.mock.calls[0][1] as any).projectId).toBe('auto-proj-uuid');
+    });
+
+    test('a named environmentId names the project: no lookup, no ProjectRequired', async () => {
+      setupHappyPath({ isLocalhost: false });
+      mockDetectRepoName.mockReturnValue(null);
+      const result = await triggerCrawlHandler(
+        { url: 'https://example.com', environmentId: '00000000-0000-0000-0000-000000000001' },
+        defaultContext,
+      );
+      expect(result.isError).toBeUndefined();
+      expect(mockExecute).toHaveBeenCalled();
+    });
   });
 
   // ── Local git ref → git-backed Atlas version (sentinal-lwtaw.13, MCP side) ──

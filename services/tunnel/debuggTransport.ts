@@ -35,6 +35,7 @@ import {
   type TunnelStream,
   type WebSocketLike,
 } from './protocol/index.js';
+import { resolveTunnelProxy, type TunnelProxy } from './proxy.js';
 import { registerControlProbe, unregisterControlProbe } from './probeRegistry.js';
 import type { TunnelConnectOptions, TunnelTransport, TunnelTransportError } from './transport.js';
 
@@ -79,7 +80,7 @@ void _socketIsWebSocketLike;
 /** Opens the control websocket. The default uses `ws`; tests inject a fake. */
 export type DebuggSocketFactory = (
   url: string,
-  init: { headers: Record<string, string> },
+  init: { headers: Record<string, string>; agent?: unknown },
 ) => DebuggSocketLike;
 
 export interface DebuggTransportOptions {
@@ -99,6 +100,7 @@ const DEFAULT_RECONNECT_BACKOFF_MS = [250, 500, 1000, 2000, 5000, 10000];
 const defaultSocketFactory: DebuggSocketFactory = (url, init) =>
   new WebSocket(url, {
     headers: init.headers,
+    ...(init.agent ? { agent: init.agent as never } : {}),
     // Both ends disable it: dev-server payloads are already compressed and
     // deflate's per-connection buffers break the protocol's bounded-memory
     // property (bead debugg_ai_mcp-xkoh.1.2 §0).
@@ -209,7 +211,8 @@ class DebuggTransport implements TunnelTransport {
 
     // The token rides in a header and NEVER in the URL: the ALB and nginx log
     // URLs, not headers.
-    const socket = this.socketFactory(state.relayUrl, { headers });
+    const proxy = resolveTunnelProxy(state.relayUrl);
+    const socket = this.socketFactory(state.relayUrl, proxy ? { headers, agent: proxy.agent } : { headers });
 
     // ATTACH THE SESSION NOW, not on 'open', and not after connect() resolves.
     //
@@ -256,7 +259,7 @@ class DebuggTransport implements TunnelTransport {
       };
 
       const timer = setTimeout(() => {
-        fail(egressError(state, 'the connection timed out', 'ETIMEDOUT'));
+        fail(egressError(state, 'the connection timed out', 'ETIMEDOUT', proxy));
         abandon();
       }, this.handshakeTimeoutMs);
       (timer as { unref?: () => void }).unref?.();
@@ -303,14 +306,14 @@ class DebuggTransport implements TunnelTransport {
         const status = res?.statusCode ?? 0;
         const result = interpretHandshakeResponse(status, res?.headers ?? {});
         abandon();
-        fail(handshakeFailureError(state, status, result.ok ? undefined : result.supported, result.ok ? true : result.retryable));
+        fail(handshakeFailureError(state, status, result.ok ? undefined : result.supported, result.ok ? true : result.retryable, proxy));
       });
 
       socket.on('error', (err: Error) => {
         // Before the upgrade completes this is always a connection-level
         // failure: DNS, TLS, refused, or blocked egress.
         if (!settled) abandon();
-        fail(egressError(state, err.message, (err as NodeJS.ErrnoException).code));
+        fail(egressError(state, err.message, (err as NodeJS.ErrnoException).code, proxy));
       });
     });
   }
@@ -485,6 +488,7 @@ function handshakeFailureError(
   status: number,
   supported: number[] | undefined,
   retryable: boolean,
+  proxy?: TunnelProxy,
 ): TunnelTransportError {
   switch (status) {
     case 401:
@@ -507,9 +511,13 @@ function handshakeFailureError(
       );
     case 407:
       return terminal(
-        `an HTTP proxy at your network edge intercepted the tunnel connection to ${hostOf(state.relayUrl)} ` +
-        'and demanded authentication (HTTP 407). The tunnel needs a DIRECT outbound HTTPS (443) ' +
-        'connection; proxies are not supported.',
+        proxy
+          ? `the HTTP proxy ${proxy.display} (from ${proxy.varName}) demanded authentication for the tunnel ` +
+            `connection to ${hostOf(state.relayUrl)} (HTTP 407). Put valid credentials in the proxy URL ` +
+            `(http://user:password@${proxy.display}) or ask your network admin to allow it.`
+          : `an HTTP proxy at your network edge intercepted the tunnel connection to ${hostOf(state.relayUrl)} ` +
+            'and demanded authentication (HTTP 407). Set HTTPS_PROXY=http://user:password@host:port so the ' +
+            'tunnel connects through it, or allow a direct outbound HTTPS (443) connection.',
       );
     default:
       return tunnelError(
@@ -520,21 +528,24 @@ function handshakeFailureError(
 }
 
 /**
- * A connection-level failure reaching the relay. This client does NOT honour
- * HTTPS_PROXY (the retired ngrok agent did, which is the one capability lost
- * in the cutover — design §5 "open gap"), so the message says plainly what has
- * to be allowed instead of reading as a generic tunnel error.
+ * A connection-level failure reaching the relay (or, when HTTPS_PROXY is in
+ * use, the proxy in front of it). Says plainly what has to be allowed instead
+ * of reading as a generic tunnel error. Never includes proxy credentials.
  */
-function egressError(state: TunnelState, detail: string, code?: string): TunnelTransportError {
+function egressError(state: TunnelState, detail: string, code?: string, proxy?: TunnelProxy): TunnelTransportError {
   const relayHost = hostOf(state.relayUrl);
-  const proxyVar = ['HTTPS_PROXY', 'https_proxy', 'ALL_PROXY', 'all_proxy'].find((name) => process.env[name]);
-  const proxyNote = proxyVar
-    ? ` This environment sets ${proxyVar}, which the tunnel connection does NOT use — HTTP(S) proxies are not supported for it.`
-    : ' HTTP(S) proxies are not supported for the tunnel connection.';
+  if (proxy) {
+    return tunnelError(
+      `could not connect to the debugg tunnel server at ${relayHost} through the HTTP proxy ${proxy.display} ` +
+      `(from ${proxy.varName}) (${code ?? 'connection failed'}: ${detail}). Check that the proxy is reachable ` +
+      `and allows CONNECT to ${relayHost}, or set NO_PROXY=${relayHost} to connect directly.`,
+      true,
+    );
+  }
   return tunnelError(
     `could not reach the debugg tunnel server at ${relayHost} (${code ?? 'connection failed'}: ${detail}). ` +
-    `Testing a local app needs a direct outbound HTTPS connection to ${relayHost} on port 443 — ` +
-    `allow it in your firewall, VPN or container network rules.${proxyNote}`,
+    `Testing a local app needs outbound HTTPS to ${relayHost} on port 443 — allow it in your firewall, ` +
+    'VPN or container network rules, or set HTTPS_PROXY=http://host:port if you reach the internet through an HTTP proxy.',
     true,
   );
 }

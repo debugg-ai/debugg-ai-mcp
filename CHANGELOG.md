@@ -5,6 +5,44 @@ All notable changes to the DebuggAI MCP project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — REST client now CONNECT-tunnels through HTTPS_PROXY / honors NO_PROXY (platform-y2ob.3)
+- The API client (axios) sent an absolute-URI request to the proxy, which CONNECT-only proxies reject with HTTP 405, so a proxied user failed before any tunnel was attempted. It now opens a CONNECT tunnel via the same proxy selection and NO_PROXY matching as the tunnel websocket. A 407 names the proxy host (never its credentials). No proxy, or a NO_PROXY match: unchanged.
+
+### Fixed — a failed project lookup no longer reads as "no project linked" (platform-y2ob.4)
+- check_app_in_browser and trigger_crawl swallowed any error from the repo-to-project lookup and then said no project is linked to the repo. A lookup error now returns `ProjectLookupFailed` with the HTTP status and the backend's message; only a successful lookup that finds nothing says `ProjectRequired`.
+
+### Fixed — probe_page no longer hides a failed run; check_app_in_browser ProjectRequired says what to pass (platform-y2ob.1, platform-y2ob.2)
+
+- `probe_page`: when the backend records the execution as failed/error, the response is `isError` and carries the recorded `status`, `errorMessage`, `agentError` and `errorInfo` verbatim, and each result's `error` is that message. A target that returns no page data now reports the execution status and that no page data came back instead of null fields with no reason.
+- `check_app_in_browser`: `ProjectRequired` now uses the same text as `trigger_crawl` (shared in `utils/projectRequired.ts`), naming `projectUuid` and `repoName`.
+
+### Fixed — tunnel provision reports its client version; no downgrade advice (platform-65o4)
+
+- `POST api/v1/tunnels/` now sends `client_version`, so the backend's `Tunnel.client_version` is no longer empty and failing client versions can be told apart.
+- The two error branches that said "Pin @debugg-ai/debugg-ai-mcp@4.4.1" now say to run `npx @debugg-ai/debugg-ai-mcp@latest` and restart the MCP client; a backend that still answers ngrok is reported as out of date.
+- The live tunnel test accepts a loopback `ws://` relay, so it runs against a local stack.
+
+### Fixed — foreign tunnel addresses no longer rewritten to localhost (platform-o7wv)
+- `replaceTunnelUrls` / `sanitizeResponseUrls` rewrote EVERY `*.tunnel.debugg.ai` host in a response to the caller's localhost origin, hiding real fixed addresses (e.g. a `pub-rt-...` tunnel). Now only the hostname(s) of the tunnel this session opened (`ctx.tunnelId` / session tunnel) are mapped back; all other tunnel-domain addresses are left as is. The session's own tunnel behaves as before.
+
+### Fixed — trigger_crawl fails before the tunnel when no project can be determined (platform-xmkv)
+
+- `trigger_crawl` never resolved a project (the `projectUuid` doc said "auto-detected" but only an explicit value was sent), so from a repo with no matching project the backend answered `Missing required field(s) in context_data: project_id`, which names no tool parameter and reads as a tunnel failure. It now resolves `projectUuid` > a named `environmentId` > `repoName` > the git checkout, sends the result as `projectId`, and returns `ProjectRequired` (input-validation text, tells you to pass `projectUuid` or `repoName`) BEFORE the port probe or any tunnel.
+- `check_app_in_browser` runs the same `ProjectRequired` check before provisioning a tunnel instead of after.
+- `probe_page` revokes a tunnel key whose `ensureTunnel` failed (bead xkoh.9). The old cleanup indexed a list that is empty exactly on that path, and was misaligned when a public target preceded a localhost one.
+
+### Added — the debugg tunnel honours HTTPS_PROXY (platform-neog)
+
+The tunnel's control websocket now goes through an HTTP CONNECT proxy when
+`HTTPS_PROXY` / `https_proxy` / `ALL_PROXY` / `all_proxy` is set, unless the relay
+host matches `NO_PROXY` / `no_proxy` (host, `.suffix`, `*.suffix`, `host:port`, `*`).
+`http://user:pass@host:port` proxy auth works. A proxy 407 or an unreachable proxy
+now says so, naming only the proxy host:port (never credentials). With no proxy
+variable set, behaviour is unchanged. Replaces the old "proxies are not supported"
+message. New dependency: `https-proxy-agent`.
+
 ## [6.0.0] — 2026-10-04 — BREAKING
 
 ### Changed — responses are the backend's data, not MCP-authored text
