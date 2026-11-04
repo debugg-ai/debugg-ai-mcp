@@ -3,10 +3,9 @@ import { TestSuiteInputSchema, ValidatedTool } from '../types/index.js';
 import { testSuiteHandler } from '../handlers/testSuiteHandler.js';
 import { DESTRUCTIVE } from './annotations.js';
 
-const DESCRIPTION = `Manage and run test suites. Identify a suite by suiteUuid, or suiteName + a project identifier (projectUuid|projectName). Pass an "action":
+const DESCRIPTION = `Manage test suites. Identify a suite by suiteUuid, or suiteName + a project identifier (projectUuid|projectName). Pass an "action":
   - "list"    {projectUuid|projectName, search?, page?, pageSize?} → paginated suites with status/pass-rate.
   - "create"  {name, description, projectUuid|projectName} → create a suite.
-  - "run"     {suiteUuid|(suiteName+project), targetUrl?} → run all tests async. Poll with action:"results".
   - "results" {suiteUuid|(suiteName+project)} → suite + per-test outcomes.
   - "delete"  {suiteUuid|(suiteName+project), confirm?} → soft-delete (DESTRUCTIVE; requires confirmation).`;
 
@@ -28,7 +27,7 @@ export function buildTestSuiteTool(): Tool {
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list', 'create', 'run', 'results', 'delete'], description: 'Operation to perform.' },
+        action: { type: 'string', enum: ['list', 'create', 'results', 'delete'], description: 'Operation to perform.' },
         ...SUITE_PROPS,
         ...PROJECT_PROPS,
         name: { type: 'string', description: '[create] Suite name.' },
@@ -36,7 +35,6 @@ export function buildTestSuiteTool(): Tool {
         search: { type: 'string', description: '[list] Text filter over name/description.' },
         page: { type: 'number', description: '[list] Page (1-indexed).' },
         pageSize: { type: 'number', description: '[list] Page size (1..100).' },
-        targetUrl: { type: 'string', description: '[run] Override the default test target (full URL).' },
         confirm: { type: 'boolean', description: '[delete] Set true to confirm deletion (when the client cannot prompt).' },
       },
       required: ['action'],

@@ -82,11 +82,15 @@ describe('routing', () => {
     await environmentHandler({ action: 'update', uuid: UUID, name: 'p' } as any, ctx);
     expect(updateEnvironment.updateEnvironmentHandler).toHaveBeenCalled();
   });
-  test('test_suite.run/results route correctly', async () => {
-    await testSuiteHandler({ action: 'run', suiteUuid: UUID } as any, ctx);
+  test('test_suite.results routes correctly', async () => {
     await testSuiteHandler({ action: 'results', suiteUuid: UUID } as any, ctx);
-    expect(runTestSuite.runTestSuiteHandler).toHaveBeenCalled();
     expect(getTestSuiteResults.getTestSuiteResultsHandler).toHaveBeenCalled();
+  });
+  test('test_suite.run is retired: clear error, backend never called', async () => {
+    const res: any = await testSuiteHandler({ action: 'run', suiteUuid: UUID } as any, ctx);
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('ActionRetired');
+    expect(runTestSuite.runTestSuiteHandler).not.toHaveBeenCalled();
   });
   test('executions.get/list → searchExecutionsHandler', async () => {
     await executionsHandler({ action: 'get', uuid: UUID } as any, ctx);
