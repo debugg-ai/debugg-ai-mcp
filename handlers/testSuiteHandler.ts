@@ -6,7 +6,6 @@ import { TestSuiteInput, ToolContext, ToolResponse } from '../types/index.js';
 import { ensureConfirmed } from '../utils/confirmDestructive.js';
 import { searchTestSuitesHandler } from './searchTestSuitesHandler.js';
 import { createTestSuiteHandler } from './createTestSuiteHandler.js';
-import { runTestSuiteHandler } from './runTestSuiteHandler.js';
 import { getTestSuiteResultsHandler } from './getTestSuiteResultsHandler.js';
 import { deleteTestSuiteHandler } from './deleteTestSuiteHandler.js';
 
@@ -20,10 +19,15 @@ export async function testSuiteHandler(input: TestSuiteInput, ctx: ToolContext):
       const { action, ...rest } = input;
       return createTestSuiteHandler(rest, ctx);
     }
-    case 'run': {
-      const { action, ...rest } = input;
-      return runTestSuiteHandler(rest, ctx);
-    }
+    case 'run':
+      // The server no longer has a suite-run route; calling it only yields a raw HTML 404.
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          error: 'ActionRetired',
+          message: 'test_suite "run" is no longer supported: the DebuggAI server removed suite runs. Use action "results" for existing outcomes, or check_app_in_browser / trigger_crawl to exercise an app.',
+        }, null, 2) }],
+        isError: true,
+      };
     case 'results': {
       const { action, ...rest } = input;
       return getTestSuiteResultsHandler(rest, ctx);

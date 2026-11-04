@@ -15,12 +15,12 @@ describe('test-management tools — consolidated surface', () => {
     }
   });
 
-  test('test_suite exposes list/create/run/results/delete actions + a handler', () => {
+  test('test_suite exposes list/create/results/delete actions (run retired) + a handler', () => {
     const tool = getTool('test_suite');
     expect(tool).toBeDefined();
     expect(typeof tool!.handler).toBe('function');
     const actions = (getTools().find(t => t.name === 'test_suite')!.inputSchema as any).properties.action.enum;
-    expect(actions.sort()).toEqual(['create', 'delete', 'list', 'results', 'run']);
+    expect(actions.sort()).toEqual(['create', 'delete', 'list', 'results']);
   });
 
   test('test_case exposes create/update/delete actions + a handler', () => {

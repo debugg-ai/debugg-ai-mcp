@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — test_suite `run` retired (platform-g3am)
+- The server removed its suite-run route, so `run` only produced a raw HTML 404. It is gone from the tool's actions and description; a call from an older client now returns an `ActionRetired` error naming `results`, `check_app_in_browser` and `trigger_crawl`, without contacting the server.
+
 ### Fixed — REST client now CONNECT-tunnels through HTTPS_PROXY / honors NO_PROXY (platform-y2ob.3)
 - The API client (axios) sent an absolute-URI request to the proxy, which CONNECT-only proxies reject with HTTP 405, so a proxied user failed before any tunnel was attempted. It now opens a CONNECT tunnel via the same proxy selection and NO_PROXY matching as the tunnel websocket. A 407 names the proxy host (never its credentials). No proxy, or a NO_PROXY match: unchanged.
 
