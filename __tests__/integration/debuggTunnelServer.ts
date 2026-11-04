@@ -49,6 +49,8 @@ export class FakeTunnelServerForTests {
   /** Every session this server has accepted: a reconnect leaves one draining. */
   private readonly sessions = new Set<TunnelSession>();
   private readonly sockets = new Set<any>();
+  /** Browser-side connections on the ingress: close() waits on every one of them. */
+  private readonly browserSockets = new Set<net.Socket>();
 
   controlPort = 0;
   ingressPort = 0;
@@ -94,7 +96,11 @@ export class FakeTunnelServerForTests {
       });
     });
 
-    this.ingress = net.createServer((sock) => this.onBrowserConnection(sock));
+    this.ingress = net.createServer((sock) => {
+      this.browserSockets.add(sock);
+      sock.on('close', () => this.browserSockets.delete(sock));
+      this.onBrowserConnection(sock);
+    });
 
     await new Promise<void>((r) => this.controlHttp.listen(0, '127.0.0.1', r));
     await new Promise<void>((r) => this.ingress.listen(0, '127.0.0.1', r));
@@ -120,16 +126,26 @@ export class FakeTunnelServerForTests {
   }
 
   async stop(): Promise<void> {
+    // Stop accepting FIRST. Closing a session with GOING_AWAY tells the client to
+    // reconnect; if the listener is still open, that reconnect lands after the
+    // sockets were cleared and holds close() open until the hook times out.
+    const closing = [
+      new Promise<void>((r) => this.wss.close(() => r())),
+      new Promise<void>((r) => this.controlHttp.close(() => r())),
+      new Promise<void>((r) => this.ingress.close(() => r())),
+    ];
     for (const session of this.sessions) {
       try { session.close(ErrorCode.GOING_AWAY, 'test teardown'); } catch { /* already closed */ }
     }
     this.sessions.clear();
     for (const socket of this.sockets) socket.terminate();
+    for (const client of this.wss.clients ?? []) client.terminate();
     this.sockets.clear();
+    for (const sock of this.browserSockets) sock.destroy();
+    this.browserSockets.clear();
+    this.controlHttp.closeAllConnections?.();
     this.session = undefined;
-    await new Promise<void>((r) => this.wss.close(() => r()));
-    await new Promise<void>((r) => this.controlHttp.close(() => r()));
-    await new Promise<void>((r) => this.ingress.close(() => r()));
+    await Promise.all(closing);
   }
 
   /**
