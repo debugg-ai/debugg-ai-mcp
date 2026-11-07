@@ -188,3 +188,19 @@ describe('adaptVerdict — logins relay', () => {
     expect(v.logins).toBeUndefined();
   });
 });
+
+describe('adaptVerdict — brain never started', () => {
+  const base: any = { uuid: 'exec-9', status: 'completed', startedAt: null, completedAt: null, durationMs: 457468, state: null, errorMessage: '', errorInfo: null, nodeExecutions: [] };
+  test('backend "BrowserUseBrain.initialize() must be called" reason becomes a clear start-up error', () => {
+    const v = adaptVerdict({ ...base, verdict: { outcome: 'error', reason: 'BrowserUseBrain.initialize() must be called before decide_next_action()' } } as any);
+    expect(v.outcome).toBe('error');
+    expect(v.reason).toMatch(/never started its agent loop/);
+    expect(v.reason).toMatch(/exec-9/);
+    expect(v.reason).toMatch(/BrowserUseBrain\.initialize\(\)/); // original kept
+  });
+  test('stalled option yields outcome error with a clear reason', () => {
+    const v = adaptVerdict({ ...base, status: 'running' } as any, { stalled: { elapsedMs: 240000 } });
+    expect(v.outcome).toBe('error');
+    expect(v.reason).toMatch(/never started its agent loop after 240s \(0 steps taken\)/);
+  });
+});

@@ -240,7 +240,18 @@ export function credentialSubstitutions(
   );
 }
 
+/** Backend agent loop was never started: an internal init bug, not a verdict on the user's page. */
+const BRAIN_UNINITIALISED = /BrowserUseBrain\.initialize\(\)|must be called before decide_next_action/i;
+
+export function stalledReason(facts: { executionUuid?: string; elapsedMs?: number }): string {
+  const where = facts.executionUuid ? ` (execution ${facts.executionUuid})` : '';
+  const secs = typeof facts.elapsedMs === 'number' ? ` after ${Math.round(facts.elapsedMs / 1000)}s` : '';
+  return `The run never started its agent loop${secs} (0 steps taken)${where}. This is a backend/browser-session start-up failure, not a result about your page; retry, and if it repeats report this execution id.`;
+}
+
 export interface AdaptVerdictOptions {
+  /** Facts from pollExecution's no-progress stall exit (0 agent steps past the limit). */
+  stalled?: { elapsedMs?: number };
   /**
    * Force the outcome (used by the poll-timeout path, bead 56kd.3, where there
    * is no terminal backend verdict to read).
@@ -274,10 +285,11 @@ export function adaptVerdict(
   const rawOutcome = opts.outcomeOverride ?? verdict?.outcome;
   const raw = typeof rawOutcome === 'string' ? rawOutcome.trim() : '';
   const isOurPollTimeout = opts.outcomeOverride === 'timeout';
+  const isStalled = !!opts.stalled;
   const backendReason =
     typeof verdict?.reason === 'string' && verdict.reason.trim() !== '' ? verdict.reason : null;
 
-  if (!isOurPollTimeout && !raw) {
+  if (!isOurPollTimeout && !isStalled && !raw) {
     // A run that never attempted a test (platform-98fv.16): no verdict, and the
     // backend's recorded reason, verbatim.
     if (verdict?.skipped === true) {
@@ -297,7 +309,7 @@ export function adaptVerdict(
   // error covers: the backend's own 'error'/'timeout', every retired non-answer
   // (inconclusive/unverified/unknown/abandoned), anything a newer backend
   // invents, and a verdict that never arrived.
-  const outcome = toUserFacingOutcome(raw);
+  const outcome = isStalled ? 'error' : toUserFacingOutcome(raw);
 
   const relay: RelayVerdict = { outcome };
   if (budget && typeof budget === 'object') relay.budget = budget;
@@ -311,12 +323,16 @@ export function adaptVerdict(
   // any reason we are holding came from a mid-flight poll — it describes a run
   // still in progress, not its result. Relaying it next to outcome='error'
   // would pair someone else's "looks good" with our failure.
-  if (isOurPollTimeout) {
+  if (isStalled) {
+    relay.reason = stalledReason({ executionUuid: execution?.uuid, ...opts.stalled });
+  } else if (isOurPollTimeout) {
     relay.reason = pollTimeoutReason({
       executionUuid: execution?.uuid,
       lastStatus: execution?.status,
       ...(opts.pollTimeout ?? {}),
     });
+  } else if (backendReason && BRAIN_UNINITIALISED.test(backendReason)) {
+    relay.reason = `${stalledReason({ executionUuid: execution?.uuid, elapsedMs: execution?.durationMs ?? undefined })} Backend said: ${backendReason}`;
   } else if (backendReason) {
     relay.reason = backendReason;
   } else if (outcome === 'error') {
