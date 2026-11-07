@@ -16,6 +16,15 @@ const POLL_INTERVAL_INITIAL_MS = 1000;
 const POLL_INTERVAL_MAX_MS = 5000;
 const POLL_BACKOFF_MULTIPLIER = 1.5;
 const EXECUTION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+// A run that is still non-terminal with ZERO agent steps this long after we
+// started polling is not "slow", it is wedged (e.g. the backend brain never
+// initialised, so the agent loop never starts). Stop waiting and say so rather
+// than burning the full run budget. Override with DEBUGGAI_NO_PROGRESS_TIMEOUT_MS.
+const DEFAULT_NO_PROGRESS_TIMEOUT_MS = 4 * 60 * 1000;
+const noProgressTimeoutMs = (): number => {
+  const n = Number(process.env.DEBUGGAI_NO_PROGRESS_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_NO_PROGRESS_TIMEOUT_MS;
+};
 
 /**
  * Stable dispatch slugs for the three MCP browser workflows (bug clka /
@@ -148,6 +157,9 @@ export interface WorkflowExecution {
   timedOut?: boolean;
   /** Facts the poll loop observed when ITS deadline expired (see pollExecution). */
   pollTimeout?: { elapsedMs?: number; pollCount?: number };
+  /** Set by pollExecution when the run sat non-terminal with 0 agent steps past the no-progress limit. */
+  stalled?: boolean;
+  stall?: { elapsedMs?: number; pollCount?: number };
   errorMessage: string;
   errorInfo: { message?: string; failedNodeId?: string } | null;
   nodeExecutions: NodeExecution[];
@@ -312,6 +324,25 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         // Check abort before sleeping to avoid missing a signal fired between polls
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
+        }
+        const hasSteps =
+          (execution.state?.stepsTaken ?? 0) > 0 ||
+          (execution.nodeExecutions ?? []).some(n => n.nodeType === 'brain.step');
+        if (!hasSteps && Date.now() - pollStart >= noProgressTimeoutMs()) {
+          Telemetry.capture(TelemetryEvents.WORKFLOW_EXECUTED, {
+            status: execution.status,
+            success: false,
+            outcome: 'stalled',
+            stepsTaken: 0,
+            durationMs: Date.now() - pollStart,
+            pollCount,
+            finalIntervalMs: intervalMs,
+          });
+          return {
+            ...execution,
+            stalled: true,
+            stall: { elapsedMs: Date.now() - pollStart, pollCount },
+          };
         }
         const sleepMs = intervalMs;
         await new Promise<void>((resolve, reject) => {

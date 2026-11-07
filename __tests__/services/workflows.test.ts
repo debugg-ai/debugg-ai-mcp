@@ -355,6 +355,36 @@ describe('pollExecution()', () => {
   });
 });
 
+describe('pollExecution() no-progress stall', () => {
+  test('non-terminal with 0 agent steps past the limit: returns stalled early, long before the 10-min deadline', async () => {
+    mockGet.mockResolvedValue(makeExecution({ status: 'running', nodeExecutions: [] }));
+    jest.useFakeTimers();
+    let settledAt = 0;
+    const start = Date.now();
+    const p = service.pollExecution('exec-stall').then(v => { settledAt = Date.now() - start; return v; });
+    for (let i = 0; i < 100; i++) await jest.advanceTimersByTimeAsync(3000);
+    const r = await p;
+    expect(r.stalled).toBe(true);
+    expect(r.timedOut).toBeUndefined();
+    expect(settledAt).toBeLessThan(5 * 60 * 1000);
+    expect(r.stall?.elapsedMs).toBeGreaterThanOrEqual(4 * 60 * 1000);
+  });
+
+  test('a run that took at least one step is never flagged stalled', async () => {
+    let calls = 0;
+    mockGet.mockImplementation(async () => {
+      calls++;
+      return calls < 100
+        ? makeExecution({ status: 'running', state: { outcome: '', success: false, stepsTaken: 1, error: '' } })
+        : makeExecution({ status: 'completed' });
+    });
+    jest.useFakeTimers();
+    const p = service.pollExecution('exec-ok');
+    for (let i = 0; i < 100; i++) await jest.advanceTimersByTimeAsync(5000);
+    expect((await p).stalled).toBeUndefined();
+  });
+});
+
 // ── listExecutions — the run verdict on a list row (platform-98fv.16) ────────
 // The backend's list row carries `outcome` (the run verdict: pass|fail|error, or
 // null for a run that never attempted a test) and `skip_reason` (camelCased to

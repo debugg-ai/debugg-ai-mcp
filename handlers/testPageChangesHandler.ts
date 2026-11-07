@@ -660,7 +660,7 @@ async function testPageChangesHandlerInner(
       // the response) must not POST a cancel for finished work. EXCEPTION: on a
       // poll-deadline timeout the execution may still be running backend-side,
       // so keep it cancellable.
-      if (!finalExecution.timedOut) currentExecutionUuid = '';
+      if (!finalExecution.timedOut && !finalExecution.stalled) currentExecutionUuid = '';
 
       // Decide retry vs exit: only retry on documented transient signatures
       // AND while we still have budget. Otherwise break and surface whatever
@@ -668,7 +668,7 @@ async function testPageChangesHandlerInner(
       if (attempt > MAX_RETRIES) break;
       // A poll-deadline timeout (bead 56kd.3) is never retried — surface the
       // partial result instead of burning another 10 minutes.
-      if (finalExecution.timedOut) break;
+      if (finalExecution.timedOut || finalExecution.stalled) break;
       if (!isTransientWorkflowError(finalExecution)) break;
       logger.warn(
         `Transient backend error detected (${transientReasonTag(finalExecution) ?? 'unknown'}) — ` +
@@ -695,6 +695,7 @@ async function testPageChangesHandlerInner(
       // real numbers from the deadline path, so the reason is a record of what
       // we observed rather than a fixed sentence
       pollTimeout: timedOut ? finalExecution.pollTimeout : undefined,
+      stalled: finalExecution.stalled ? finalExecution.stall : undefined,
     });
     const relayActionTrace = verdict.actionTrace;
 
