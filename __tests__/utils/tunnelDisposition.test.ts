@@ -54,6 +54,7 @@ describe('ENDPOINT_GONE_TUNNEL_CODES', () => {
   // away a working tunnel mid-session.
   test('contains exactly the markers that PROVE the endpoint is gone', () => {
     expect([...ENDPOINT_GONE_TUNNEL_CODES].sort()).toEqual([
+      'CONTROL_CHANNEL_CLOSED',
       'DEBUGG_TUNNEL_OFFLINE',
       'DEBUGG_TUNNEL_UNKNOWN',
     ]);

@@ -171,9 +171,11 @@ export async function probeTunnelHealth(
   const started = Date.now();
 
   let last: TunnelHealthProbeResult | undefined;
+  let allClosed = true;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const { result, retryable } = await probeOverControlChannel(tunnelUrl, timeoutMs, started);
     if (!retryable) return result;
+    if (!result.detail?.endsWith(' CLOSED')) allClosed = false;
     last = result;
     if (attempt < maxAttempts) {
       await sleep(backoff[attempt - 1] ?? backoff[backoff.length - 1] ?? 150);
@@ -181,6 +183,13 @@ export async function probeTunnelHealth(
   }
   // Ladder exhausted on a transient error — the tunnel never came up. Report
   // it: "not ready" that never becomes ready IS unhealthy.
+  //
+  // A control channel CLOSED on every attempt means the tunnel has no live
+  // session at all (a reconnect that never lands, or the transport forgot the
+  // tunnel while the manager still holds it). It can never serve a request, so
+  // flag it for eviction — otherwise every later call reuses the corpse and
+  // fails identically until the MCP process restarts.
+  if (allClosed && last) last.tunnelErrorCode = 'CONTROL_CHANNEL_CLOSED';
   return last!;
 }
 
