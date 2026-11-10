@@ -73,6 +73,11 @@ const logger = new Logger({ module: 'tunnelDisposition' });
 const ENDPOINT_GONE_CODES = Object.freeze([
   'DEBUGG_TUNNEL_OFFLINE',
   'DEBUGG_TUNNEL_UNKNOWN',
+  // Client-side verdict, not a server marker: probeTunnelHealth saw the tunnel's
+  // own control channel CLOSED on every attempt of its ladder, i.e. there is no
+  // session left to carry traffic. Keeping it makes every later call fail the
+  // same way (the crochets build lead's "stuck at CLOSED" report).
+  'CONTROL_CHANNEL_CLOSED',
 ]);
 const ENDPOINT_GONE_LOOKUP = new Set<string>(ENDPOINT_GONE_CODES);
 

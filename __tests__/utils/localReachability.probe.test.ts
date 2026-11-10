@@ -212,6 +212,18 @@ describe('PROBE_RESULT maps onto the existing health codes', () => {
     expect(calls).toBe(3);
   });
 
+  // A control channel that stays CLOSED across the whole ladder is a tunnel with
+  // no session (stuck reconnect / torn down underneath the manager): it can
+  // never serve a request, so the verdict must say so and be evictable.
+  test('CLOSED on every attempt is flagged CONTROL_CHANNEL_CLOSED; other errors are not', async () => {
+    const closed = await probeWith({ error: 'CLOSED', elapsedMs: 2 });
+    expect(closed.result.tunnelErrorCode).toBe('CONTROL_CHANNEL_CLOSED');
+    const reset = await probeWith({ error: 'RESET', elapsedMs: 2 });
+    expect(reset.result.tunnelErrorCode).toBeUndefined();
+    const mixed = await probeWith({ error: 'CLOSED', elapsedMs: 2 }, { error: 'RESET', elapsedMs: 2 });
+    expect(mixed.result.tunnelErrorCode).toBeUndefined();
+  });
+
   // Inherited: a transient failure followed by success IS a pass — the whole
   // point of the ladder (bead k6yq).
   test('a transient failure then a 200 is healthy', async () => {
