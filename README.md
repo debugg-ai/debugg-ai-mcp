@@ -23,6 +23,23 @@ clear error on the first localhost-URL call, not a silent hang. Public-URL calls
 non-browser tool, and `test_suite {action:"run"}` (which uses its own dedicated tunnel and
 bypasses Caddy entirely) don't need it either way.
 
+## Testing a local app (no Tailscale, no port exposure)
+
+Start your app on localhost, then pass the `http://localhost:<port>` URL straight to the tool. The MCP
+opens its own DebuggAI tunnel (one per session, dialed through a local Caddy proxy) — do not expose the
+port with Tailscale, ngrok, or anything else, and do not rewrite the URL to a tunnel hostname yourself.
+
+```json
+probe_page            { "targets": [{ "url": "http://localhost:4040" }] }
+check_app_in_browser  { "url": "http://localhost:4040", "description": "Open the home page and confirm the hero renders" }
+```
+
+Verified 2026-11-10 against a Next.js dev server on `localhost:4040`: `probe_page` returned
+`statusCode 200`, title, 0 console errors, and every asset request resolved via the tunnel.
+Prerequisites: `DEBUGGAI_API_KEY` set for the MCP, the `caddy` binary available (see above), and the
+app actually listening (a dead port fails fast with `LocalServerUnreachable`). Several pages on the
+same port can share one `probe_page` call; mixing ports in one call works but runs serially.
+
 Get an API key at [debugg.ai](https://debugg.ai), then add to your MCP client config:
 
 ```json
