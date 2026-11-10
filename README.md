@@ -40,6 +40,13 @@ Prerequisites: `DEBUGGAI_API_KEY` set for the MCP, the `caddy` binary available 
 app actually listening (a dead port fails fast with `LocalServerUnreachable`). Several pages on the
 same port can share one `probe_page` call; mixing ports in one call works but runs serially.
 
+`TunnelTrafficBlocked` means the tunnel came up but the health probe through it got no valid response. First
+check you are on the latest MCP (`npx -y @debugg-ai/debugg-ai-mcp@latest`; a stale pinned version is the usual
+cause), then that your dev server answers a plain `curl http://127.0.0.1:<port>/` and does not reject unknown
+`Host` headers (tunnel requests carry the tunnel hostname; a gateway that routes by `Host` needs a catch-all).
+Verified 2026-11-10: servers bound to `127.0.0.1` only (IPv4 Caddy gateways on :4040 and :4043) probe fine via
+`http://localhost:<port>` and `http://127.0.0.1:<port>`.
+
 Get an API key at [debugg.ai](https://debugg.ai), then add to your MCP client config:
 
 ```json
