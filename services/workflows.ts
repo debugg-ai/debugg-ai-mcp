@@ -5,6 +5,7 @@
 
 import { AxiosTransport } from '../utils/axiosTransport.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import { logger } from '../utils/logger.js';
 import { redactRunSecrets } from '../utils/redactRunSecrets.js';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -12,6 +13,16 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 // status quickly via the early polls; long executions (60-150s browser runs)
 // avoid hammering the backend with 20+ roundtrips. Cap at 5s so we never wait
 // more than 5s past terminal-state achievement.
+const MAX_CONSECUTIVE_POLL_FAILURES = 5;
+
+/** Network-class (no response), 5xx, 408 and 429 are worth another poll; any other 4xx is a real answer. */
+function isTransientPollError(err: unknown): boolean {
+  const e = err as { statusCode?: number; networkCode?: string } | null;
+  const status = e?.statusCode;
+  if (typeof status === 'number') return status >= 500 || status === 408 || status === 429;
+  return true; // no status: network-class error (message-only), as axiosTransport shapes it
+}
+
 const POLL_INTERVAL_INITIAL_MS = 1000;
 const POLL_INTERVAL_MAX_MS = 5000;
 const POLL_BACKOFF_MULTIPLIER = 1.5;
@@ -299,11 +310,24 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       // partial results (screenshot + trace) instead of discarding them (bead
       // 56kd.3).
       let lastExecution: WorkflowExecution | undefined;
+      let consecutivePollFailures = 0;
       while (Date.now() < deadline) {
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
         }
-        const execution = await service.getExecution(executionUuid);
+        let execution: WorkflowExecution;
+        try {
+          execution = await service.getExecution(executionUuid);
+          consecutivePollFailures = 0;
+        } catch (err) {
+          // Bead kruv: one blip (ECONNRESET, 5xx during a deploy, 30s client
+          // timeout) must not lose a run the server is still executing. Only
+          // transient failures are tolerated, and only a few in a row.
+          if (!isTransientPollError(err) || ++consecutivePollFailures > MAX_CONSECUTIVE_POLL_FAILURES) throw err;
+          logger.warn(`pollExecution: transient status-poll failure ${consecutivePollFailures}/${MAX_CONSECUTIVE_POLL_FAILURES} for ${executionUuid}: ${err instanceof Error ? err.message : err}`);
+          await new Promise<void>((r) => setTimeout(r, intervalMs));
+          continue;
+        }
         lastExecution = execution;
         pollCount++;
         if (onUpdate) {
