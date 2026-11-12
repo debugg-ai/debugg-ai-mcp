@@ -7,7 +7,26 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { localCapture, localBrowserEnabled, findChrome, LocalBrowserError } from '../../services/localBrowser.js';
+import { localCapture, localBrowserEnabled, findChrome, hostAllowed, resolveAllowedDomains, LocalBrowserError } from '../../services/localBrowser.js';
+
+describe('profile allowlist (bead jpw3.3)', () => {
+  test('hostAllowed: exact + subdomain, not suffix tricks', () => {
+    expect(hostAllowed('app.example.com', ['example.com'])).toBe(true);
+    expect(hostAllowed('example.com', ['*.example.com'])).toBe(true);
+    expect(hostAllowed('evilexample.com', ['example.com'])).toBe(false);
+    expect(hostAllowed('example.com.evil.io', ['example.com'])).toBe(false);
+  });
+  test('owner env is authoritative over the per-call list', () => {
+    expect(resolveAllowedDomains(['a.com'], { DEBUGGAI_PROFILE_ALLOWED_DOMAINS: 'b.com, c.com' } as any)).toEqual(['b.com', 'c.com']);
+    expect(resolveAllowedDomains(['a.com'], {})).toEqual(['a.com']);
+    expect(resolveAllowedDomains(undefined, {})).toEqual([]);
+  });
+  test('a profile session without an allowlist is refused', async () => {
+    process.env.DEBUGGAI_LOCAL_BROWSER = '1';
+    delete process.env.DEBUGGAI_PROFILE_ALLOWED_DOMAINS;
+    await expect(localCapture({ url: 'http://127.0.0.1:1/', useProfile: true })).rejects.toMatchObject({ code: 'PROFILE_ALLOWLIST_REQUIRED' });
+  });
+});
 
 describe('local browser gating', () => {
   test('off unless DEBUGGAI_LOCAL_BROWSER is set', async () => {
@@ -49,10 +68,16 @@ live('local capture (real Chrome)', () => {
     expect(fs.statSync(r.screenshotPath!).mode & 0o777).toBe(0o600);
     expect(r.screenshotPath!.startsWith(home)).toBe(true);
 
-    await localCapture({ url: `${base}/set`, useProfile: true, captureScreenshot: false });
-    const withProfile = await localCapture({ url: `${base}/who`, useProfile: true, captureScreenshot: false });
+    await localCapture({ url: `${base}/set`, useProfile: true, allowedDomains: ['example.com'], captureScreenshot: false });
+    const withProfile = await localCapture({ url: `${base}/who`, useProfile: true, allowedDomains: ['example.com'], captureScreenshot: false });
     expect(withProfile.title).toBe('cookie:sid=abc');
     const fresh = await localCapture({ url: `${base}/who`, captureScreenshot: false });
     expect(fresh.title).toBe('cookie:none');
+    // A redirect off the allowlist is blocked and reported.
+    server.removeAllListeners('request');
+    server.on('request', (_q, s2) => { s2.writeHead(302, { Location: 'http://offlist.invalid/steal' }); s2.end(); });
+    const redirected = await localCapture({ url: `${base}/r`, useProfile: true, allowedDomains: ['example.com'], captureScreenshot: false }).catch((e) => e);
+    expect(redirected).toMatchObject({ code: 'NAVIGATION_BLOCKED' });
+    expect(redirected.message).toContain('offlist.invalid');
   }, 60000);
 });

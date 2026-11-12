@@ -460,6 +460,8 @@ export const ProbePageInputSchema = z.object({
   useProfile: z.boolean().default(false),
   // local + useProfile + headless:false only: keep the window open this long so the user can sign in once.
   loginWindowMs: z.number().int().min(1000).max(600000).optional(),
+  // local + useProfile: domains (and subdomains) the session may navigate to. Required unless the server owner set DEBUGGAI_PROFILE_ALLOWED_DOMAINS.
+  allowedDomains: z.array(z.string().min(1)).max(50).optional(),
 }).strict();
 
 export type ProbePageTarget = z.infer<typeof ProbePageTargetSchema>;

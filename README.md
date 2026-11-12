@@ -49,7 +49,7 @@ Verified 2026-11-10: servers bound to `127.0.0.1` only (IPv4 Caddy gateways on :
 
 ### Local Chrome capture (opt-in)
 
-`probe_page` accepts `browser: "local"` to capture with Chrome on your own machine: no tunnel, no cloud browser, nothing uploaded (screenshots also saved under `~/.debugg-ai/captures`, mode 0600). The server owner must set `DEBUGGAI_LOCAL_BROWSER=1`; Chrome is found automatically or via `DEBUGGAI_CHROME_PATH`; `playwright-core` is an optional dependency. `useProfile: true` uses an MCP-owned persistent profile (`~/.debugg-ai/chrome-profile`, never your everyday Chrome profile): sign in once with `headless: false, loginWindowMs: 120000`, later local probes are logged in. Domain allowlist for profile sessions is tracked in bead jpw3.3.
+`probe_page` accepts `browser: "local"` to capture with Chrome on your own machine: no tunnel, no cloud browser, nothing uploaded (screenshots also saved under `~/.debugg-ai/captures`, mode 0600). The server owner must set `DEBUGGAI_LOCAL_BROWSER=1`; Chrome is found automatically or via `DEBUGGAI_CHROME_PATH`; `playwright-core` is an optional dependency. `useProfile: true` uses an MCP-owned persistent profile (`~/.debugg-ai/chrome-profile`, never your everyday Chrome profile): sign in once with `headless: false, loginWindowMs: 120000`, later local probes are logged in. Profile sessions require `allowedDomains` (or the owner's `DEBUGGAI_PROFILE_ALLOWED_DOMAINS`, which overrides it); top-level navigations off the list, redirect hops included, are blocked.
 
 Get an API key at [debugg.ai](https://debugg.ai), then add to your MCP client config:
 

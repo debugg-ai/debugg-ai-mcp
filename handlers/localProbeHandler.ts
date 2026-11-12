@@ -18,6 +18,7 @@ export async function localProbe(input: ProbePageInput, context: ToolContext): P
         headless: input.headless,
         useProfile: input.useProfile,
         loginWindowMs: input.loginWindowMs,
+        allowedDomains: input.allowedDomains,
         waitForSelector: t.waitForSelector,
         waitForLoadState: t.waitForLoadState,
         timeoutMs: t.timeoutMs,
@@ -29,7 +30,7 @@ export async function localProbe(input: ProbePageInput, context: ToolContext): P
       results.push(rest);
       if (screenshotBase64) images.push(imageContentBlock(screenshotBase64, 'image/png'));
     } catch (err) {
-      if (err instanceof LocalBrowserError && (err.code === 'LOCAL_BROWSER_DISABLED' || err.code === 'PLAYWRIGHT_MISSING')) {
+      if (err instanceof LocalBrowserError && (err.code === 'LOCAL_BROWSER_DISABLED' || err.code === 'PLAYWRIGHT_MISSING' || err.code === 'PROFILE_ALLOWLIST_REQUIRED')) {
         return { content: [{ type: 'text', text: JSON.stringify({ error: err.code, message: err.message }, null, 2) }], isError: true };
       }
       const message = err instanceof Error ? err.message.split('\n')[0] : String(err);
