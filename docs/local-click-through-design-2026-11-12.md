@@ -1,6 +1,8 @@
 # check_app_in_browser on local Chrome, remote brain: MCP-side design (2026-11-12)
 
-Status: draft for review. MCP side only. The platform lead owns the backend contract; section 7 is what the MCP needs from it. Builds on epic m7un, spike 3puf, `docs/local-chrome-browser-sizing-2026-11-12.md`, and `services/localBrowser.ts` (6.1.6: launch, `useProfile`, allowlist guard, `DEBUGGAI_LOCAL_BROWSER`).
+Status: SUPERSEDED on the wire by the platform contract (sentinal docs/local-executor-api-design.md, v1.1). Kept for the security/limits reasoning in sections 5-6, which the contract adopted. Built MCP side: services/localExecutor/ (OpRunner, session loop, HttpExecutorTransport) and handlers/localExecutorBridge.ts.
+
+Original status: draft for review. MCP side only. The platform lead owns the backend contract; section 7 is what the MCP needs from it. Builds on epic m7un, spike 3puf, `docs/local-chrome-browser-sizing-2026-11-12.md`, and `services/localBrowser.ts` (6.1.6: launch, `useProfile`, allowlist guard, `DEBUGGAI_LOCAL_BROWSER`).
 
 ## 1. Shape
 
