@@ -42,6 +42,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { getCachedTemplateUuid, invalidateTemplateCache } from '../utils/handlerCaches.js';
 import { getPageProbeTemplateSlug } from '../services/workflows.js';
+import { localProbe } from './localProbeHandler.js';
 import { reaggregateByOriginPath, mapConsoleSlice } from '../utils/harSummarizer.js';
 import { fetchImageAsBase64, imageContentBlock } from '../utils/imageUtils.js';
 
@@ -115,6 +116,10 @@ export async function probePageHandler(
         }
       }
     : undefined;
+
+  if (input.browser === 'local') {
+    return localProbe(input, context);
+  }
 
   const client = new DebuggAIServerClient(config.api.key);
   await client.init();

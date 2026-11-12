@@ -86,6 +86,23 @@ export function buildProbePageTool(): Tool {
           type: 'string',
           description: "GitHub repository name (e.g. 'my-org/my-repo'). Auto-detected from the current git repo — only provide this to scope the probe to a different project context.",
         },
+        browser: {
+          type: 'string',
+          enum: ['remote', 'local'],
+          description: "Default 'remote' (cloud browser; localhost is tunneled). 'local' runs Chrome on THIS machine against the URL directly: no tunnel, nothing uploaded, screenshot also saved under ~/.debugg-ai/captures. Works only when the MCP server runs on your machine AND its owner set DEBUGGAI_LOCAL_BROWSER=1. waitForSelector/waitForLoadState/timeoutMs apply; the local mode returns screenshot, console errors, network summary, title and (optionally) HTML.",
+        },
+        headless: {
+          type: 'boolean',
+          description: "browser:'local' only. Default true. false opens a visible Chrome window.",
+        },
+        useProfile: {
+          type: 'boolean',
+          description: "browser:'local' only. Default false (fresh throwaway profile). true uses the MCP-owned persistent profile (~/.debugg-ai/chrome-profile, never your everyday Chrome profile), so pages you signed into there are captured logged-in. Sign in once with headless:false plus loginWindowMs. Captures from it never leave the machine.",
+        },
+        loginWindowMs: {
+          type: 'number',
+          description: "browser:'local', useProfile:true, headless:false only. Keep the window open up to this long (1000-600000 ms) or until you close it, so you can sign in to the site once.",
+        },
       },
       required: ['targets'],
       additionalProperties: false,

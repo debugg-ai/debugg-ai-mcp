@@ -47,6 +47,10 @@ cause), then that your dev server answers a plain `curl http://127.0.0.1:<port>/
 Verified 2026-11-10: servers bound to `127.0.0.1` only (IPv4 Caddy gateways on :4040 and :4043) probe fine via
 `http://localhost:<port>` and `http://127.0.0.1:<port>`.
 
+### Local Chrome capture (opt-in)
+
+`probe_page` accepts `browser: "local"` to capture with Chrome on your own machine: no tunnel, no cloud browser, nothing uploaded (screenshots also saved under `~/.debugg-ai/captures`, mode 0600). The server owner must set `DEBUGGAI_LOCAL_BROWSER=1`; Chrome is found automatically or via `DEBUGGAI_CHROME_PATH`; `playwright-core` is an optional dependency. `useProfile: true` uses an MCP-owned persistent profile (`~/.debugg-ai/chrome-profile`, never your everyday Chrome profile): sign in once with `headless: false, loginWindowMs: 120000`, later local probes are logged in. Domain allowlist for profile sessions is tracked in bead jpw3.3.
+
 Get an API key at [debugg.ai](https://debugg.ai), then add to your MCP client config:
 
 ```json
