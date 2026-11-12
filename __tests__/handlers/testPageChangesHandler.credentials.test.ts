@@ -346,6 +346,7 @@ describe('the identity actually used is visible in the result', () => {
     expect(payload(result).logins).toEqual([
       { username: 'qa+invitefix@example.com', source: 'task', submitted: true, authenticated: true },
     ]);
+    expect(payload(result).timings).toEqual({ setupMs: expect.any(Number), runMs: expect.any(Number), totalMs: expect.any(Number) });
   });
 
   test('a substitution is called out instead of reading as an app failure', async () => {

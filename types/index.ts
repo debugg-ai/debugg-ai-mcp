@@ -82,6 +82,11 @@ export const TestPageChangesInputSchema = z.object({
   // skip login; that is right for speed and wrong when the login itself is what
   // you are checking, or when the app's only route between personas is a logout.
   freshSession: z.boolean().optional(),
+  // Extra LOCAL origins the run may be redirected to (bead w1os.2) — e.g. an OAuth
+  // vendor on :4717 (also host.docker.internal:4717) or a callback on :4304. Each is
+  // tunnelled and redirects to it are followed through the tunnel. Only origins named
+  // here are exposed.
+  extraOrigins: z.array(z.string().min(1)).max(8, 'extraOrigins accepts at most 8 origins.').optional(),
   // Auth-precondition deep-link intent (bead 56kd.6) — "log in THEN go to X".
   auth: AuthPreconditionSchema.optional(),
 });

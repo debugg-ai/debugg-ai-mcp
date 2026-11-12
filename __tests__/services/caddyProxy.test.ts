@@ -254,7 +254,7 @@ describe('buildCaddyConfig', () => {
 
   test('tags the reverse_proxy handler with @id: dbg-handler', () => {
     const cfg = buildCaddyConfig(19000, 19001);
-    const handler = cfg.apps.http.servers.srv0.routes[0].handle[0] as Record<string, unknown>;
+    const handler = cfg.apps.http.servers.srv0.routes[1].handle[0] as Record<string, unknown>;
     expect(handler['@id']).toBe(CADDY_HANDLER_ID);
     expect(handler.handler).toBe('reverse_proxy');
   });

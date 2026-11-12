@@ -481,6 +481,8 @@ describe('testPageChangesHandler — the re-probe alone must never launder a gen
     const withFlake = await run(PROBE_FLAKE_NETWORK_ERROR);
     const withHealthy = await run(HEALTHY);
 
+    // `timings` are wall-clock measurements and legitimately differ between runs.
+    delete (withFlake as any).timings; delete (withHealthy as any).timings;
     expect(withFlake).toEqual(withHealthy);
     expect(withFlake.outcome).toBe('fail');
     expect(withFlake.reason).toBe(EVIDENCE_STRICTNESS_REASON);
