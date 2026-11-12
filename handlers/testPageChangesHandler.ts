@@ -17,7 +17,9 @@ import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
 import { getEvalTemplateSlug } from '../services/workflows.js';
-import { adaptVerdict, credentialSubstitutions } from '../services/verdictAdapter.js';
+import { authorizeExtraOrigins, ExtraOriginError } from '../utils/extraOrigins.js';
+import { refreshPendingArtifacts } from '../utils/artifactGrace.js';
+import { adaptVerdict, credentialSubstitutions, summarizeLogins } from '../services/verdictAdapter.js';
 import { TunnelProvisionError, type TunnelProvision } from '../services/tunnels.js';
 import {
   resolveTargetUrl,
@@ -357,6 +359,18 @@ async function testPageChangesHandlerInner(
             : undefined,
         });
 
+        // Bead w1os.2: extra local origins (OAuth vendor, callback) this run may
+        // be redirected to. Needs the route held; validated here so a bad entry
+        // fails fast with a plain message instead of mid-run.
+        try {
+          ctx = await authorizeExtraOrigins(ctx, input.extraOrigins);
+        } catch (err) {
+          if (err instanceof ExtraOriginError) {
+            return { content: [{ type: 'text', text: JSON.stringify({ error: 'InvalidExtraOrigin', message: err.message }, null, 2) }], isError: true };
+          }
+          throw err;
+        }
+
         // Bead 1om: verify traffic actually flows through the tunnel. The
         // tunnel can be established (connect returns OK) yet refuse
         // to forward traffic — e.g., IPv4/IPv6 bind mismatch, or the dev
@@ -532,6 +546,7 @@ async function testPageChangesHandlerInner(
     let executeResponse: import('../services/workflows.js').WorkflowExecuteResponse | undefined;
     let executionUuid = '';
     let finalExecution: import('../services/workflows.js').WorkflowExecution | undefined;
+    let execStartedAtMs: number | undefined;
     let attempt = 0;
 
     while (true) {
@@ -557,6 +572,8 @@ async function testPageChangesHandlerInner(
         await new Promise(r => setTimeout(r, 1000 * (attempt - 1)));
       }
 
+      const execStartedAt = Date.now();
+      execStartedAtMs = execStartedAt;
       executeResponse = await client.workflows!.executeWorkflow(
         templateUuid,
         contextData,
@@ -679,6 +696,7 @@ async function testPageChangesHandlerInner(
     const duration = Date.now() - startTime;
 
     // --- Format result ---
+    const runDoneAtMs = Date.now();
     const nodes = finalExecution.nodeExecutions ?? [];
     // subworkflow.run carries an inline base64 screenshot on some graph shapes;
     // only used for the image block below.
@@ -787,12 +805,26 @@ async function testPageChangesHandlerInner(
       durationMs: finalExecution.durationMs ?? duration,
     };
     if (verdict.budget) responsePayload.budget = verdict.budget;
+    // Bead w1os.1: say where the wall-clock went. setupMs is everything this MCP
+    // did before queuing the run (tunnel, route lock, health probe); runMs is
+    // queue-to-terminal on the backend (agent loop, incl. sign-in). Measured,
+    // not estimated.
+    if (execStartedAtMs !== undefined) {
+      responsePayload.timings = {
+        setupMs: execStartedAtMs - startTime,
+        runMs: runDoneAtMs - execStartedAtMs,
+        totalMs: Date.now() - startTime,
+      };
+    }
 
     // For "navigate and describe what you see", the answer IS the deliverable —
     // and it reached callers only incidentally, buried in actionTrace[0].intent,
     // which the verify-gate rewrites when it disagrees with the page. Surface it.
     if (verdict.report) responsePayload.report = verdict.report;
-    if (verdict.logins) responsePayload.logins = verdict.logins;
+    if (verdict.logins) {
+      responsePayload.logins = verdict.logins;
+      responsePayload.loginSummary = summarizeLogins(verdict.logins);
+    }
     if (verdict.loginError) responsePayload.loginError = verdict.loginError;
 
     // Bead b5x6: the caller named an account and the run SUBMITTED an
@@ -855,7 +887,11 @@ async function testPageChangesHandlerInner(
     // browser_session block: presigned S3 URLs for HAR + console log + recording,
     // passed through verbatim.
     if (finalExecution.browserSession) {
-      responsePayload.browserSession = finalExecution.browserSession;
+      // Bead w1os.3: artifacts are uploaded after the terminal state; re-read
+      // briefly while the backend says they are still queued.
+      responsePayload.browserSession = await refreshPendingArtifacts(
+        (id) => client.workflows!.getExecution(id), executionUuid, finalExecution.browserSession,
+      ) ?? finalExecution.browserSession;
     }
 
     logger.toolComplete('check_app_in_browser', duration);

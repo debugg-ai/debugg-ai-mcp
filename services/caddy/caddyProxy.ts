@@ -42,6 +42,14 @@ export interface UpstreamTarget {
   isHttpsLocal?: boolean;
 }
 
+/** An extra local origin a run may be redirected to (bead w1os.2), e.g. an
+ *  OAuth vendor on :4717 or a callback on :4304. Reachable on the tunnel at
+ *  `/__o/<port>/...`; only origins the caller names are ever proxied. */
+export interface AuxOrigin {
+  port: number;
+  isHttpsLocal?: boolean;
+}
+
 export interface CaddyProxy {
   /** Idempotent; concurrent callers await the same in-flight start.
    *  Returns the CURRENT localOrigin/localPort/adminPort — re-call after
@@ -52,6 +60,12 @@ export interface CaddyProxy {
    *  first. Idempotent no-op if target is unchanged from the last applied
    *  target (this is what makes same-port concurrent calls free). */
   setUpstream(target: UpstreamTarget): Promise<void>;
+
+  /** Additively authorise extra local origins (bead w1os.2): each becomes a
+   *  path-prefixed route `/__o/<port>/` and redirects (`Location`) to it or to the
+   *  primary origin are rewritten onto the tunnel. Idempotent; the set only
+   *  grows for the life of this proxy. */
+  addAuxOrigins(origins: AuxOrigin[]): Promise<void>;
 
   /** Best-effort liveness probe. Never throws. */
   isHealthy(): Promise<boolean>;
@@ -269,6 +283,91 @@ export const CADDY_HANDLER_ID = 'dbg-handler';
  *  from the first millisecond instead of exposing a raw connection-refused. */
 const PLACEHOLDER_DIAL = '127.0.0.1:1';
 
+/** Path prefix under which a secondary local origin is exposed on the tunnel. */
+export const AUX_PATH_PREFIX = '/__o';
+/** @id of the subroute holding the per-origin routes. */
+export const CADDY_AUX_ID = 'dbg-aux';
+
+const LOCAL_HOST_ALIASES = '(?:localhost|127\\.0\\.0\\.1|host\\.docker\\.internal|\\[::1\\])';
+
+/**
+ * Location-header rewrite rules: a redirect to any local alias of a known port
+ * becomes a path on the tunnel origin, so the REMOTE browser (which cannot
+ * resolve `host.docker.internal` / dial its own `localhost:PORT`) follows it
+ * through the tunnel. The primary port maps to `/`, an aux port to `/__o/<port>/`.
+ */
+export function buildLocationRewrites(primaryPort: number | undefined, aux: AuxOrigin[]): Array<{ search_regexp: string; replace: string }> {
+  const rules: Array<{ search_regexp: string; replace: string }> = [];
+  for (const o of aux) {
+    rules.push({
+      search_regexp: `^https?://${LOCAL_HOST_ALIASES}:${o.port}(?:/(.*))?$`,
+      replace: AUX_PATH_PREFIX + '/' + o.port + '/${1}',
+    });
+  }
+  if (primaryPort !== undefined) {
+    rules.push({
+      search_regexp: `^https?://${LOCAL_HOST_ALIASES}:${primaryPort}(?:/(.*))?$`,
+      // Once any aux origin exists the primary is addressed by prefix too, so a
+      // redirect BACK to it does not inherit an aux page's Referer-scoped routing.
+      replace: AUX_PATH_PREFIX + '/' + primaryPort + '/${1}',
+    });
+  }
+  return rules;
+}
+
+function withLocationRewrites(handler: Record<string, unknown>, rules: Array<{ search_regexp: string; replace: string }>): Record<string, unknown> {
+  if (rules.length === 0) return handler;
+  return { ...handler, headers: { response: { replace: { Location: rules } } } };
+}
+
+/**
+ * The subroute that serves every authorised origin (aux origins plus the
+ * current primary), each addressable two ways:
+ *  - `/__o/<port>/*`  -> prefix stripped, proxied to that port;
+ *  - any other path whose Referer is a `/__o/<port>/` page -> proxied to that
+ *    port UNstripped, so root-relative links, form actions and assets on a
+ *    secondary origin's page stay on that origin. The per-origin routes are
+ *    fixed at config time, so a forged Referer can only select an origin the
+ *    caller already authorised.
+ * A request matching neither falls through to the primary upstream.
+ */
+export function buildAuxSubroute(
+  aux: AuxOrigin[],
+  primary: UpstreamTarget | undefined,
+  inDocker: boolean,
+): Record<string, unknown> {
+  const rules = buildLocationRewrites(primary?.port, aux);
+  const all: AuxOrigin[] = [...aux];
+  if (primary && aux.length > 0 && !all.some((o) => o.port === primary.port)) {
+    all.push({ port: primary.port, isHttpsLocal: primary.isHttpsLocal });
+  }
+  const proxyFor = (o: AuxOrigin): Record<string, unknown> => {
+    const proxy: Record<string, unknown> = {
+      handler: 'reverse_proxy',
+      upstreams: [{ dial: resolveDialAddress(o.port, !!o.isHttpsLocal, inDocker) }],
+    };
+    if (o.isHttpsLocal) proxy.transport = { protocol: 'http', tls: { insecure_skip_verify: true } };
+    return withLocationRewrites(proxy, rules);
+  };
+  const routes: Array<Record<string, unknown>> = [];
+  for (const o of all) {
+    routes.push({
+      match: [{ path: [`${AUX_PATH_PREFIX}/${o.port}/*`] }],
+      handle: [{ handler: 'rewrite', strip_path_prefix: `${AUX_PATH_PREFIX}/${o.port}` }, proxyFor(o)],
+    });
+  }
+  for (const o of all) {
+    routes.push({
+      match: [{
+        not: [{ path: [`${AUX_PATH_PREFIX}/*`] }],
+        header_regexp: { Referer: { pattern: `^https?://[^/]+${AUX_PATH_PREFIX}/${o.port}/` } },
+      }],
+      handle: [proxyFor(o)],
+    });
+  }
+  return { '@id': CADDY_AUX_ID, handler: 'subroute', routes };
+}
+
 export interface CaddyConfig {
   admin: { listen: string };
   apps: {
@@ -277,6 +376,7 @@ export interface CaddyConfig {
         srv0: {
           listen: string[];
           routes: Array<{
+            match?: Array<Record<string, unknown>>;
             handle: Array<Record<string, unknown>>;
           }>;
         };
@@ -292,7 +392,7 @@ export interface CaddyConfig {
  * building new structure. Both listeners bind 127.0.0.1 only — the admin
  * API has no built-in auth, so this is a hard security requirement.
  */
-export function buildCaddyConfig(proxyPort: number, adminPort: number): CaddyConfig {
+export function buildCaddyConfig(proxyPort: number, adminPort: number, aux: AuxOrigin[] = []): CaddyConfig {
   return {
     admin: { listen: `127.0.0.1:${adminPort}` },
     apps: {
@@ -301,6 +401,10 @@ export function buildCaddyConfig(proxyPort: number, adminPort: number): CaddyCon
           srv0: {
             listen: [`127.0.0.1:${proxyPort}`],
             routes: [
+              // Aux origins first so `/__o/<port>/*` never falls through to the primary upstream.
+              {
+                handle: [buildAuxSubroute(aux, undefined, isDockerEnv())],
+              },
               {
                 handle: [
                   {
@@ -329,7 +433,7 @@ export function buildCaddyConfig(proxyPort: number, adminPort: number): CaddyCon
  * address, so an omitted `@id` deletes the tag and the NEXT PATCH 404s
  * (only manifests on the second call — see LIFE-4 in the test suite).
  */
-export function buildPatchBody(target: UpstreamTarget, inDocker: boolean): Record<string, unknown> {
+export function buildPatchBody(target: UpstreamTarget, inDocker: boolean, aux: AuxOrigin[] = []): Record<string, unknown> {
   const isHttpsLocal = !!target.isHttpsLocal;
   const dial = resolveDialAddress(target.port, isHttpsLocal, inDocker);
   const body: Record<string, unknown> = {
@@ -341,7 +445,8 @@ export function buildPatchBody(target: UpstreamTarget, inDocker: boolean): Recor
     // Local self-signed certs — doesn't touch the public leg's real TLS.
     body.transport = { protocol: 'http', tls: { insecure_skip_verify: true } };
   }
-  return body;
+  // Redirects to the primary origin or an authorised aux origin stay on the tunnel.
+  return aux.length > 0 ? withLocationRewrites(body, buildLocationRewrites(target.port, aux)) : body;
 }
 
 // ── Small HTTP helper (admin API + readiness probe) ─────────────────────────
@@ -421,6 +526,8 @@ export class CaddyProxyManager implements CaddyProxy {
 
   private lastProxyPort: number | null = null;
   private lastAppliedTarget: { port: number; isHttpsLocal: boolean } | null = null;
+  /** Authorised secondary origins (bead w1os.2). Grow-only; survives a respawn. */
+  private auxOrigins: AuxOrigin[] = [];
 
   private readonly portChangedListeners: Array<(newLocalOrigin: string) => void> = [];
 
@@ -464,7 +571,7 @@ export class CaddyProxyManager implements CaddyProxy {
       return; // idempotent no-op — this is what makes same-port calls free
     }
 
-    const body = buildPatchBody(target, isDockerEnv());
+    const body = buildPatchBody(target, isDockerEnv(), this.auxOrigins);
 
     try {
       await this.patchHandler(adminPort, body);
@@ -485,6 +592,37 @@ export class CaddyProxyManager implements CaddyProxy {
     }
 
     this.lastAppliedTarget = { port: target.port, isHttpsLocal };
+    if (this.auxOrigins.length > 0) await this.patchAux(this.lastAppliedTarget);
+  }
+
+  /** Re-issue the aux subroute so it knows the current primary (bead w1os.2). */
+  private async patchAux(primary: UpstreamTarget | undefined, origins: AuxOrigin[] = this.auxOrigins): Promise<void> {
+    const adminPort = this.adminPort;
+    if (adminPort === null) return;
+    const res = await adminHttpRequest(
+      adminPort, 'PATCH', `/id/${CADDY_AUX_ID}`,
+      JSON.stringify(buildAuxSubroute(origins, primary, isDockerEnv())),
+    );
+    if (res.status < 200 || res.status >= 300) {
+      throw new CaddyAdminApiError(`PATCH /id/${CADDY_AUX_ID} failed: ${res.status} ${res.body}`);
+    }
+  }
+
+  async addAuxOrigins(origins: AuxOrigin[]): Promise<void> {
+    const fresh = origins.filter(
+      (o) => !this.auxOrigins.some((a) => a.port === o.port && !!a.isHttpsLocal === !!o.isHttpsLocal),
+    );
+    if (fresh.length === 0) return;
+    const { adminPort } = await this.ensureStarted();
+    const next = [...this.auxOrigins, ...fresh];
+    const primary = this.lastAppliedTarget;
+    // Replace the aux subroute, then re-issue the primary handler so its
+    // Location rewrites know the new origins. Both are idempotent PATCHes.
+    await this.patchAux(primary ?? undefined, next);
+    this.auxOrigins = next;
+    if (primary) {
+      await this.patchHandler(adminPort, buildPatchBody(primary, isDockerEnv(), next));
+    }
   }
 
   async isHealthy(): Promise<boolean> {
@@ -559,7 +697,7 @@ export class CaddyProxyManager implements CaddyProxy {
   private writeConfig(proxyPort: number, adminPort: number): string {
     fs.mkdirSync(this.configDir, { recursive: true });
     const configPath = path.join(this.configDir, configFileName(process.pid, this.instanceId));
-    const config = buildCaddyConfig(proxyPort, adminPort);
+    const config = buildCaddyConfig(proxyPort, adminPort, this.auxOrigins);
     fs.writeFileSync(configPath, JSON.stringify(config));
     return configPath;
   }

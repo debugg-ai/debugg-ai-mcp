@@ -115,6 +115,12 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
           type: "boolean",
           description: "Default false. Set true to force a REAL login instead of reusing the warm session the backend keeps per account. Use when the login flow itself is what you're checking, when you suspect the stored session is stale, or when the app's only route between personas is a logout. Costs one login; the run re-captures afterwards, so later runs stay fast."
         },
+        extraOrigins: {
+          type: "array",
+          items: { type: "string" },
+          description: "Extra LOCAL origins this run may be redirected to, e.g. [\"http://host.docker.internal:4717\", \"http://localhost:4304\"] (a bare port like \"4304\" also works). Use for flows that hop between local servers — an OAuth consent page on another port, a callback on a third — which the remote browser otherwise cannot reach (DNS_PROBE_FINISHED_NXDOMAIN / connection refused). Redirects to these origins, and to the main url's origin, are followed through the tunnel; only origins listed here are exposed. Hosts allowed: localhost, 127.0.0.1, [::1], host.docker.internal. Limitation: absolute URLs written inside page HTML (not redirects) are not rewritten.",
+          maxItems: 8
+        },
         repoName: {
           type: "string",
           description: "GitHub repository name (e.g. 'my-org/my-repo'). Auto-detected from the current git repo — only provide this if you want to run against a different project than the one you're in."
