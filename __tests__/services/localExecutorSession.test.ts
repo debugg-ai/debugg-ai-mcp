@@ -73,11 +73,11 @@ live('executor session (real Chrome, fake cloud)', () => {
       await cloud.result(cloud.push({ op: 'fill', target: { selector: 'input[name=user]' }, args: { value: 'a@b.c' } }));
       const f = await cloud.result(cloud.push({ op: 'fill', target: { selector: '#pw' }, args: { value: '{{cred:admin}}' } }));
       expect(JSON.stringify(f)).not.toContain('s3cret');
-      const rb = await cloud.result(cloud.push({ op: 'query', target: { selector: '#pw' }, args: { kind: 'value' } }));
+      const rb = await cloud.result(cloud.push({ op: 'query', target: { selector: '#pw' }, args: { what: 'value' } }));
       expect(rb.observation?.value).toBe('');
       await cloud.result(cloud.push({ op: 'click', target: { selector: '#go' } }));
       expect(seenPw).toBe('s3cret');
-      const t = await cloud.result(cloud.push({ op: 'query', target: { selector: 'h1' }, args: { kind: 'text' } }));
+      const t = await cloud.result(cloud.push({ op: 'query', target: { selector: 'h1' }, args: { what: 'text' } }));
       expect(t.observation?.value).toBe('Welcome back');
       const bad = await cloud.result(cloud.push({ op: 'fill', target: { selector: 'input[name=user]' }, args: { value: '{{cred:nope}}' } }));
       expect(bad.error?.code).toBe('invalid_args');
@@ -142,4 +142,20 @@ live('executor session (real Chrome, fake cloud)', () => {
     cloud.stop();
     expect((await session).ended).toBe('lease_lost');
   }, 90000);
+});
+
+describe('commands envelope', () => {
+  test('cancel flag in the poll response ends the session; re-delivered running command is not run twice', async () => {
+    let runs = 0; let polls = 0;
+    const runner = { execute: async (c: { id: string }) => { runs++; await new Promise((r) => setTimeout(r, 150)); return { command_id: c.id, ok: true, duration_ms: 1 }; }, close: async () => {} };
+    const transport = {
+      attach: async () => {},
+      poll: async () => { polls++; if (polls <= 2) return { commands: [{ id: 'x', seq: 1, op: 'title' }] }; return { commands: [], cancel: true }; },
+      postResults: async () => {},
+      heartbeat: async () => ({ cancel: false, drain: false }),
+    };
+    const r = await runExecutorSession({ transport: transport as never, runner: runner as never, attach: {} as never, limits: { heartbeat_s: 5, lease_s: 5, max_inline_bytes: 1, max_batch: 1 } as never });
+    expect(r.ended).toBe('cancelled');
+    expect(runs).toBe(1);
+  });
 });
