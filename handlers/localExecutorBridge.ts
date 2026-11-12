@@ -11,6 +11,7 @@ import { localBrowserEnabled, LocalBrowserError, resolveAllowedDomains } from '.
 import { OpRunner } from '../services/localExecutor/opRunner.js';
 import { runExecutorSession, type SessionEnd } from '../services/localExecutor/session.js';
 import { HttpExecutorTransport } from '../services/localExecutor/httpTransport.js';
+import { generateSessionKeys, type SealedEnvelope } from '../services/localExecutor/credentialBox.js';
 import type { SessionLimits } from '../services/localExecutor/ops.js';
 import type { TestPageChangesInput } from '../types/index.js';
 import type { DebuggAIServerClient } from '../services/index.js';
@@ -52,7 +53,9 @@ export function localAllowedDomains(input: TestPageChangesInput, startUrl: strin
 interface CreateSessionResponse {
   sessionId: string;
   secret: string;
-  limits?: Partial<{ heartbeatS: number; leaseS: number; maxInlineBytes: number; maxBatch: number }>;
+  limits?: Partial<{ heartbeatS: number; leaseS: number; maxInlineBytes: number; maxBatch: number; maxInflight: number }>;
+  /** Stored environment credentials, password sealed to our session public key. */
+  credentials?: Array<{ label: string; username?: string; sealed: SealedEnvelope }>;
 }
 
 export async function prepareLocalRun(args: {
@@ -74,7 +77,10 @@ export async function prepareLocalRun(args: {
   const screenshotsMode = process.env.DEBUGGAI_LOCAL_SCREENSHOTS === 'local_only' ? 'local_only' : 'cloud';
 
   // Chrome starts while the session is being created and the workflow queued.
-  const runnerP = OpRunner.open({ allowedDomains: allowed, headless, useProfile: !!input.useProfile, secrets, screenshots: screenshotsMode, signal });
+  // Mutable on purpose: stored credentials are decrypted into it once the session exists.
+  const liveSecrets: Record<string, string> = { ...secrets };
+  const keys = generateSessionKeys();
+  const runnerP = OpRunner.open({ allowedDomains: allowed, headless, useProfile: !!input.useProfile, secrets: liveSecrets, screenshots: screenshotsMode, signal });
   runnerP.catch(() => {});
   let created: CreateSessionResponse;
   try {
@@ -84,6 +90,11 @@ export async function prepareLocalRun(args: {
       headless,
       viewport: { w: 1280, h: 800 },
       capture: { screenshots: screenshotsMode },
+      // Public half only. The private key never leaves this process.
+      executorPublicKey: keys.publicKey,
+      ...(input.environmentId ? { environmentId: input.environmentId } : {}),
+      ...(input.credentialId ? { credentialId: input.credentialId } : {}),
+      ...(input.credentialRole ? { credentialRole: input.credentialRole } : {}),
     });
   } catch (err) {
     (await runnerP.catch(() => null))?.close();
@@ -94,11 +105,16 @@ export async function prepareLocalRun(args: {
     throw err;
   }
   const runner = await runnerP;
+  for (const c of created.credentials ?? []) {
+    try { liveSecrets[c.label] = keys.open(c.sealed, created.sessionId); }
+    catch (err) { logger.warn(`Could not open stored credential "${c.label}" (${err instanceof Error ? err.message : 'decrypt failed'})`); }
+  }
   const limits: SessionLimits = {
     heartbeat_s: created.limits?.heartbeatS ?? 10,
     lease_s: created.limits?.leaseS ?? 45,
     max_inline_bytes: created.limits?.maxInlineBytes ?? 1_000_000,
     max_batch: created.limits?.maxBatch ?? 1,
+    ...(created.limits?.maxInflight ? { max_inflight: created.limits.maxInflight } : {}),
   };
   const transport = new HttpExecutorTransport({
     baseUrl: config.api.baseUrl,
@@ -120,7 +136,7 @@ export async function prepareLocalRun(args: {
           ops_supported: OpRunner.supportedOps(),
           browser: { name: 'chrome', headless },
           profile: input.useProfile ? 'mcp_owned' : 'ephemeral',
-          credential_labels: Object.keys(secrets),
+          credential_labels: Object.keys(liveSecrets),
         },
       }).catch((err) => { logger.warn(`local executor session failed: ${err instanceof Error ? err.message : err}`); return { ended: 'lease_lost' as SessionEnd, commandsRun: 0 }; });
     },

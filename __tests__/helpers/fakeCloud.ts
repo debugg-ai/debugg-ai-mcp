@@ -25,9 +25,10 @@ export class FakeCloud {
         if (u.startsWith('/upload')) { this.uploads.push(body); s.writeHead(200); s.end(); return; }
         if (u.endsWith('/attach')) { this.attached = JSON.parse(body.toString()); s.writeHead(204); s.end(); return; }
         if (u.includes('/commands')) {
-          const give = () => { s.writeHead(200, { 'content-type': 'application/json' }); s.end(JSON.stringify(this.queue.splice(0, 1))); };
+          let sent = false;
+          const give = () => { if (sent || s.writableEnded) return; sent = true; s.writeHead(200, { 'content-type': 'application/json' }); s.end(JSON.stringify(this.queue.splice(0, 1))); };
           if (this.queue.length) return give();
-          const t = setTimeout(() => { s.writeHead(200, { 'content-type': 'application/json' }); s.end('[]'); }, 400);
+          const t = setTimeout(() => { if (sent || s.writableEnded) return; sent = true; s.writeHead(200, { 'content-type': 'application/json' }); s.end('[]'); }, 400);
           this.waiters.push(() => { clearTimeout(t); give(); });
           return;
         }

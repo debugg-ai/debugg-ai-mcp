@@ -64,6 +64,8 @@ export interface SessionLimits {
   lease_s: number;
   max_inline_bytes: number;
   max_batch: number;
+  /** Commands run at once. Unset = no artificial cap (the brain's own ordering decides). */
+  max_inflight?: number;
   max_steps?: number;
   session_ttl_s?: number;
 }
