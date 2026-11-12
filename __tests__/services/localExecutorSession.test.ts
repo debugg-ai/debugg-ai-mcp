@@ -52,7 +52,7 @@ live('executor session (real Chrome, fake cloud)', () => {
   async function withSession(fn: (cloud: FakeCloud, end: () => Promise<ReturnType<typeof runExecutorSession> extends Promise<infer R> ? R : never>) => Promise<void>, extra: { screenshots?: 'local_only' } = {}) {
     const cloud = new FakeCloud(); await cloud.start();
     const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'], secrets: { admin: 's3cret' }, ...extra });
-    const transport = new HttpExecutorTransport({ baseUrl: cloud.url, token: 'tok', sessionId: 'S1', secret: 'sec' });
+    const transport = new HttpExecutorTransport({ baseUrl: cloud.url, authorization: 'Token tok', sessionId: 'S1', secret: 'sec' });
     const session = runExecutorSession({ transport, runner, attach: ATTACH, limits: LIMITS, retryDelayMs: 50 });
     try { await fn(cloud, async () => { cloud.cancel = true; return session; }); }
     finally { cloud.cancel = true; await session.catch(() => {}); cloud.stop(); }
@@ -62,7 +62,7 @@ live('executor session (real Chrome, fake cloud)', () => {
     await withSession(async (cloud) => {
       const g = await cloud.result(cloud.push({ op: 'goto', args: { url: base } }));
       expect(g).toMatchObject({ ok: true, title: 'Home' });
-      expect(g.events?.some((e) => e.type === 'request_failed' && e.url.endsWith('/missing'))).toBe(true);
+      expect(g.events?.some((e) => e.type === 'request_failed' && e.url.endsWith('/missing') && typeof e.ts === 'number')).toBe(true);
       expect(cloud.attached).toMatchObject({ executor_version: 'test', credential_labels: ['admin'] });
       expect(cloud.headers[0]).toMatchObject({ authorization: 'Token tok', 'x-executor-secret': 'sec', 'x-executor-api-version': '1' });
 
@@ -119,7 +119,7 @@ live('executor session (real Chrome, fake cloud)', () => {
   test('cancel via heartbeat closes the session; replayed idempotency_key is not re-run', async () => {
     const cloud = new FakeCloud(); await cloud.start();
     const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'] });
-    const transport = new HttpExecutorTransport({ baseUrl: cloud.url, token: 't', sessionId: 'S', secret: 's' });
+    const transport = new HttpExecutorTransport({ baseUrl: cloud.url, authorization: 'Token t', sessionId: 'S', secret: 's' });
     const session = runExecutorSession({ transport, runner, attach: ATTACH, limits: LIMITS, retryDelayMs: 50 });
     await cloud.result(cloud.push({ op: 'goto', args: { url: base } }));
     cloud.push({ op: 'click', target: { selector: '#b' }, idempotency_key: 'k1', id: 'dup1' });
@@ -136,7 +136,7 @@ live('executor session (real Chrome, fake cloud)', () => {
   test('lease lost when the cloud disappears', async () => {
     const cloud = new FakeCloud(); await cloud.start();
     const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'] });
-    const transport = new HttpExecutorTransport({ baseUrl: cloud.url, token: 't', sessionId: 'S', secret: 's' });
+    const transport = new HttpExecutorTransport({ baseUrl: cloud.url, authorization: 'Token t', sessionId: 'S', secret: 's' });
     const session = runExecutorSession({ transport, runner, attach: ATTACH, limits: { ...LIMITS, lease_s: 1 }, retryDelayMs: 50 });
     await cloud.result(cloud.push({ op: 'goto', args: { url: base } }));
     cloud.stop();

@@ -15,7 +15,7 @@ export const EXECUTOR_PATHS = {
   cancel: (id: string) => `/api/v1/executors/sessions/${id}/cancel`,
 };
 
-export interface HttpTransportOptions { baseUrl: string; token: string; sessionId: string; secret: string; fetchImpl?: typeof fetch }
+export interface HttpTransportOptions { baseUrl: string; /** Full Authorization header value, e.g. `Token abc` or `Bearer abc`. */ authorization: string; sessionId: string; secret: string; fetchImpl?: typeof fetch }
 
 export class HttpTransportError extends Error {
   constructor(message: string, public readonly status?: number) { super(message); }
@@ -30,7 +30,7 @@ export class HttpExecutorTransport implements ExecutorTransport {
       method,
       signal,
       headers: {
-        authorization: `Token ${this.o.token}`,
+        authorization: this.o.authorization,
         'x-executor-secret': this.o.secret,
         'x-executor-api-version': String(API_VERSION),
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),

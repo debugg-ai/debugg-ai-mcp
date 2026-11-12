@@ -26,6 +26,7 @@ export interface OpRunnerOptions {
   defaultTimeoutMs?: number;
 }
 
+type DistributiveOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
 const SECRET_RE = /\{\{cred:([^}]+)\}\}/g;
 const PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iqLiWAAAAABJRU5ErkJggg==';
 
@@ -35,6 +36,7 @@ class OpError extends Error {
 
 export class OpRunner {
   private events: ExecEvent[] = [];
+  private emit(e: DistributiveOmit<ExecEvent, 'ts'>): void { this.events.push({ ...e, ts: Date.now() } as ExecEvent); }
   private pages = new Map<string, Page>();
   private ids = new Map<Page, string>();
   private nextPage = 1;
@@ -62,7 +64,7 @@ export class OpRunner {
       await first.setViewportSize(vp).catch(() => {});
       await installNavigationGuard(context, allowed, (h) => r.blocked.push(h));
       r.register(first);
-      context.on('page', (pg) => { const id = r.register(pg); r.events.push({ type: 'popup', page_id: id, url: pg.url() }); });
+      context.on('page', (pg) => { const id = r.register(pg); r.emit({ type: 'popup', page_id: id, url: pg.url() }); });
       opts.signal?.addEventListener('abort', () => { void r.close(); }, { once: true });
       return r;
     } catch (err) { await close().catch(() => {}); throw err; }
@@ -71,14 +73,15 @@ export class OpRunner {
   private register(pg: Page): string {
     const id = `p${this.nextPage++}`;
     this.pages.set(id, pg); this.ids.set(pg, id); this.currentId = id;
-    pg.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') this.events.push({ type: 'console', level: m.type(), text: m.text().slice(0, 500) }); });
-    pg.on('pageerror', (e) => this.events.push({ type: 'console', level: 'error', text: e.message.slice(0, 500) }));
-    pg.on('response', (r) => { if (r.status() >= 400) this.events.push({ type: 'request_failed', url: stripQuery(r.url()), status: r.status() }); });
-    pg.on('requestfailed', (r) => this.events.push({ type: 'request_failed', url: stripQuery(r.url()), status: 'aborted' }));
+    pg.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') this.emit({ type: 'console', level: m.type(), text: m.text().slice(0, 500) }); });
+    pg.on('pageerror', (e) => this.emit({ type: 'console', level: 'error', text: e.message.slice(0, 500) }));
+    pg.on('response', (r) => { if (r.status() >= 400) this.emit({ type: 'request_failed', url: stripQuery(r.url()), status: r.status() }); });
+    pg.on('requestfailed', (r) => this.emit({ type: 'request_failed', url: stripQuery(r.url()), status: 'aborted' }));
     pg.on('dialog', (d: Dialog) => {
-      this.events.push({ type: 'dialog', dialog: d.type(), message: d.message().slice(0, 300) });
+      this.emit({ type: 'dialog', dialog: d.type(), message: d.message().slice(0, 300) });
       void (d.type() === 'beforeunload' ? d.accept() : d.dismiss()).catch(() => {});
     });
+    pg.on('download', (d) => this.emit({ type: 'download', url: stripQuery(d.url()), filename: d.suggestedFilename() }));
     pg.on('close', () => { this.pages.delete(id); this.ids.delete(pg); if (this.currentId === id) this.currentId = [...this.pages.keys()].pop() ?? ''; });
     return id;
   }
@@ -208,6 +211,7 @@ export class OpRunner {
       case 'screenshot': return this.screenshot(cmd);
       case 'content': return { kind: 'content', value: await this.page(cmd).content() };
       case 'set_content': await this.page(cmd).setContent(String(a.html ?? ''), { timeout }); return act;
+      case 'add_init_script': await this.context.addInitScript(String(a.script ?? '')); return act;
       case 'title': return { kind: 'query', value: await this.page(cmd).title() };
       case 'url': return { kind: 'query', value: this.page(cmd).url() };
       case 'set_viewport': await this.page(cmd).setViewportSize({ width: Number(a.w ?? a.width ?? 1280), height: Number(a.h ?? a.height ?? 800) }); return act;
@@ -260,7 +264,7 @@ export class OpRunner {
       return { kind: 'screenshot', value: { base64: PX, local_path: file, redacted: true }, screenshot_ref: null };
     }
     if (cmd.upload_url) {
-      const res = await fetch(cmd.upload_url, { method: 'PUT', headers: { 'content-type': 'image/png' }, body: new Uint8Array(buf) });
+      const res = await fetch(cmd.upload_url, { method: 'PUT', headers: { 'content-type': cmd.upload_content_type ?? 'image/png' }, body: new Uint8Array(buf) });
       if (!res.ok) throw new OpError('internal', `Screenshot upload failed: HTTP ${res.status}`, true);
       return { kind: 'screenshot', value: { local_path: file }, screenshot_ref: cmd.upload_url.split('?')[0] };
     }

@@ -115,6 +115,14 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
           type: "boolean",
           description: "Default false. Set true to force a REAL login instead of reusing the warm session the backend keeps per account. Use when the login flow itself is what you're checking, when you suspect the stored session is stale, or when the app's only route between personas is a logout. Costs one login; the run re-captures afterwards, so later runs stay fast."
         },
+        browser: {
+          type: "string",
+          enum: ["remote", "local"],
+          description: "Default 'remote' (cloud browser; localhost is tunneled). 'local' runs the clicking in Chrome on THIS machine — no tunnel, no *.localhost limits, much faster — while the cloud agent still decides each step. Needs DEBUGGAI_LOCAL_BROWSER=1 on the MCP server and the backend's local executor enabled. Passwords passed in this call stay on this machine. Page screenshots and text are still sent to the cloud agent. Not available over the remote HTTP MCP."
+        },
+        headless: { type: "boolean", description: "browser:'local' only. Default true; false shows the Chrome window." },
+        useProfile: { type: "boolean", description: "browser:'local' only. Use the MCP-owned logged-in Chrome profile (never your everyday Chrome). Requires allowedDomains." },
+        allowedDomains: { type: "array", items: { type: "string" }, description: "browser:'local' only. Extra hostnames (and subdomains) the run may navigate to, beyond the url's own host and localhost. Navigation off this list is refused, redirects included." },
         extraOrigins: {
           type: "array",
           items: { type: "string" },
