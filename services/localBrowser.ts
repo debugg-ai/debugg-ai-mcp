@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { installNavigationGuard, isLoopbackHost } from './navigationGuard.js';
 
 export class LocalBrowserError extends Error {
   constructor(message: string, public readonly code: string) {
@@ -109,15 +110,11 @@ async function loadPlaywright(): Promise<typeof import('playwright-core')> {
   }
 }
 
-function safeHost(u: string): string {
-  try { return new URL(u).hostname; } catch { return u; }
-}
-
-function ensurePrivateDir(dir: string): void {
+export function ensurePrivateDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 }
 
-async function launch(opts: { headless: boolean; useProfile: boolean }) {
+export async function launch(opts: { headless: boolean; useProfile: boolean }) {
   const pw = await loadPlaywright();
   const executablePath = findChrome();
   const base = { headless: opts.headless, ...(executablePath ? { executablePath } : { channel: 'chrome' as const }) };
@@ -172,48 +169,14 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
   o.signal?.addEventListener('abort', onAbort, { once: true });
   try {
     const page = context.pages()[0] ?? await context.newPage();
+    const blocked: string[] = [];
     if (o.useProfile) {
-      const isLocal = (h: string) => ['localhost', '127.0.0.1', '[::1]', '::1'].includes(h);
       const startHost = (() => { try { return new URL(o.url).hostname; } catch { return ''; } })();
-      if (!hostAllowed(startHost, allowed) && !isLocal(startHost)) {
+      if (!hostAllowed(startHost, allowed) && !isLoopbackHost(startHost)) {
         throw new LocalBrowserError(`${startHost || o.url} is not in the allowlist for this profile session.`, 'DOMAIN_NOT_ALLOWED');
       }
-      // Block top-level DOCUMENT loads off the allowlist, redirect hops included, via
-      // CDP Fetch (Playwright's route() never sees server-side redirect hops, so it
-      // cannot enforce this). Sub-resources (CDNs) pass.
-      const guard = async (pg: import('playwright-core').Page) => {
-        const cdp = await context.newCDPSession(pg);
-        const mainFrameId = ((await cdp.send('Page.getFrameTree')) as { frameTree: { frame: { id: string } } }).frameTree.frame.id;
-        await cdp.send('Fetch.enable', { patterns: [
-          { urlPattern: '*', resourceType: 'Document', requestStage: 'Request' },
-          { urlPattern: '*', resourceType: 'Document', requestStage: 'Response' },
-        ] });
-        cdp.on('Fetch.requestPaused', (ev: { requestId: string; frameId: string; request: { url: string }; responseStatusCode?: number; responseHeaders?: Array<{ name: string; value: string }> }) => {
-          void (async () => {
-            const check = (u: string): boolean => {
-              try { const h = new URL(u).hostname; return hostAllowed(h, allowed) || isLocal(h); } catch { return false; }
-            };
-            try {
-              if (ev.frameId !== mainFrameId) { await cdp.send(ev.responseStatusCode ? 'Fetch.continueResponse' : 'Fetch.continueRequest', { requestId: ev.requestId }); return; }
-              if (ev.responseStatusCode === undefined) {
-                if (!check(ev.request.url)) { blocked.push(safeHost(ev.request.url)); await cdp.send('Fetch.failRequest', { requestId: ev.requestId, errorReason: 'BlockedByClient' }); return; }
-                await cdp.send('Fetch.continueRequest', { requestId: ev.requestId });
-                return;
-              }
-              const loc = ev.responseHeaders?.find((h) => h.name.toLowerCase() === 'location')?.value;
-              if (ev.responseStatusCode >= 300 && ev.responseStatusCode < 400 && loc) {
-                const next = new URL(loc, ev.request.url).toString();
-                if (!check(next)) { blocked.push(safeHost(next)); await cdp.send('Fetch.failRequest', { requestId: ev.requestId, errorReason: 'BlockedByClient' }); return; }
-              }
-              await cdp.send('Fetch.continueResponse', { requestId: ev.requestId });
-            } catch { /* page closed */ }
-          })();
-        });
-      };
-      await guard(page);
-      context.on('page', (pg) => { void guard(pg).catch(() => {}); });
+      await installNavigationGuard(context, allowed, (h) => blocked.push(h));
     }
-    const blocked: string[] = [];
     const consoleErrors: Array<{ level: string; text: string }> = [];
     const net: Array<{ url: string; status: number; bytes: number }> = [];
     page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleErrors.push({ level: m.type(), text: m.text() }); });
