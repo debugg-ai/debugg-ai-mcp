@@ -11,6 +11,7 @@
 import { tunnelManager, getSessionKey } from '../services/tunnel/tunnelManager.js';
 import { isLocalhostUrl, replaceTunnelUrls, retargetTunnelUrl, extractLocalhostPort } from './urlParser.js';
 import type { PortRouteHandle, PortWaitInfo } from '../services/caddy/portLock.js';
+import { AUX_PATH_PREFIX, type AuxOrigin } from '../services/caddy/caddyProxy.js';
 import type { TunnelTransportSelection } from '../services/tunnel/transport.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -29,6 +30,9 @@ export interface TunnelContext {
    *  set by `acquirePortRoute` and released via `releasePortRoute`. Undefined
    *  for public URLs, dev-mode calls, and any call that hasn't acquired yet. */
   routeLock?: PortRouteHandle;
+  /** Secondary local origins authorised for this run (bead w1os.2), reachable on
+   *  the tunnel at `/__o/<port>/`. */
+  extraOrigins?: AuxOrigin[];
 }
 
 // ─── URL resolution ──────────────────────────────────────────────────────────
@@ -152,6 +156,12 @@ export function retargetAuxiliaryUrl(ctx: TunnelContext, auxUrl: string): AuxUrl
   const port = extractLocalhostPort(auxUrl);
   const primaryPort = extractLocalhostPort(ctx.originalUrl);
   if (port !== undefined && primaryPort !== undefined && port !== primaryPort) {
+    // Bead w1os.2: a port the caller authorised via extraOrigins is reachable at /__o/<port>/.
+    if (ctx.extraOrigins?.some((o) => o.port === port)) {
+      const t = new URL(auxUrl);
+      const base = new URL(ctx.targetUrl);
+      return { ok: true, url: `${base.origin}${AUX_PATH_PREFIX}/${port}${t.pathname}${t.search}${t.hash}`, rewritten: true };
+    }
     return { ok: false, reason: 'port_mismatch', port, primaryPort };
   }
   return { ok: true, url: retargetTunnelUrl(ctx.targetUrl, auxUrl), rewritten: true };

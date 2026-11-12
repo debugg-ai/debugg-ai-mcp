@@ -102,6 +102,7 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | `loginCredentials` | array | Accounts for logins the agent hits **during** the task — `[{username, password, label?}]` |
 | `useEnvironmentCredentials` | boolean | Default `true`. `false` forbids auto-filling the environment's stored credentials; with no account named it means **do not log in at all** |
 | `freshSession` | boolean | Default `false`. `true` forces a real login instead of reusing the warm session held for that account |
+| `extraOrigins` | string[] | Extra local origins the run may be redirected to, e.g. `["http://host.docker.internal:4717", "http://localhost:4304"]` (OAuth vendor + callback on other ports). Redirects to them (and back to `url`) are followed through the tunnel; pages on them are served at `/__o/<port>/`. Only listed origins are exposed. Absolute URLs written inside page HTML (not redirects) are not rewritten |
 | `auth` | object | Auth precondition — `{precondition, entryUrl, deepUrl, environmentId, username, password}` |
 | `repoName` | string | Override auto-detected git repo name (e.g. `my-org/my-repo`) |
 

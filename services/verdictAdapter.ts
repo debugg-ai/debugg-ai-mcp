@@ -200,6 +200,24 @@ export interface LoginRecord {
   detail?: string;
 }
 
+/**
+ * Counts over the login records (bead w1os.4) — numbers only, so the MCP
+ * authors no text (epic 56kd). The backend appends a `no_login_form_detected`
+ * record (submitted:false, authenticated:false) after a successful sign-in
+ * whenever a later page had no form; read alone it looks like a failed login.
+ * The raw records stay verbatim (bead ymq2); this just states the tally:
+ *   authenticated — records with authenticated:true
+ *   failed        — typed credentials (submitted:true) and did not authenticate
+ *   notAttempted  — nothing was typed (skipped or refused records)
+ */
+export function summarizeLogins(logins: LoginRecord[] | undefined):
+  { total: number; authenticated: number; failed: number; notAttempted: number } | undefined {
+  if (!logins) return undefined;
+  const authenticated = logins.filter((l) => l.authenticated === true).length;
+  const failed = logins.filter((l) => l.authenticated !== true && l.submitted === true).length;
+  return { total: logins.length, authenticated, failed, notAttempted: logins.length - authenticated - failed };
+}
+
 /** Credential sources that mean "the caller named this account for this run". */
 const CALLER_SPECIFIED_SOURCES = new Set(['task', 'explicit', 'credential_id']);
 
