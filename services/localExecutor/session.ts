@@ -68,21 +68,26 @@ export async function runExecutorSession(o: SessionOptions): Promise<{ ended: Se
         await sleep(retryDelay, stop.signal);
         continue;
       }
-      for (const cmd of cmds.slice(0, limits.max_batch || 1)) {
-        if (ended) break;
-        const key = cmd.idempotency_key ?? cmd.id;
-        const cached = done.get(key);
-        const result = cached ? { ...cached, command_id: cmd.id } : await runner.execute(cmd);
-        if (!cached) { done.set(key, result); commandsRun++; if (done.size > 200) done.delete(done.keys().next().value as string); }
-        // Large retries: results are idempotent by command_id on the cloud side.
-        for (let attempt = 0; ; attempt++) {
-          try { await transport.postResults([result]); lastContact = Date.now(); break; }
-          catch {
-            if (ended || Date.now() - lastContact > limits.lease_s * 1000) { finish('lease_lost'); break; }
-            await sleep(retryDelay * Math.min(attempt + 1, 5), stop.signal);
+      const conc = Math.max(1, limits.max_inflight ?? cmds.length);
+      let next = 0;
+      const worker = async () => {
+        while (next < cmds.length && !ended) {
+          const cmd = cmds[next++];
+          const key = cmd.idempotency_key ?? cmd.id;
+          const cached = done.get(key);
+          const result = cached ? { ...cached, command_id: cmd.id } : await runner.execute(cmd);
+          if (!cached) { done.set(key, result); commandsRun++; if (done.size > 200) done.delete(done.keys().next().value as string); }
+          // Results are idempotent by command_id on the cloud side, so retrying a post is safe.
+          for (let attempt = 0; ; attempt++) {
+            try { await transport.postResults([result]); lastContact = Date.now(); break; }
+            catch {
+              if (ended || Date.now() - lastContact > limits.lease_s * 1000) { finish('lease_lost'); break; }
+              await sleep(retryDelay * Math.min(attempt + 1, 5), stop.signal);
+            }
           }
         }
-      }
+      };
+      await Promise.all(Array.from({ length: Math.min(conc, cmds.length) }, worker));
     }
   } finally {
     clearInterval(hb);
