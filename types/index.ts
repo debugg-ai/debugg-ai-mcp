@@ -452,6 +452,16 @@ export const ProbePageInputSchema = z.object({
   includeHtml: z.boolean().default(false),
   captureScreenshots: z.boolean().default(true),
   repoName: z.string().optional(),
+  // Local Chrome capture (beads jpw3.1/.2). 'remote' (default) is the cloud browser.
+  browser: z.enum(['remote', 'local']).default('remote'),
+  // local only: false opens a visible window.
+  headless: z.boolean().default(true),
+  // local only: use the MCP-owned persistent profile (log in once) instead of a throwaway one.
+  useProfile: z.boolean().default(false),
+  // local + useProfile + headless:false only: keep the window open this long so the user can sign in once.
+  loginWindowMs: z.number().int().min(1000).max(600000).optional(),
+  // local + useProfile: domains (and subdomains) the session may navigate to. Required unless the server owner set DEBUGGAI_PROFILE_ALLOWED_DOMAINS.
+  allowedDomains: z.array(z.string().min(1)).max(50).optional(),
 }).strict();
 
 export type ProbePageTarget = z.infer<typeof ProbePageTargetSchema>;
