@@ -323,6 +323,33 @@ describe('pollExecution()', () => {
     expect(onUpdate).toHaveBeenCalled();
   });
 
+  test('transient poll failures are tolerated (bead kruv); a 4xx or a sixth in a row is not', async () => {
+    jest.useFakeTimers();
+    let n = 0;
+    mockGet.mockImplementation(async () => {
+      n++;
+      if (n <= 2) { const e: any = new Error('boom'); e.statusCode = 503; throw e; }
+      if (n === 3) throw new Error('socket hang up'); // network-class, no status
+      return makeExecution({ status: 'completed' });
+    });
+    const ok = service.pollExecution('exec-1');
+    await jest.advanceTimersByTimeAsync(20000);
+    expect((await ok).status).toBe('completed');
+
+    mockGet.mockImplementation(async () => { const e: any = new Error('nope'); e.statusCode = 404; throw e; });
+    const notFound = service.pollExecution('exec-2');
+    const notFoundAssert = expect(notFound).rejects.toThrow('nope');
+    await jest.advanceTimersByTimeAsync(20000);
+    await notFoundAssert;
+
+    mockGet.mockImplementation(async () => { throw new Error('socket hang up'); });
+    const down = service.pollExecution('exec-3');
+    const downAssert = expect(down).rejects.toThrow('socket hang up');
+    await jest.advanceTimersByTimeAsync(60000);
+    await downAssert;
+    expect(mockGet.mock.calls.length).toBeGreaterThan(0);
+  });
+
   test('deadline exceeded: returns the last observed execution flagged timedOut (bead 56kd.3), does NOT throw', async () => {
     // The 10-min poll deadline must NOT discard captured evidence. Instead of
     // throwing, pollExecution returns the last observed (non-terminal)
