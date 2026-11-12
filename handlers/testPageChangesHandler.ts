@@ -449,7 +449,7 @@ async function testPageChangesHandlerInner(
     }
     contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
     if (localMode) {
-      localRun = await prepareLocalRun({ client, input, startUrl: originalUrl, secrets: localSecrets, signal: abortController.signal });
+      localRun = await prepareLocalRun({ client, input, startUrl: originalUrl, secrets: localSecrets, signal: abortController.signal, projectId: projectUuid || undefined });
       contextData.executorSessionId = localRun.sessionId;
     }
 

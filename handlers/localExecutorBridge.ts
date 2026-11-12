@@ -64,6 +64,7 @@ export async function prepareLocalRun(args: {
   startUrl: string;
   secrets: Record<string, string>;
   signal: AbortSignal;
+  projectId?: string;
 }): Promise<LocalRun> {
   const { client, input, startUrl, secrets, signal } = args;
   if (!localBrowserEnabled()) {
@@ -92,6 +93,7 @@ export async function prepareLocalRun(args: {
       capture: { screenshots: screenshotsMode },
       // Public half only. The private key never leaves this process.
       executorPublicKey: keys.publicKey,
+      ...(args.projectId ? { projectId: args.projectId } : {}),
       ...(input.environmentId ? { environmentId: input.environmentId } : {}),
       ...(input.credentialId ? { credentialId: input.credentialId } : {}),
       ...(input.credentialRole ? { credentialRole: input.credentialRole } : {}),

@@ -44,10 +44,11 @@ export class HttpExecutorTransport implements ExecutorTransport {
   }
 
   async attach(info: AttachInfo): Promise<void> { await this.req('POST', EXECUTOR_PATHS.attach(this.o.sessionId), info); }
-  async poll(waitS: number, signal: AbortSignal): Promise<Command[]> {
+  async poll(waitS: number, signal: AbortSignal): Promise<Command[] | { commands: Command[]; cancel?: boolean; drain?: boolean }> {
     const r = await this.req('GET', EXECUTOR_PATHS.commands(this.o.sessionId, waitS), undefined, signal);
-    const list = Array.isArray(r) ? r : (r as { commands?: Command[] } | null)?.commands;
-    return list ?? [];
+    if (Array.isArray(r)) return r;
+    const o = (r ?? {}) as { commands?: Command[]; cancel?: boolean; drain?: boolean };
+    return { commands: o.commands ?? [], cancel: o.cancel, drain: o.drain };
   }
   async postResults(results: CommandResult[]): Promise<void> { await this.req('POST', EXECUTOR_PATHS.results(this.o.sessionId), { results }); }
   async heartbeat(): Promise<{ cancel: boolean; drain: boolean }> {

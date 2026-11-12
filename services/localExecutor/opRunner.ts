@@ -172,10 +172,15 @@ export class OpRunner {
           : await pg.evaluate(expr as never, a.arg as never);
         return { kind: 'eval', value: value === undefined ? null : value };
       }
-      case 'click': await this.locator(this.page(cmd), cmd).first().click({ timeout, button: a.button as 'left' | undefined, force: a.force as boolean | undefined, delay: a.delay as number | undefined, position: a.position as { x: number; y: number } | undefined }); return act;
+      case 'click': {
+        const loc = this.locator(this.page(cmd), cmd).first();
+        const o = { timeout, button: a.button as 'left' | undefined, force: a.force as boolean | undefined };
+        if (a.double) await loc.dblclick(o); else await loc.click(o);
+        return act;
+      }
       case 'dblclick': await this.locator(this.page(cmd), cmd).first().dblclick({ timeout, force: a.force as boolean | undefined }); return act;
       case 'fill': await this.locator(this.page(cmd), cmd).first().fill(this.sub(a.value ?? a.text), { timeout }); return act;
-      case 'type': await this.locator(this.page(cmd), cmd).first().pressSequentially(this.sub(a.text ?? a.value), { timeout, delay: a.delay as number | undefined }); return act;
+      case 'type': await this.locator(this.page(cmd), cmd).first().pressSequentially(this.sub(a.text ?? a.value), { timeout, delay: (a.delay_ms ?? a.delay) as number | undefined }); return act;
       case 'press': {
         const key = this.sub(a.key);
         if (cmd.target?.selector) await this.locator(this.page(cmd), cmd).first().press(key, { timeout });
@@ -184,8 +189,8 @@ export class OpRunner {
       }
       case 'hover': await this.locator(this.page(cmd), cmd).first().hover({ timeout }); return act;
       case 'select_option': {
-        const v = a.values ?? a.value ?? a.label;
-        await this.locator(this.page(cmd), cmd).first().selectOption(v as string | string[], { timeout });
+        const v = a.index !== undefined ? { index: Number(a.index) } : a.label !== undefined ? { label: String(a.label) } : (a.values ?? a.value) as string | string[];
+        await this.locator(this.page(cmd), cmd).first().selectOption(v, { timeout });
         return act;
       }
       case 'check': await this.locator(this.page(cmd), cmd).first().check({ timeout }); return act;
@@ -193,19 +198,20 @@ export class OpRunner {
       case 'focus': await this.locator(this.page(cmd), cmd).first().focus({ timeout }); return act;
       case 'scroll': {
         const pg = this.page(cmd);
-        if (cmd.target?.selector) await this.locator(pg, cmd).first().scrollIntoViewIfNeeded({ timeout });
-        else await pg.mouse.wheel(Number(a.x ?? 0), Number(a.y ?? 600));
+        const to = (a.to_selector as string | undefined) ?? cmd.target?.selector;
+        if (to) await (a.to_selector ? pg.locator(to) : this.locator(pg, cmd)).first().scrollIntoViewIfNeeded({ timeout });
+        else await pg.mouse.wheel(Number(a.dx ?? a.x ?? 0), Number(a.dy ?? a.y ?? 600));
         return act;
       }
       case 'wait_for_selector': await this.locator(this.page(cmd), cmd).first().waitFor({ state: (a.state as 'visible') ?? 'visible', timeout }); return act;
       case 'wait_for_load_state': await this.page(cmd).waitForLoadState((a.state as 'load') ?? 'load', { timeout }); return act;
       case 'wait_for_function': await this.page(cmd).waitForFunction(String(a.expression ?? '') as never, a.arg as never, { timeout }); return act;
-      case 'query': return { kind: 'query', value: await this.query(this.locator(this.page(cmd), cmd).first(), String(a.kind ?? 'text'), a, timeout) };
+      case 'query': return { kind: 'query', value: await this.query(this.locator(this.page(cmd), cmd).first(), String(a.what ?? a.kind ?? 'text'), a, timeout) };
       case 'query_all': {
         const loc = this.locator(this.page(cmd), cmd);
-        const n = Math.min(await loc.count(), 500);
+        const n = Math.min(await loc.count(), Number(a.limit ?? 500));
         const out: unknown[] = [];
-        for (let i = 0; i < n; i++) out.push(await this.query(loc.nth(i), String(a.kind ?? 'text'), a, timeout));
+        for (let i = 0; i < n; i++) out.push(await this.query(loc.nth(i), String(a.what ?? a.kind ?? 'text'), a, timeout));
         return { kind: 'query', value: out };
       }
       case 'screenshot': return this.screenshot(cmd);
@@ -217,6 +223,12 @@ export class OpRunner {
       case 'set_viewport': await this.page(cmd).setViewportSize({ width: Number(a.w ?? a.width ?? 1280), height: Number(a.h ?? a.height ?? 800) }); return act;
       case 'new_page': {
         const pg = await this.context.newPage();
+        if (a.url) {
+          let h: string;
+          try { h = new URL(String(a.url)).hostname; } catch { throw new OpError('invalid_args', `Invalid URL: ${a.url}`); }
+          if (!hostAllowed(h, this.opts.allowedDomains) && !isLoopbackHost(h)) { await pg.close(); throw new OpError('domain_blocked', `${h} is not in this session's allowlist.`); }
+          await pg.goto(String(a.url), { waitUntil: 'domcontentloaded', timeout });
+        }
         const id = this.ids.get(pg) ?? this.register(pg);
         return { kind: 'action', value: { page_id: id } };
       }
@@ -253,18 +265,20 @@ export class OpRunner {
   private async screenshot(cmd: Command): Promise<Observation> {
     const a = cmd.args ?? {};
     const pg = this.page(cmd);
+    const shotType = a.type === 'jpeg' || cmd.upload_content_type === 'image/jpeg' ? 'jpeg' as const : 'png' as const;
+    const quality = Number(a.quality ?? 70);
     const buf = cmd.target?.selector
-      ? await this.locator(pg, cmd).first().screenshot({ type: 'png', timeout: this.to(cmd) })
-      : await pg.screenshot({ type: 'png', fullPage: !!a.full_page, timeout: this.to(cmd) });
+      ? await this.locator(pg, cmd).first().screenshot({ type: shotType, ...(shotType === 'jpeg' ? { quality } : {}), timeout: this.to(cmd) })
+      : await pg.screenshot({ type: shotType, ...(shotType === 'jpeg' ? { quality } : {}), fullPage: !!a.full_page, timeout: this.to(cmd) });
     const dir = path.join(debuggHome(), 'captures');
     ensurePrivateDir(dir);
-    const file = path.join(dir, `shot-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.png`);
+    const file = path.join(dir, `shot-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${shotType === 'jpeg' ? 'jpg' : 'png'}`);
     fs.writeFileSync(file, buf, { mode: 0o600 });
     if (this.opts.screenshots === 'local_only') {
       return { kind: 'screenshot', value: { base64: PX, local_path: file, redacted: true }, screenshot_ref: null };
     }
     if (cmd.upload_url) {
-      const res = await fetch(cmd.upload_url, { method: 'PUT', headers: { 'content-type': cmd.upload_content_type ?? 'image/png' }, body: new Uint8Array(buf) });
+      const res = await fetch(cmd.upload_url, { method: 'PUT', headers: { 'content-type': cmd.upload_content_type ?? (shotType === 'jpeg' ? 'image/jpeg' : 'image/png') }, body: new Uint8Array(buf) });
       if (!res.ok) throw new OpError('internal', `Screenshot upload failed: HTTP ${res.status}`, true);
       return { kind: 'screenshot', value: { local_path: file }, screenshot_ref: cmd.upload_url.split('?')[0] };
     }
