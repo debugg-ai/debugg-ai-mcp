@@ -8,7 +8,7 @@ export const OPS = [
   'goto', 'back', 'forward', 'reload', 'evaluate',
   'click', 'dblclick', 'fill', 'type', 'press', 'hover', 'select_option', 'check', 'uncheck', 'focus', 'scroll',
   'wait_for_selector', 'wait_for_load_state', 'wait_for_function',
-  'query', 'query_all', 'screenshot', 'content', 'set_content', 'title', 'url', 'set_viewport',
+  'query', 'query_all', 'screenshot', 'content', 'set_content', 'add_init_script', 'title', 'url', 'set_viewport',
   'new_page', 'list_pages', 'switch_page', 'close_page',
 ] as const;
 export type OpName = typeof OPS[number];
@@ -24,6 +24,7 @@ export interface Command {
   deadline_ms?: number;
   idempotency_key?: string;
   upload_url?: string;
+  upload_content_type?: 'image/png' | 'image/jpeg';
 }
 
 export type ErrorCode =
@@ -33,11 +34,13 @@ export type ErrorCode =
 export interface ExecError { code: ErrorCode; message: string; retryable: boolean; detail?: Record<string, unknown> }
 
 /** Things that happened since the previous result (the brain cannot subscribe to page events). */
-export type ExecEvent =
+export type ExecEvent = { ts: number } & (
   | { type: 'console'; level: string; text: string }
   | { type: 'request_failed'; url: string; status: number | 'aborted' }
   | { type: 'dialog'; dialog: string; message: string }
-  | { type: 'popup'; page_id: string; url: string };
+  | { type: 'popup'; page_id: string; url: string }
+  | { type: 'download'; url: string; filename: string }
+);
 
 export interface Observation {
   kind: 'action' | 'query' | 'screenshot' | 'content' | 'eval';

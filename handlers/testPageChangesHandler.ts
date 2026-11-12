@@ -46,6 +46,8 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import { prepareLocalRun, localizeCredentials, type LocalRun } from './localExecutorBridge.js';
+import { LocalBrowserError } from '../services/localBrowser.js';
 import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
 
 const logger = new Logger({ module: 'testPageChangesHandler' });
@@ -163,6 +165,12 @@ async function testPageChangesHandlerInner(
 
   const client = new DebuggAIServerClient(config.api.key);
   await client.init();
+
+  // browser:'local': Chrome on this machine does the clicking (no tunnel); passwords stay local.
+  const localMode = input.browser === 'local';
+  let localSecrets: Record<string, string> = {};
+  if (localMode) { const l = localizeCredentials(input); input = l.input; localSecrets = l.secrets; }
+  let localRun: LocalRun | undefined;
 
   const originalUrl = resolveTargetUrl(input);
   let ctx = buildContext(originalUrl);
@@ -297,7 +305,9 @@ async function testPageChangesHandlerInner(
         }
       }
 
-      if (config.devMode) {
+      if (localMode) {
+        logger.info(`check_app_in_browser: local browser — no tunnel for ${ctx.originalUrl}`);
+      } else if (config.devMode) {
         // Dev mode: local backend can reach localhost directly — no tunnel needed.
         logger.info(`check_app_in_browser: dev mode — using localhost URL directly: ${ctx.originalUrl}`);
       } else {
@@ -438,6 +448,10 @@ async function testPageChangesHandlerInner(
       contextData.projectId = projectUuid;
     }
     contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
+    if (localMode) {
+      localRun = await prepareLocalRun({ client, input, startUrl: originalUrl, secrets: localSecrets, signal: abortController.signal });
+      contextData.executorSessionId = localRun.sessionId;
+    }
 
     // Bead 56kd.6: forward the auth-precondition deep-link intent verbatim per
     // backend contract sentinal-k8x1f.8 (contextData.auth). Thin relay — express
@@ -541,7 +555,7 @@ async function testPageChangesHandlerInner(
     //   28:    Complete
     const BACKEND_SETUP_END = 6;
     const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-    const MAX_RETRIES = getMaxTransientRetries();
+    const MAX_RETRIES = localMode ? 0 : getMaxTransientRetries(); // a retry would need a fresh local session
 
     let executeResponse: import('../services/workflows.js').WorkflowExecuteResponse | undefined;
     let executionUuid = '';
@@ -584,6 +598,7 @@ async function testPageChangesHandlerInner(
       // the target forward; the previous attempt already reached a terminal
       // state, so there is nothing to cancel there).
       currentExecutionUuid = executionUuid;
+      localRun?.begin();
       logger.info(`Execution queued: ${executionUuid}${attempt > 1 ? ` (retry ${attempt - 1}/${MAX_RETRIES})` : ''}`);
 
       // The abort can fire BEFORE anything is queued — while provisioning the
@@ -994,6 +1009,11 @@ async function testPageChangesHandlerInner(
     return tunnelFault ? { content, isError: true } : { content };
 
   } catch (error) {
+    if (error instanceof LocalBrowserError) {
+      const payload = { error: error.code, message: error.message };
+      logger.warn(`check_app_in_browser (local): ${error.code}: ${error.message}`);
+      return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
+    }
     const duration = Date.now() - startTime;
     logger.toolError('check_app_in_browser', error as Error, duration);
 
@@ -1004,6 +1024,7 @@ async function testPageChangesHandlerInner(
 
     throw handleExternalServiceError(error, 'DebuggAI', 'test execution');
   } finally {
+    await localRun?.end().catch(() => {});
     if (requestSignal) requestSignal.removeEventListener('abort', onAbort);
     // §2.4: release this call's claim on the shared port route (no-op if we
     // never acquired one — public URL, dev mode, or an early-return before
