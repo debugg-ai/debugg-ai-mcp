@@ -134,4 +134,14 @@ live('prepareLocalRun (fake backend, real Chrome)', () => {
     expect(bridge.planRequiredFromError(mk(404, {}))).toBeUndefined();
     expect(bridge.planRequiredFromError(new Error('boom'))).toBeUndefined();
   });
+
+  test('the platform contract shape: flat 402 with error_code PLAN_FEATURE_NOT_INCLUDED', () => {
+    const e = Object.assign(new Error('x'), { statusCode: 402, responseData: {
+      error: 'Local browser runs are not included in your plan.', error_code: 'PLAN_FEATURE_NOT_INCLUDED', detail: 'Local browser runs are not included in your plan.',
+      feature: 'local_browser', upgrade_url: 'https://app.debugg.ai/billing', docs_url: 'https://debugg.ai/docs/local', required_plans: ['Professional', 'Grow', 'Enterprise'] } });
+    const r = bridge.planRequiredFromError(e)!;
+    expect(r.code).toBe('PLAN_REQUIRED');
+    expect(r.message).toBe('Local browser runs are not included in your plan. Upgrade: https://app.debugg.ai/billing Docs: https://debugg.ai/docs/local');
+    expect(r.details).toEqual({ upgradeUrl: 'https://app.debugg.ai/billing', docsUrl: 'https://debugg.ai/docs/local', requiredPlans: ['Professional', 'Grow', 'Enterprise'] });
+  });
 });
