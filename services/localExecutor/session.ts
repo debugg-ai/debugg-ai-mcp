@@ -5,6 +5,7 @@
  */
 import type { Command, CommandResult, SessionLimits } from './ops.js';
 import { OpRunner } from './opRunner.js';
+import { logger } from '../../utils/logger.js';
 
 export interface AttachInfo {
   executor_version: string;
@@ -82,6 +83,7 @@ export async function runExecutorSession(o: SessionOptions): Promise<{ ended: Se
           const cached = done.get(key);
           let result: CommandResult;
           try { result = cached ? { ...cached, command_id: cmd.id } : await runner.execute(cmd); } finally { inflight.delete(key); }
+          logger.debug('executor command', { op: cmd.op, ok: result.ok, ms: result.duration_ms, err: result.error?.code, msg: result.error?.message, obs: result.observation ? Object.keys(result.observation) : undefined, args: JSON.stringify(cmd.args ?? {}).slice(0, 160), sel: cmd.target?.selector, val: op_preview(result) });
           if (!cached) { done.set(key, result); commandsRun++; if (done.size > 200) done.delete(done.keys().next().value as string); }
           // Results are idempotent by command_id on the cloud side, so retrying a post is safe.
           for (let attempt = 0; ; attempt++) {
@@ -107,4 +109,10 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
     const t = setTimeout(r, ms);
     signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true });
   });
+}
+
+function op_preview(r: CommandResult): string | undefined {
+  const v = r.observation && 'value' in r.observation ? (r.observation as { value?: unknown }).value : undefined;
+  if (v === undefined || (r.observation as { kind?: string }).kind === 'screenshot') return undefined;
+  try { return JSON.stringify(v).slice(0, 200); } catch { return undefined; }
 }

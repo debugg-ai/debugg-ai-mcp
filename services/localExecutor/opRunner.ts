@@ -43,6 +43,9 @@ export class OpRunner {
   private currentId = '';
   private closed = false;
   private blocked: string[] = [];
+  private uploader?: (url: string, contentType: string, bytes: Uint8Array) => Promise<string>;
+  /** Set once the session exists (auth headers are known only then). Without it, uploads fall back to an unauthenticated PUT. */
+  setUploader(fn: (url: string, contentType: string, bytes: Uint8Array) => Promise<string>): void { this.uploader = fn; }
 
   private constructor(private readonly context: BrowserContext, private readonly closeBrowser: () => Promise<void>, private readonly opts: OpRunnerOptions) {}
 
@@ -167,9 +170,15 @@ export class OpRunner {
       case 'evaluate': {
         const pg = this.page(cmd);
         const expr = String(a.expression ?? '');
+        // Playwright does not invoke a function passed as a string, so run the source ourselves: a
+        // function source is called with (element?, arg); any other expression is returned as its value.
         const value = cmd.target?.selector
-          ? await this.locator(pg, cmd).first().evaluate(expr as never, a.arg as never, { timeout })
-          : await pg.evaluate(expr as never, a.arg as never);
+          ? await this.locator(pg, cmd).first().evaluate(
+              (el, [src, arg]) => { const f = (0, eval)('(' + src + ')'); return typeof f === 'function' ? f(el, arg) : f; },
+              [expr, a.arg] as [string, unknown], { timeout })
+          : await pg.evaluate(
+              ([src, arg]) => { const f = (0, eval)('(' + src + ')'); return typeof f === 'function' ? f(arg) : f; },
+              [expr, a.arg] as [string, unknown]);
         return { kind: 'eval', value: value === undefined ? null : value };
       }
       case 'click': {
@@ -278,9 +287,17 @@ export class OpRunner {
       return { kind: 'screenshot', value: { base64: PX, local_path: file, redacted: true }, screenshot_ref: null };
     }
     if (cmd.upload_url) {
-      const res = await fetch(cmd.upload_url, { method: 'PUT', headers: { 'content-type': cmd.upload_content_type ?? (shotType === 'jpeg' ? 'image/jpeg' : 'image/png') }, body: new Uint8Array(buf) });
-      if (!res.ok) throw new OpError('internal', `Screenshot upload failed: HTTP ${res.status}`, true);
-      return { kind: 'screenshot', value: { local_path: file }, screenshot_ref: cmd.upload_url.split('?')[0] };
+      const ct = cmd.upload_content_type ?? (shotType === 'jpeg' ? 'image/jpeg' : 'image/png');
+      let ref: string;
+      if (this.uploader) {
+        try { ref = await this.uploader(cmd.upload_url, ct, new Uint8Array(buf)); }
+        catch (e) { throw new OpError('internal', `Screenshot upload failed: ${e instanceof Error ? e.message : String(e)}`, true); }
+      } else {
+        const res = await fetch(cmd.upload_url, { method: 'PUT', headers: { 'content-type': ct }, body: new Uint8Array(buf) });
+        if (!res.ok) throw new OpError('internal', `Screenshot upload failed: HTTP ${res.status}`, true);
+        ref = cmd.upload_url.split('?')[0];
+      }
+      return { kind: 'screenshot', value: { local_path: file }, screenshot_ref: ref };
     }
     if (buf.length > (this.opts.maxInlineBytes ?? 1_000_000)) {
       throw new OpError('invalid_args', `Screenshot is ${buf.length} bytes, over max_inline_bytes, and no upload_url was given.`);
