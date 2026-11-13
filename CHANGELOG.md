@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [6.2.0] — 2026-11-13
+## [6.2.1] — 2026-11-13
 
-> Local click-through needs a backend with local executors enabled (platform flag `EXECUTORS_LOCAL_ENABLED`) and `DEBUGGAI_LOCAL_BROWSER=1` on the MCP server. Without both, nothing changes for existing calls.
+> 6.2.0 was never published; this is its first release. Local click-through needs a backend with local executors enabled (platform flag `EXECUTORS_LOCAL_ENABLED`) and `DEBUGGAI_LOCAL_BROWSER=1` on the MCP server. Without both, nothing changes for existing calls.
 
 ### Added — check_app_in_browser on your local Chrome, cloud brain (`browser: "local"`) (epic m7un)
 - New `browser: "local"` (also `headless`, `useProfile`, `allowedDomains`) runs the check in Chrome on your machine while the cloud brain decides each step. The laptop dials out, so no tunnel is needed for localhost or private apps. Opt-in: set `DEBUGGAI_LOCAL_BROWSER=1` in the MCP server environment; stdio only (not the remote HTTP/OAuth server). The platform side is flag-gated, so it needs a backend that has local executors enabled.
