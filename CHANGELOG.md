@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `browser: "local"` is a paid feature
+- A plan that does not include local browser runs now gets a structured `PLAN_REQUIRED` error (HTTP 402 from the backend) carrying the message, an upgrade link and a docs link, shown as-is and never retried. README documents the feature and the gate.
+
 ## [6.2.1] — 2026-11-13
 
 > 6.2.0 was never published; this is its first release. Local click-through needs a backend with local executors enabled (platform flag `EXECUTORS_LOCAL_ENABLED`) and `DEBUGGAI_LOCAL_BROWSER=1` on the MCP server. Without both, nothing changes for existing calls.

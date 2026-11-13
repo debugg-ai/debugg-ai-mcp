@@ -43,6 +43,29 @@ export function localizeCredentials(input: TestPageChangesInput): { input: TestP
   return { input: out, secrets };
 }
 
+/**
+ * Local runs are a paid feature. The backend answers a plan that does not include them with
+ * HTTP 402 (or a 403 whose code names the plan/entitlement) and a structured body; show its
+ * message, upgrade link and docs link as they are and never retry. Returns undefined for any
+ * other error.
+ */
+export function planRequiredFromError(err: unknown): LocalBrowserError | undefined {
+  const e = err as { statusCode?: number; response?: { status?: number; data?: unknown }; responseData?: unknown } | undefined;
+  const status = e?.statusCode ?? e?.response?.status;
+  const raw = (e?.responseData ?? e?.response?.data) as Record<string, unknown> | undefined;
+  const body = (raw && typeof raw.error === 'object' && raw.error ? raw.error : raw) as Record<string, unknown> | undefined;
+  const pick = (...keys: string[]) => { for (const k of keys) { const v = body?.[k]; if (typeof v === 'string' && v) return v; } return undefined; };
+  const code = pick('code', 'error_code', 'errorCode');
+  const planish = !!code && /plan|entitle|upgrade|subscription|not_included/i.test(code);
+  if (status !== 402 && !(status === 403 && planish)) return undefined;
+  const message = pick('message', 'detail') ?? 'Local browser runs are not included in your plan.';
+  const upgradeUrl = pick('upgrade_url', 'upgradeUrl');
+  const docsUrl = pick('docs_url', 'docsUrl');
+  const required = body?.required_plans ?? body?.requiredPlans;
+  const text = [message, upgradeUrl ? `Upgrade: ${upgradeUrl}` : undefined, docsUrl ? `Docs: ${docsUrl}` : undefined].filter(Boolean).join(' ');
+  return new LocalBrowserError(text, 'PLAN_REQUIRED', { upgradeUrl, docsUrl, ...(required ? { requiredPlans: required } : {}) });
+}
+
 export function localAllowedDomains(input: TestPageChangesInput, startUrl: string): string[] {
   const startHost = (() => { try { return new URL(startUrl).hostname; } catch { return ''; } })();
   const extra = (input.extraOrigins ?? []).map((o) => { try { return new URL(/^\d+$/.test(o) ? `http://localhost:${o}` : o).hostname; } catch { return ''; } });
@@ -103,7 +126,9 @@ export async function prepareLocalRun(args: {
     });
   } catch (err) {
     (await runnerP.catch(() => null))?.close();
-    const status = (err as { response?: { status?: number } })?.response?.status;
+    const planErr = planRequiredFromError(err);
+    if (planErr) throw planErr;
+    const status = (err as { response?: { status?: number }; statusCode?: number })?.response?.status ?? (err as { statusCode?: number })?.statusCode;
     if (status === 404) {
       throw new LocalBrowserError('The DebuggAI backend does not offer local browser execution yet (executor API not enabled for this account).', 'LOCAL_EXECUTOR_UNAVAILABLE');
     }

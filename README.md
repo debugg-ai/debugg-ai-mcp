@@ -23,6 +23,18 @@ clear error on the first localhost-URL call, not a silent hang. Public-URL calls
 non-browser tool, and `test_suite {action:"run"}` (which uses its own dedicated tunnel and
 bypasses Caddy entirely) don't need it either way.
 
+## Local Chrome click-through (`browser: "local"`) — paid feature
+
+`check_app_in_browser` can run the check in Chrome on your own machine while the DebuggAI cloud brain decides each step (no tunnel needed, works for private and localhost apps):
+
+```
+check_app_in_browser  { "url": "http://localhost:4040", "description": "Sign in and add a task", "browser": "local", "username": "me@x.com", "password": "..." }
+```
+
+- **Included in paid plans only.** On a plan without it the call returns `PLAN_REQUIRED` with the message, an upgrade link and a docs link. It is also off until the backend has local executors enabled (you get a clear "not enabled" error).
+- **Opt-in on the MCP server:** set `DEBUGGAI_LOCAL_BROWSER=1`. stdio only (not the remote HTTP/OAuth server).
+- Every navigation hop must be on the allowlist (the target host plus `allowedDomains`). Passwords you pass stay on your machine: the cloud sees `{{cred:label}}` and the MCP fills the real value locally. Screenshots go to the cloud by default; `DEBUGGAI_LOCAL_SCREENSHOTS=local_only` keeps them local. `useProfile` keeps persistent cookies between runs, not session cookies.
+
 ## Testing a local app (no Tailscale, no port exposure)
 
 Start your app on localhost, then pass the `http://localhost:<port>` URL straight to the tool. The MCP

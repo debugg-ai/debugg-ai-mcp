@@ -46,7 +46,7 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
-import { prepareLocalRun, localizeCredentials, type LocalRun } from './localExecutorBridge.js';
+import { prepareLocalRun, localizeCredentials, planRequiredFromError, type LocalRun } from './localExecutorBridge.js';
 import { LocalBrowserError } from '../services/localBrowser.js';
 import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
 
@@ -1013,9 +1013,11 @@ async function testPageChangesHandlerInner(
     return tunnelFault ? { content, isError: true } : { content };
 
   } catch (error) {
-    if (error instanceof LocalBrowserError) {
-      const payload = { error: error.code, message: error.message };
-      logger.warn(`check_app_in_browser (local): ${error.code}: ${error.message}`);
+    const planErr = localMode ? planRequiredFromError(error) : undefined;
+    if (error instanceof LocalBrowserError || planErr) {
+      const lbe = (planErr ?? error) as LocalBrowserError;
+      const payload = { error: lbe.code, message: lbe.message, ...(lbe.details ?? {}) };
+      logger.warn(`check_app_in_browser (local): ${lbe.code}: ${lbe.message}`);
       return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
     }
     const duration = Date.now() - startTime;
