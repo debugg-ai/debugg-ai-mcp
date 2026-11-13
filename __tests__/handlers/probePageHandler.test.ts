@@ -167,6 +167,12 @@ describe('probePageHandler — happy path', () => {
     expect(JSON.parse(result.content[0].text!).executionId).toBe('exec-uuid-1');
   });
 
+  test('tells the backend this is a cloud-browser run (contextData.browserChoice = remote)', async () => {
+    setupHappyPath();
+    await probePageHandler(singleInput, defaultContext);
+    expect((mockExecute.mock.calls[0][1] as Record<string, any>).browserChoice).toBe('remote');
+  });
+
   test('returns response with executionId, durationMs, results[]', async () => {
     setupHappyPath();
     const result = await probePageHandler(singleInput, defaultContext);

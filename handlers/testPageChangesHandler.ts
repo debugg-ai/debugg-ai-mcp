@@ -453,6 +453,7 @@ async function testPageChangesHandlerInner(
       contextData.projectId = projectUuid;
     }
     contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
+    contextData.browserChoice = localMode ? 'local' : 'remote'; // lets the backend apply the cloud-browser plan gate
     if (localMode) {
       localRun = await prepareLocalRun({ client, input, startUrl: originalUrl, secrets: localSecrets, signal: abortController.signal, projectId: projectUuid || undefined });
       contextData.executorSessionId = localRun.sessionId;
