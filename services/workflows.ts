@@ -48,11 +48,17 @@ const noProgressTimeoutMs = (): number => {
  */
 export const EVAL_TEMPLATE_SLUG = 'flow/e2es/app-eval';                       // check_app_in_browser
 export const PAGE_PROBE_TEMPLATE_SLUG = 'flow/tools/probe';                   // probe_page
+export const LOCAL_BROWSE_TEMPLATE_SLUG = 'flow/tools/browse';              // check_app_in_browser browser:'local' (sense/think/act brain)
 export const RAW_CRAWL_TEMPLATE_SLUG = 'crawl-execution-workflow-template';   // trigger_crawl
 
 /** The slug the eval-template dispatch pins to (env-overridable). */
 export function getEvalTemplateSlug(): string {
   return process.env.DEBUGGAI_EVAL_TEMPLATE || EVAL_TEMPLATE_SLUG;
+}
+
+/** The slug a local-executor check pins to: the browser_use brain cannot drive a local executor (env-overridable). */
+export function getLocalBrowseTemplateSlug(): string {
+  return process.env.DEBUGGAI_LOCAL_TEMPLATE || LOCAL_BROWSE_TEMPLATE_SLUG;
 }
 
 /** The slug the page-probe dispatch pins to (env-overridable). */

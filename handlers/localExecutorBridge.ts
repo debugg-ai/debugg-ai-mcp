@@ -124,6 +124,7 @@ export async function prepareLocalRun(args: {
     sessionId: created.sessionId,
     secret: created.secret,
   });
+  runner.setUploader((url, ct, bytes) => transport.upload(url, ct, bytes));
   const stop = new AbortController();
   const onAbort = () => stop.abort();
   signal.addEventListener('abort', onAbort, { once: true });

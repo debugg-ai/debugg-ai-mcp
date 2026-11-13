@@ -43,6 +43,21 @@ export class HttpExecutorTransport implements ExecutorTransport {
     return text ? JSON.parse(text) : null;
   }
 
+  /** PUT raw bytes to a command's upload_url with the executor auth headers; returns the server's `ref`. */
+  async upload(url: string, contentType: string, bytes: Uint8Array): Promise<string> {
+    const f = this.o.fetchImpl ?? fetch;
+    const res = await f(url, {
+      method: 'PUT',
+      headers: { authorization: this.o.authorization, 'x-executor-secret': this.o.secret, 'x-executor-api-version': String(API_VERSION), 'content-type': contentType },
+      body: bytes as unknown as BodyInit,
+    });
+    if (!res.ok) throw new HttpTransportError(`PUT upload -> HTTP ${res.status}`, res.status);
+    const text = await res.text();
+    let ref: unknown;
+    try { ref = text ? (JSON.parse(text) as { ref?: unknown }).ref : undefined; } catch { /* not json */ }
+    return typeof ref === 'string' && ref ? ref : url.split('?')[0];
+  }
+
   async attach(info: AttachInfo): Promise<void> { await this.req('POST', EXECUTOR_PATHS.attach(this.o.sessionId), info); }
   async poll(waitS: number, signal: AbortSignal): Promise<Command[] | { commands: Command[]; cancel?: boolean; drain?: boolean }> {
     const r = await this.req('GET', EXECUTOR_PATHS.commands(this.o.sessionId, waitS), undefined, signal);

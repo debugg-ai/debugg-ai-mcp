@@ -98,6 +98,18 @@ live('executor session (real Chrome, fake cloud)', () => {
     });
   }, 90000);
 
+  test('evaluate: function source is invoked with arg; plain expression returns its value', async () => {
+    await withSession(async (cloud) => {
+      await cloud.result(cloud.push({ op: 'goto', args: { url: base } }));
+      const f = await cloud.result(cloud.push({ op: 'evaluate', args: { expression: '(n) => n + 1', arg: 41 } }));
+      expect(f.observation?.value).toBe(42);
+      const t = await cloud.result(cloud.push({ op: 'evaluate', args: { expression: '() => document.title' } }));
+      expect(typeof t.observation?.value).toBe('string');
+      const e = await cloud.result(cloud.push({ op: 'evaluate', args: { expression: '1 + 2' } }));
+      expect(e.observation?.value).toBe(3);
+    });
+  }, 90000);
+
   test('screenshot: upload_url PUT; local_only withholds pixels; popups are paged', async () => {
     await withSession(async (cloud) => {
       await cloud.result(cloud.push({ op: 'goto', args: { url: base } }));
@@ -157,5 +169,26 @@ describe('commands envelope', () => {
     const r = await runExecutorSession({ transport: transport as never, runner: runner as never, attach: {} as never, limits: { heartbeat_s: 5, lease_s: 5, max_inline_bytes: 1, max_batch: 1 } as never });
     expect(r.ended).toBe('cancelled');
     expect(runs).toBe(1);
+  });
+});
+
+describe('HttpExecutorTransport.upload', () => {
+  test('sends executor auth headers and returns the server ref', async () => {
+    let seen: { url: string; headers: Record<string, string> } | undefined;
+    const fetchImpl = (async (url: string, init: { headers: Record<string, string> }) => {
+      seen = { url, headers: init.headers };
+      return new Response(JSON.stringify({ ref: 'executors/s/c1' }), { status: 201 });
+    }) as unknown as typeof fetch;
+    const t = new HttpExecutorTransport({ baseUrl: 'http://x', authorization: 'Token abc', sessionId: 's', secret: 'sec', fetchImpl });
+    const ref = await t.upload('http://x/api/v1/executors/sessions/s/uploads/c1?sig=1', 'image/png', new Uint8Array([1]));
+    expect(ref).toBe('executors/s/c1');
+    expect(seen?.headers).toMatchObject({ authorization: 'Token abc', 'x-executor-secret': 'sec', 'content-type': 'image/png' });
+  });
+  test('falls back to the URL when the server returns no ref; rejects on HTTP error', async () => {
+    const ok = (async () => new Response(null, { status: 201 })) as unknown as typeof fetch;
+    const bad = (async () => new Response('no', { status: 415 })) as unknown as typeof fetch;
+    const mk = (fetchImpl: typeof fetch) => new HttpExecutorTransport({ baseUrl: 'http://x', authorization: 'Token a', sessionId: 's', secret: 'z', fetchImpl });
+    expect(await mk(ok).upload('http://x/u?sig=1', 'image/png', new Uint8Array([1]))).toBe('http://x/u');
+    await expect(mk(bad).upload('http://x/u', 'image/png', new Uint8Array([1]))).rejects.toThrow('415');
   });
 });
