@@ -82,6 +82,12 @@ export const TestPageChangesInputSchema = z.object({
   // skip login; that is right for speed and wrong when the login itself is what
   // you are checking, or when the app's only route between personas is a logout.
   freshSession: z.boolean().optional(),
+  // 'local' runs the clicking in Chrome on THIS machine (no tunnel); the cloud agent still decides each step.
+  // Needs DEBUGGAI_LOCAL_BROWSER=1 on the MCP server.
+  browser: z.enum(['remote', 'local']).default('remote'),
+  headless: z.boolean().optional(),
+  useProfile: z.boolean().optional(),
+  allowedDomains: z.array(z.string().min(1)).max(32).optional(),
   // Extra LOCAL origins the run may be redirected to (bead w1os.2) — e.g. an OAuth
   // vendor on :4717 (also host.docker.internal:4717) or a callback on :4304. Each is
   // tunnelled and redirects to it are followed through the tunnel. Only origins named
