@@ -17,7 +17,7 @@ import path from 'node:path';
 import { installNavigationGuard, isLoopbackHost } from './navigationGuard.js';
 
 export class LocalBrowserError extends Error {
-  constructor(message: string, public readonly code: string) {
+  constructor(message: string, public readonly code: string, public readonly details?: Record<string, unknown>) {
     super(message);
     this.name = 'LocalBrowserError';
   }

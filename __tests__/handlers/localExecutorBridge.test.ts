@@ -118,4 +118,20 @@ live('prepareLocalRun (fake backend, real Chrome)', () => {
     await run.end();
     app.close();
   }, 60000);
+
+  test('a plan that does not include local runs surfaces PLAN_REQUIRED with upgrade and docs links', async () => {
+    const e402 = Object.assign(new Error('x'), { statusCode: 402, responseData: { error: { code: 'plan_not_entitled', message: 'Local browser runs are not included in your plan.', upgrade_url: 'https://app.debugg.ai/upgrade', docs_url: 'https://debugg.ai/docs/local', required_plans: ['pro'] } } });
+    const client = { tx: { post: async () => { throw e402; } } };
+    await expect(bridge.prepareLocalRun({ client: client as never, input: base({}), startUrl: 'http://localhost:3000', secrets: {}, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: 'PLAN_REQUIRED', details: { upgradeUrl: 'https://app.debugg.ai/upgrade', docsUrl: 'https://debugg.ai/docs/local', requiredPlans: ['pro'] } });
+  });
+
+  test('planRequiredFromError: 402 and plan-coded 403 only', () => {
+    const mk = (statusCode: number, responseData: unknown) => Object.assign(new Error('x'), { statusCode, responseData });
+    expect(bridge.planRequiredFromError(mk(402, { detail: 'upgrade needed' }))?.message).toContain('upgrade needed');
+    expect(bridge.planRequiredFromError(mk(403, { code: 'plan_required' }))?.code).toBe('PLAN_REQUIRED');
+    expect(bridge.planRequiredFromError(mk(403, { code: 'forbidden' }))).toBeUndefined();
+    expect(bridge.planRequiredFromError(mk(404, {}))).toBeUndefined();
+    expect(bridge.planRequiredFromError(new Error('boom'))).toBeUndefined();
+  });
 });
