@@ -108,7 +108,12 @@ export async function prepareLocalRun(args: {
   }
   const runner = await runnerP;
   for (const c of created.credentials ?? []) {
-    try { liveSecrets[c.label] = keys.open(c.sealed, created.sessionId); }
+    try {
+      const pw = keys.open(c.sealed, created.sessionId);
+      liveSecrets[c.label] = pw;
+      // The backend names the placeholder after the label OR the username depending on the resolution path; accept both.
+      if (c.username && !(c.username in liveSecrets)) liveSecrets[c.username] = pw;
+    }
     catch (err) { logger.warn(`Could not open stored credential "${c.label}" (${err instanceof Error ? err.message : 'decrypt failed'})`); }
   }
   const limits: SessionLimits = {

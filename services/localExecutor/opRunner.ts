@@ -133,7 +133,30 @@ export class OpRunner {
       ...(observation ? { observation } : {}),
       ...(error ? { error } : {}),
     };
-    return out;
+    return this.redactSecrets(out);
+  }
+
+  /**
+   * Nothing the cloud receives may contain a live secret. The page itself can echo one back (the brain's
+   * snapshot script reads every input's value, so a filled password field returns the real password), so
+   * scrub every string in the result, replacing the value with its placeholder. Screenshot pixels are
+   * left alone (password inputs are masked by the browser).
+   */
+  private redactSecrets<T>(result: T): T {
+    const pairs = Object.entries(this.opts.secrets ?? {}).filter(([, v]) => typeof v === 'string' && v.length > 0).sort((a, b) => b[1].length - a[1].length);
+    if (pairs.length === 0) return result;
+    const walk = (v: unknown, key?: string): unknown => {
+      if (typeof v === 'string') {
+        if (key === 'base64') return v;
+        let o = v;
+        for (const [label, val] of pairs) if (o.includes(val)) o = o.split(val).join(`{{cred:${label}}}`);
+        return o;
+      }
+      if (Array.isArray(v)) return v.map((x) => walk(x));
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, walk(x, k)]));
+      return v;
+    };
+    return walk(result) as T;
   }
 
   private sub(v: unknown): string {

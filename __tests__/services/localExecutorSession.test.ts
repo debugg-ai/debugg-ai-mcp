@@ -75,6 +75,10 @@ live('executor session (real Chrome, fake cloud)', () => {
       expect(JSON.stringify(f)).not.toContain('s3cret');
       const rb = await cloud.result(cloud.push({ op: 'query', target: { selector: '#pw' }, args: { what: 'value' } }));
       expect(rb.observation?.value).toBe('');
+      // Page JS that reads input values (the brain's snapshot script does) must not return the real password.
+      const ev = await cloud.result(cloud.push({ op: 'evaluate', args: { expression: '() => Array.from(document.querySelectorAll("input")).map((i) => i.value)' } }));
+      expect(JSON.stringify(ev)).not.toContain('s3cret');
+      expect(JSON.stringify(ev.observation?.value)).toContain('{{cred:admin}}');
       await cloud.result(cloud.push({ op: 'click', target: { selector: '#go' } }));
       expect(seenPw).toBe('s3cret');
       const t = await cloud.result(cloud.push({ op: 'query', target: { selector: 'h1' }, args: { what: 'text' } }));
