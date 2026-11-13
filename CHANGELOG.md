@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — check_app_in_browser on your local Chrome, cloud brain (`browser: "local"`) (epic m7un)
+- New `browser: "local"` (also `headless`, `useProfile`, `allowedDomains`) runs the check in Chrome on your machine while the cloud brain decides each step. The laptop dials out, so no tunnel is needed for localhost or private apps. Opt-in: set `DEBUGGAI_LOCAL_BROWSER=1` in the MCP server environment; stdio only (not the remote HTTP/OAuth server). The platform side is flag-gated, so it needs a backend that has local executors enabled.
+- Uses the sense/think/act brain (`flow/tools/browse`; `DEBUGGAI_LOCAL_TEMPLATE` overrides the slug). The `browser_use` App Evaluation template cannot drive a local browser and is refused by the backend for local runs.
+- Safety: every navigation hop (redirects included) is checked against an allowlist of the target host plus `allowedDomains`/`extraOrigins`; an empty allowlist is refused. Passwords you pass are never sent to the cloud: the brain sees `{{cred:label}}` and the MCP substitutes it locally. Stored environment credentials arrive sealed to a per-session public key and are opened only on your machine. No cookies, HAR or login state are uploaded.
+- Screenshots go to the cloud by default (the brain needs them); `DEBUGGAI_LOCAL_SCREENSHOTS=local_only` keeps them on disk and sends a 1x1 placeholder. Full captures are written under `~/.debugg-ai/captures` (0600).
+- `useProfile` uses an MCP-owned Chrome profile (`~/.debugg-ai/chrome-profile`), never your real Chrome, and requires an allowlist. Note: it keeps persistent cookies between runs but not session cookies (Chrome drops them on close), so an app whose login is a session cookie will ask you to sign in again on the next run.
+- Limits are configuration from the server (heartbeat, lease, in-flight concurrency), not hard-coded in the client. Retries are off for local runs (a retry needs a fresh session). `LOG_LEVEL=debug` logs each executor command.
+- Verified against a flag-on backend: a click-through, a credentialed multi-step login with task creation, and cancel mid-run (call returns at once, Chrome closed).
+
 ### Changed — test_suite `run` retired (platform-g3am)
 - The server removed its suite-run route, so `run` only produced a raw HTML 404. It is gone from the tool's actions and description; a call from an older client now returns an `ActionRetired` error naming `results`, `check_app_in_browser` and `trigger_crawl`, without contacting the server.
 
