@@ -2,12 +2,14 @@
  * Shared ProjectRequired text (platform-y2ob.2): says what was observed and
  * what to pass. Used by check_app_in_browser and trigger_crawl.
  */
-export function projectRequiredMessage(repoName?: string | null): string {
+export function projectRequiredMessage(repoName?: string | null, acceptsProjectUuid = true): string {
   const observed = repoName
     ? `Could not determine the DebuggAI project: no project is linked to git repo "${repoName}".`
     : 'Could not determine the DebuggAI project: this is not a git repo and no repoName was passed.';
   return observed
-    + ' Pass `projectUuid` (list yours with the `project` tool, action "list") or `repoName` (the "org/repo" of a linked project).';
+    + (acceptsProjectUuid
+      ? ' Pass `projectUuid` (list yours with the `project` tool, action "list") or `repoName` (the "org/repo" of a linked project).'
+      : ' Pass `repoName` (matches a project name, slug or linked "org/repo"; list yours with the `project` tool, action "list") or `environmentId`.');
 }
 
 /**
@@ -16,7 +18,7 @@ export function projectRequiredMessage(repoName?: string | null): string {
  * network error says nothing about whether a project exists. Reports the HTTP
  * status and the backend's message verbatim.
  */
-export function projectLookupFailedPayload(repoName: string, err: unknown) {
+export function projectLookupFailedPayload(repoName: string, err: unknown, acceptsProjectUuid = true) {
   const e = err as { statusCode?: number; networkCode?: string; message?: string } | null;
   const statusCode = typeof e?.statusCode === 'number' ? e.statusCode : undefined;
   const reason = err instanceof Error ? err.message : String(err);
@@ -26,7 +28,9 @@ export function projectLookupFailedPayload(repoName: string, err: unknown) {
   return {
     error: 'ProjectLookupFailed',
     message: `Could not look up the DebuggAI project for git repo "${repoName}" (${how}). `
-      + 'This is a lookup failure, not a missing link: pass `projectUuid` to skip the lookup, or fix the connection and retry.',
+      + 'This is a lookup failure, not a missing link: '
+      + (acceptsProjectUuid ? 'pass `projectUuid` to skip the lookup, ' : 'pass `environmentId` to skip the lookup, ')
+      + 'or fix the connection and retry.',
     detail: { repoName, ...(statusCode !== undefined ? { statusCode } : {}), ...(e?.networkCode ? { networkCode: e.networkCode } : {}) },
   };
 }
