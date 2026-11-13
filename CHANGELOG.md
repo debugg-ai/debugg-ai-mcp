@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [6.2.0] — 2026-11-13
+- Local browser runs are headless by default (check_app_in_browser, probe_page, profile path). `headless: false` is opt-in and now launches minimized and off-screen without taking focus.
 
-> Local click-through needs a backend with local executors enabled (platform flag `EXECUTORS_LOCAL_ENABLED`) and `DEBUGGAI_LOCAL_BROWSER=1` on the MCP server. Without both, nothing changes for existing calls.
+### Changed — local browser is the free default; cloud browsers are the paid option
+- `check_app_in_browser`: leave `browser` unset and it uses your own Chrome when one is installed (stdio server), else the cloud browser; `browser: "local"` or `"remote"` still force one. `DEBUGGAI_LOCAL_BROWSER` is gone: asking for `browser: "local"` is the consent, and the allowlist, sealed credentials and MCP-owned profile are unchanged. It is refused on the hosted HTTP server (no machine of yours). On a backend without local executors an unset `browser` falls back to the cloud browser.
+- A plan without cloud browsers gets a structured `PLAN_REQUIRED` error (HTTP 402) with the message, upgrade link, docs link and how to run in your own Chrome, shown as-is and never retried or silently switched. `probe_page` keeps `browser` defaulting to remote.
+
+## [6.2.1] — 2026-11-13
+
+> 6.2.0 was never published; this is its first release. Local click-through needs a backend with local executors enabled (platform flag `EXECUTORS_LOCAL_ENABLED`) and `DEBUGGAI_LOCAL_BROWSER=1` on the MCP server. Without both, nothing changes for existing calls.
 
 ### Added — check_app_in_browser on your local Chrome, cloud brain (`browser: "local"`) (epic m7un)
 - New `browser: "local"` (also `headless`, `useProfile`, `allowedDomains`) runs the check in Chrome on your machine while the cloud brain decides each step. The laptop dials out, so no tunnel is needed for localhost or private apps. Opt-in: set `DEBUGGAI_LOCAL_BROWSER=1` in the MCP server environment; stdio only (not the remote HTTP/OAuth server). The platform side is flag-gated, so it needs a backend that has local executors enabled.

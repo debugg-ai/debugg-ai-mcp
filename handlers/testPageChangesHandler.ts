@@ -46,7 +46,7 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
-import { prepareLocalRun, localizeCredentials, type LocalRun } from './localExecutorBridge.js';
+import { prepareLocalRun, localizeCredentials, planRequiredFromError, chooseBrowser, type LocalRun } from './localExecutorBridge.js';
 import { LocalBrowserError } from '../services/localBrowser.js';
 import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
 
@@ -141,6 +141,7 @@ async function testPageChangesHandlerInner(
   rawProgressCallback?: ProgressCallback
 ): Promise<ToolResponse> {
   const startTime = Date.now();
+  const originalInput = input; // before local credential placeholders are applied
   logger.toolStart('check_app_in_browser', input);
 
   // Bead 0bq: wrap the progress callback in a circuit-breaker so a single
@@ -167,7 +168,8 @@ async function testPageChangesHandlerInner(
   await client.init();
 
   // browser:'local': Chrome on this machine does the clicking (no tunnel); passwords stay local.
-  const localMode = input.browser === 'local';
+  const choice = chooseBrowser(input);
+  const localMode = choice.mode === 'local';
   let localSecrets: Record<string, string> = {};
   if (localMode) { const l = localizeCredentials(input); input = l.input; localSecrets = l.secrets; }
   let localRun: LocalRun | undefined;
@@ -451,6 +453,7 @@ async function testPageChangesHandlerInner(
       contextData.projectId = projectUuid;
     }
     contextData.headless = true; // D7: the MCP always runs headless — no opt-out.
+    contextData.browserChoice = localMode ? 'local' : 'remote'; // lets the backend apply the cloud-browser plan gate
     if (localMode) {
       localRun = await prepareLocalRun({ client, input, startUrl: originalUrl, secrets: localSecrets, signal: abortController.signal, projectId: projectUuid || undefined });
       contextData.executorSessionId = localRun.sessionId;
@@ -1013,9 +1016,16 @@ async function testPageChangesHandlerInner(
     return tunnelFault ? { content, isError: true } : { content };
 
   } catch (error) {
-    if (error instanceof LocalBrowserError) {
-      const payload = { error: error.code, message: error.message };
-      logger.warn(`check_app_in_browser (local): ${error.code}: ${error.message}`);
+    // Browser was not chosen and this backend has no local executors: use the cloud browser instead.
+    if (choice.auto && error instanceof LocalBrowserError && error.code === 'LOCAL_EXECUTOR_UNAVAILABLE') {
+      logger.info('check_app_in_browser: local executors are not available on this backend; using the cloud browser');
+      return testPageChangesHandlerInner({ ...originalInput, browser: 'remote' } as TestPageChangesInput, context, rawProgressCallback);
+    }
+    const planErr = planRequiredFromError(error, localMode ? 'local' : 'remote');
+    if (error instanceof LocalBrowserError || planErr) {
+      const lbe = (planErr ?? error) as LocalBrowserError;
+      const payload = { error: lbe.code, message: lbe.message, ...(lbe.details ?? {}) };
+      logger.warn(`check_app_in_browser (local): ${lbe.code}: ${lbe.message}`);
       return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
     }
     const duration = Date.now() - startTime;

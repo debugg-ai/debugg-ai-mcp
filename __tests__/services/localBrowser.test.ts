@@ -22,21 +22,22 @@ describe('profile allowlist (bead jpw3.3)', () => {
     expect(resolveAllowedDomains(undefined, {})).toEqual([]);
   });
   test('a profile session without an allowlist is refused', async () => {
-    process.env.DEBUGGAI_LOCAL_BROWSER = '1';
     delete process.env.DEBUGGAI_PROFILE_ALLOWED_DOMAINS;
     await expect(localCapture({ url: 'http://127.0.0.1:1/', useProfile: true })).rejects.toMatchObject({ code: 'PROFILE_ALLOWLIST_REQUIRED' });
   });
 });
 
 describe('local browser gating', () => {
-  test('off unless DEBUGGAI_LOCAL_BROWSER is set', async () => {
-    expect(localBrowserEnabled({})).toBe(false);
-    expect(localBrowserEnabled({ DEBUGGAI_LOCAL_BROWSER: '1' } as any)).toBe(true);
-    const prev = process.env.DEBUGGAI_LOCAL_BROWSER;
-    delete process.env.DEBUGGAI_LOCAL_BROWSER;
+  test('available on stdio with no opt-in env var; unavailable on the hosted HTTP server', async () => {
+    expect(localBrowserEnabled({})).toBe(true);
+    expect(localBrowserEnabled({ DEBUGGAI_MCP_TRANSPORT: 'stdio' } as any)).toBe(true);
+    expect(localBrowserEnabled({ DEBUGGAI_MCP_TRANSPORT: 'http' } as any)).toBe(false);
+    const prev = process.env.DEBUGGAI_MCP_TRANSPORT;
+    process.env.DEBUGGAI_MCP_TRANSPORT = 'http';
     await expect(localCapture({ url: 'http://127.0.0.1:1/' })).rejects.toMatchObject({ code: 'LOCAL_BROWSER_DISABLED' });
-    if (prev !== undefined) process.env.DEBUGGAI_LOCAL_BROWSER = prev;
+    if (prev === undefined) delete process.env.DEBUGGAI_MCP_TRANSPORT; else process.env.DEBUGGAI_MCP_TRANSPORT = prev;
   });
+
   test('DEBUGGAI_CHROME_PATH wins', () => {
     expect(findChrome({ DEBUGGAI_CHROME_PATH: '/x/chrome' } as any)).toBe('/x/chrome');
   });
@@ -49,7 +50,6 @@ live('local capture (real Chrome)', () => {
   afterAll(() => { server?.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
   test('captures title, console error, status, screenshot; profile keeps a cookie across runs', async () => {
-    process.env.DEBUGGAI_LOCAL_BROWSER = '1';
     process.env.DEBUGGAI_HOME = home;
     server = http.createServer((q, s) => {
       if (q.url === '/set') { s.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'sid=abc; Max-Age=3600; Path=/' }); s.end('<title>Set</title>'); return; }
@@ -80,4 +80,11 @@ live('local capture (real Chrome)', () => {
     expect(redirected).toMatchObject({ code: 'NAVIGATION_BLOCKED' });
     expect(redirected.message).toContain('offlist.invalid');
   }, 60000);
+});
+
+describe('headed launch stays out of the way', () => {
+  test('quiet args minimize and move the window off-screen', async () => {
+    const { HEADED_QUIET_ARGS } = await import('../../services/localBrowser.js');
+    expect(HEADED_QUIET_ARGS).toEqual(expect.arrayContaining(['--start-minimized', '--window-position=-32000,-32000']));
+  });
 });

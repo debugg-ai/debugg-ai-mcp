@@ -10,6 +10,7 @@
  */
 import { jest } from '@jest/globals';
 import type { ToolContext } from '../../types/index.js';
+import { forceRemote } from '../helpers/remoteBrowser.js';
 
 const mockProvision = jest.fn<() => Promise<any>>();
 const mockFindTemplate = jest.fn<() => Promise<any>>();
@@ -75,7 +76,7 @@ let TestPageChangesInputSchema: typeof import('../../types/index.js').TestPageCh
 let meansDoNotLogIn: typeof import('../../types/index.js').meansDoNotLogIn;
 
 beforeAll(async () => {
-  testPageChangesHandler = (await import('../../handlers/testPageChangesHandler.js')).testPageChangesHandler;
+  testPageChangesHandler = forceRemote((await import('../../handlers/testPageChangesHandler.js')).testPageChangesHandler);
   TestPageChangesInputSchema = (await import('../../types/index.js')).TestPageChangesInputSchema;
   meansDoNotLogIn = (await import('../../types/index.js')).meansDoNotLogIn;
 });

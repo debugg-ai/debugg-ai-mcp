@@ -118,7 +118,7 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
         browser: {
           type: "string",
           enum: ["remote", "local"],
-          description: "Default 'remote' (cloud browser; localhost is tunneled). 'local' runs the clicking in Chrome on THIS machine — no tunnel, no *.localhost limits, much faster — while the cloud agent still decides each step. Needs DEBUGGAI_LOCAL_BROWSER=1 on the MCP server and the backend's local executor enabled. Passwords passed in this call stay on this machine. Page screenshots and text are still sent to the cloud agent. Not available over the remote HTTP MCP."
+          description: "Unset: Chrome on THIS machine when it is installed, otherwise the cloud browser (a plan with cloud browsers; localhost is tunneled). 'local' runs the clicking in your own Chrome — free on every plan, no tunnel, no *.localhost limits, much faster — while the cloud agent still decides each step. 'remote' forces the cloud browser (Professional and above). Passwords passed in this call stay on this machine. Page screenshots and text are still sent to the cloud agent. Not available over the remote HTTP MCP."
         },
         headless: { type: "boolean", description: "browser:'local' only. Default true; false shows the Chrome window." },
         useProfile: { type: "boolean", description: "browser:'local' only. Use the MCP-owned logged-in Chrome profile (never your everyday Chrome). Requires allowedDomains." },

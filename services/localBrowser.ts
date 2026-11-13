@@ -6,7 +6,8 @@
  * Everything stays local: screenshots are returned inline and also written under
  * ~/.debugg-ai/captures (0600).
  *
- * Opt-in at the server: DEBUGGAI_LOCAL_BROWSER=1. With `useProfile`, the browser
+ * No server opt-in: asking for `browser: "local"` in the call is the consent (the allowlist stays
+ * required). It is unavailable on the hosted HTTP server, which has no machine of yours. With `useProfile`, the browser
  * uses an MCP-owned persistent profile (~/.debugg-ai/chrome-profile, override with
  * DEBUGGAI_CHROME_PROFILE_DIR) the user logs into once via `loginToLocalProfile`;
  * the user's everyday Chrome profile is never touched.
@@ -17,7 +18,7 @@ import path from 'node:path';
 import { installNavigationGuard, isLoopbackHost } from './navigationGuard.js';
 
 export class LocalBrowserError extends Error {
-  constructor(message: string, public readonly code: string) {
+  constructor(message: string, public readonly code: string, public readonly details?: Record<string, unknown>) {
     super(message);
     this.name = 'LocalBrowserError';
   }
@@ -73,9 +74,12 @@ export function resolveAllowedDomains(perCall: string[] | undefined, env: NodeJS
   return owner.length > 0 ? owner : (perCall ?? []).filter(Boolean);
 }
 
+/** Local Chrome needs a machine of the caller's: it is available on stdio, never on the hosted HTTP server. */
 export function localBrowserEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.DEBUGGAI_LOCAL_BROWSER === '1' || env.DEBUGGAI_LOCAL_BROWSER === 'true';
+  return (env.DEBUGGAI_MCP_TRANSPORT || 'stdio').toLowerCase() !== 'http';
 }
+
+export const LOCAL_UNAVAILABLE_MESSAGE = 'Local browser runs are not available on the hosted (HTTP) MCP server: there is no machine of yours to open Chrome on. Use browser "remote", or run the MCP on your own machine (stdio).';
 
 export function debuggHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.DEBUGGAI_HOME || path.join(os.homedir(), '.debugg-ai');
@@ -114,10 +118,13 @@ export function ensurePrivateDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 }
 
+/** Headed runs are opt-in; even then keep the window out of the way: off-screen, minimized, no focus grab. */
+export const HEADED_QUIET_ARGS = ['--start-minimized', '--window-position=-32000,-32000', '--no-first-run', '--no-default-browser-check'];
+
 export async function launch(opts: { headless: boolean; useProfile: boolean }) {
   const pw = await loadPlaywright();
   const executablePath = findChrome();
-  const base = { headless: opts.headless, ...(executablePath ? { executablePath } : { channel: 'chrome' as const }) };
+  const base = { headless: opts.headless, ...(opts.headless ? {} : { args: HEADED_QUIET_ARGS }), ...(executablePath ? { executablePath } : { channel: 'chrome' as const }) };
   try {
     if (opts.useProfile) {
       const dir = profileDir();
@@ -157,7 +164,7 @@ function summarize(entries: Array<{ url: string; status: number; bytes: number }
 
 export async function localCapture(o: LocalCaptureOptions): Promise<LocalCaptureResult> {
   if (!localBrowserEnabled()) {
-    throw new LocalBrowserError('Local browser mode is off. Set DEBUGGAI_LOCAL_BROWSER=1 in the MCP server environment to allow it.', 'LOCAL_BROWSER_DISABLED');
+    throw new LocalBrowserError(LOCAL_UNAVAILABLE_MESSAGE, 'LOCAL_BROWSER_DISABLED');
   }
   const allowed = o.useProfile ? resolveAllowedDomains(o.allowedDomains) : [];
   if (o.useProfile && allowed.length === 0) {

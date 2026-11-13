@@ -23,6 +23,18 @@ clear error on the first localhost-URL call, not a silent hang. Public-URL calls
 non-browser tool, and `test_suite {action:"run"}` (which uses its own dedicated tunnel and
 bypasses Caddy entirely) don't need it either way.
 
+## Local Chrome click-through (`browser: "local"`) — free on every plan
+
+`check_app_in_browser` can run the check in Chrome on your own machine while the DebuggAI cloud brain decides each step (no tunnel needed, works for private and localhost apps):
+
+```
+check_app_in_browser  { "url": "http://localhost:4040", "description": "Sign in and add a task", "browser": "local", "username": "me@x.com", "password": "..." }
+```
+
+- **Free on every plan, and the default when Chrome is installed.** Leave `browser` unset and `check_app_in_browser` uses your own Chrome if it finds one (stdio server); otherwise it uses a cloud browser. Passing `browser: "local"` is all the consent it needs: there is no environment variable to set. Cloud browsers through the MCP (`browser: "remote"`) are included in Professional and above; a plan without them gets `PLAN_REQUIRED` (message, upgrade link, docs link, and how to use your own Chrome instead), never a silent switch. Server-run tests are unchanged.
+- Local runs need a backend with local executors enabled; an unset `browser` quietly uses the cloud browser on a backend without them, while `browser: "local"` says so. Not available on the hosted HTTP/OAuth MCP server (no machine of yours to open Chrome on).
+- Every navigation hop must be on the allowlist (the target host plus `allowedDomains`). Passwords you pass stay on your machine: the cloud sees `{{cred:label}}` and the MCP fills the real value locally. Screenshots go to the cloud by default; `DEBUGGAI_LOCAL_SCREENSHOTS=local_only` keeps them local. `useProfile` keeps persistent cookies between runs, not session cookies.
+
 ## Testing a local app (no Tailscale, no port exposure)
 
 Start your app on localhost, then pass the `http://localhost:<port>` URL straight to the tool. The MCP
@@ -49,7 +61,7 @@ Verified 2026-11-10: servers bound to `127.0.0.1` only (IPv4 Caddy gateways on :
 
 ### Local Chrome capture (opt-in)
 
-`probe_page` accepts `browser: "local"` to capture with Chrome on your own machine: no tunnel, no cloud browser, nothing uploaded (screenshots also saved under `~/.debugg-ai/captures`, mode 0600). The server owner must set `DEBUGGAI_LOCAL_BROWSER=1`; Chrome is found automatically or via `DEBUGGAI_CHROME_PATH`; `playwright-core` is an optional dependency. `useProfile: true` uses an MCP-owned persistent profile (`~/.debugg-ai/chrome-profile`, never your everyday Chrome profile): sign in once with `headless: false, loginWindowMs: 120000`, later local probes are logged in. Profile sessions require `allowedDomains` (or the owner's `DEBUGGAI_PROFILE_ALLOWED_DOMAINS`, which overrides it); top-level navigations off the list, redirect hops included, are blocked.
+`probe_page` accepts `browser: "local"` to capture with Chrome on your own machine: no tunnel, no cloud browser, nothing uploaded (screenshots also saved under `~/.debugg-ai/captures`, mode 0600). stdio server only; Chrome is found automatically or via `DEBUGGAI_CHROME_PATH`; `playwright-core` is an optional dependency. Local runs are headless by default and never open a visible window; `headless: false` is opt-in and launches minimized and off-screen without taking focus. `useProfile: true` uses an MCP-owned persistent profile (`~/.debugg-ai/chrome-profile`, never your everyday Chrome profile): sign in once with `headless: false, loginWindowMs: 120000`, later local probes are logged in. Profile sessions require `allowedDomains` (or the owner's `DEBUGGAI_PROFILE_ALLOWED_DOMAINS`, which overrides it); top-level navigations off the list, redirect hops included, are blocked.
 
 Get an API key at [debugg.ai](https://debugg.ai), then add to your MCP client config:
 

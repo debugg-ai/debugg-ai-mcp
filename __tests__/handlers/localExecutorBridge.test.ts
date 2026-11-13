@@ -11,7 +11,6 @@ beforeAll(async () => {
   await cloud.start();
   process.env.DEBUGGAI_API_URL = cloud.url;
   process.env.DEBUGGAI_API_KEY = 'k';
-  process.env.DEBUGGAI_LOCAL_BROWSER = '1';
   bridge = await import('../../handlers/localExecutorBridge.js');
 });
 afterAll(() => cloud.stop());
@@ -118,4 +117,52 @@ live('prepareLocalRun (fake backend, real Chrome)', () => {
     await run.end();
     app.close();
   }, 60000);
+
+  test('a plan that does not include local runs surfaces PLAN_REQUIRED with upgrade and docs links', async () => {
+    const e402 = Object.assign(new Error('x'), { statusCode: 402, responseData: { error: { code: 'plan_not_entitled', message: 'Local browser runs are not included in your plan.', upgrade_url: 'https://app.debugg.ai/upgrade', docs_url: 'https://debugg.ai/docs/local', required_plans: ['pro'] } } });
+    const client = { tx: { post: async () => { throw e402; } } };
+    await expect(bridge.prepareLocalRun({ client: client as never, input: base({}), startUrl: 'http://localhost:3000', secrets: {}, signal: new AbortController().signal }))
+      .rejects.toMatchObject({ code: 'PLAN_REQUIRED', details: { upgradeUrl: 'https://app.debugg.ai/upgrade', docsUrl: 'https://debugg.ai/docs/local', requiredPlans: ['pro'] } });
+  });
+
+  test('planRequiredFromError: 402 and plan-coded 403 only', () => {
+    const mk = (statusCode: number, responseData: unknown) => Object.assign(new Error('x'), { statusCode, responseData });
+    expect(bridge.planRequiredFromError(mk(402, { detail: 'upgrade needed' }))?.message).toContain('upgrade needed');
+    expect(bridge.planRequiredFromError(mk(403, { code: 'plan_required' }))?.code).toBe('PLAN_REQUIRED');
+    expect(bridge.planRequiredFromError(mk(403, { code: 'forbidden' }))).toBeUndefined();
+    expect(bridge.planRequiredFromError(mk(404, {}))).toBeUndefined();
+    expect(bridge.planRequiredFromError(new Error('boom'))).toBeUndefined();
+  });
+
+  test('the platform contract shape: flat 402 with error_code PLAN_FEATURE_NOT_INCLUDED', () => {
+    const e = Object.assign(new Error('x'), { statusCode: 402, responseData: {
+      error: 'Local browser runs are not included in your plan.', error_code: 'PLAN_FEATURE_NOT_INCLUDED', detail: 'Local browser runs are not included in your plan.',
+      feature: 'local_browser', upgrade_url: 'https://app.debugg.ai/billing', docs_url: 'https://debugg.ai/docs/local', required_plans: ['Professional', 'Grow', 'Enterprise'] } });
+    const r = bridge.planRequiredFromError(e)!;
+    expect(r.code).toBe('PLAN_REQUIRED');
+    expect(r.message).toBe('Local browser runs are not included in your plan. Upgrade: https://app.debugg.ai/billing Docs: https://debugg.ai/docs/local');
+    expect(r.details).toEqual({ upgradeUrl: 'https://app.debugg.ai/billing', docsUrl: 'https://debugg.ai/docs/local', feature: 'local_browser', requiredPlans: ['Professional', 'Grow', 'Enterprise'] });
+  });
+
+  test('chooseBrowser: explicit wins; unset picks local only when Chrome is found and not hosted', () => {
+    expect(bridge.chooseBrowser({ browser: 'remote' } as never, { chrome: true, hosted: false })).toEqual({ mode: 'remote', auto: false });
+    expect(bridge.chooseBrowser({ browser: 'local' } as never, { chrome: false, hosted: false })).toEqual({ mode: 'local', auto: false });
+    expect(bridge.chooseBrowser({} as never, { chrome: true, hosted: false })).toEqual({ mode: 'local', auto: true });
+    expect(bridge.chooseBrowser({} as never, { chrome: false, hosted: false })).toEqual({ mode: 'remote', auto: false });
+    expect(bridge.chooseBrowser({} as never, { chrome: true, hosted: true })).toEqual({ mode: 'remote', auto: false });
+    // a profile only exists on this machine: local, never a cloud fallback
+    expect(bridge.chooseBrowser({ useProfile: true } as never, { chrome: false, hosted: false })).toEqual({ mode: 'local', auto: false });
+  });
+
+  test('a free plan asking for cloud browsers gets PLAN_REQUIRED that says how to use local', () => {
+    const e = Object.assign(new Error('x'), { statusCode: 402, responseData: {
+      error: 'Cloud browsers are included in Professional and above.', error_code: 'PLAN_FEATURE_NOT_INCLUDED', feature: 'remote_browser',
+      upgrade_url: 'https://app.debugg.ai/billing', docs_url: 'https://debugg.ai/docs', required_plans: ['Professional'] } });
+    const r = bridge.planRequiredFromError(e, 'remote')!;
+    expect(r.code).toBe('PLAN_REQUIRED');
+    expect(r.message).toContain('Cloud browsers are included in Professional and above.');
+    expect(r.message).toContain("browser: \"local\"");
+    expect(r.message).toContain('Upgrade: https://app.debugg.ai/billing');
+    expect(r.details).toMatchObject({ feature: 'remote_browser', alternative: expect.stringContaining('local') });
+  });
 });
