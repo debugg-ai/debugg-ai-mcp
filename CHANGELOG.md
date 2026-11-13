@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed — `browser: "local"` is a paid feature
-- A plan that does not include local browser runs now gets a structured `PLAN_REQUIRED` error (HTTP 402 from the backend) carrying the message, an upgrade link and a docs link, shown as-is and never retried. README documents the feature and the gate.
+### Changed — local browser is free on every plan; cloud browsers are the paid option
+- Local runs (`browser: "local"`) are included in every plan. A plan without cloud browsers gets a structured `PLAN_REQUIRED` error (HTTP 402 from the backend) carrying the message, an upgrade link and a docs link, shown as-is and never retried, when it asks for `browser: "remote"`. README documents both.
 
 ## [6.2.1] — 2026-11-13
 
