@@ -439,6 +439,7 @@ describe('WorkflowsService.executeWorkflow interface', () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 import { jest } from '@jest/globals';
+import { forceRemote } from '../helpers/remoteBrowser.js';
 
 // ── Mock functions ─────────────────────────────────────────────────────────
 
@@ -538,7 +539,7 @@ let testPageChangesHandler: typeof import('../../handlers/testPageChangesHandler
 
 beforeAll(async () => {
   const mod = await import('../../handlers/testPageChangesHandler.js');
-  testPageChangesHandler = mod.testPageChangesHandler;
+  testPageChangesHandler = forceRemote(mod.testPageChangesHandler);
 });
 
 // ── Shared test fixtures ───────────────────────────────────────────────────

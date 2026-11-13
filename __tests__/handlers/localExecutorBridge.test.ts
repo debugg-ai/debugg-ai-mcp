@@ -11,7 +11,6 @@ beforeAll(async () => {
   await cloud.start();
   process.env.DEBUGGAI_API_URL = cloud.url;
   process.env.DEBUGGAI_API_KEY = 'k';
-  process.env.DEBUGGAI_LOCAL_BROWSER = '1';
   bridge = await import('../../handlers/localExecutorBridge.js');
 });
 afterAll(() => cloud.stop());
@@ -142,6 +141,28 @@ live('prepareLocalRun (fake backend, real Chrome)', () => {
     const r = bridge.planRequiredFromError(e)!;
     expect(r.code).toBe('PLAN_REQUIRED');
     expect(r.message).toBe('Local browser runs are not included in your plan. Upgrade: https://app.debugg.ai/billing Docs: https://debugg.ai/docs/local');
-    expect(r.details).toEqual({ upgradeUrl: 'https://app.debugg.ai/billing', docsUrl: 'https://debugg.ai/docs/local', requiredPlans: ['Professional', 'Grow', 'Enterprise'] });
+    expect(r.details).toEqual({ upgradeUrl: 'https://app.debugg.ai/billing', docsUrl: 'https://debugg.ai/docs/local', feature: 'local_browser', requiredPlans: ['Professional', 'Grow', 'Enterprise'] });
+  });
+
+  test('chooseBrowser: explicit wins; unset picks local only when Chrome is found and not hosted', () => {
+    expect(bridge.chooseBrowser({ browser: 'remote' } as never, { chrome: true, hosted: false })).toEqual({ mode: 'remote', auto: false });
+    expect(bridge.chooseBrowser({ browser: 'local' } as never, { chrome: false, hosted: false })).toEqual({ mode: 'local', auto: false });
+    expect(bridge.chooseBrowser({} as never, { chrome: true, hosted: false })).toEqual({ mode: 'local', auto: true });
+    expect(bridge.chooseBrowser({} as never, { chrome: false, hosted: false })).toEqual({ mode: 'remote', auto: false });
+    expect(bridge.chooseBrowser({} as never, { chrome: true, hosted: true })).toEqual({ mode: 'remote', auto: false });
+    // a profile only exists on this machine: local, never a cloud fallback
+    expect(bridge.chooseBrowser({ useProfile: true } as never, { chrome: false, hosted: false })).toEqual({ mode: 'local', auto: false });
+  });
+
+  test('a free plan asking for cloud browsers gets PLAN_REQUIRED that says how to use local', () => {
+    const e = Object.assign(new Error('x'), { statusCode: 402, responseData: {
+      error: 'Cloud browsers are included in Professional and above.', error_code: 'PLAN_FEATURE_NOT_INCLUDED', feature: 'remote_browser',
+      upgrade_url: 'https://app.debugg.ai/billing', docs_url: 'https://debugg.ai/docs', required_plans: ['Professional'] } });
+    const r = bridge.planRequiredFromError(e, 'remote')!;
+    expect(r.code).toBe('PLAN_REQUIRED');
+    expect(r.message).toContain('Cloud browsers are included in Professional and above.');
+    expect(r.message).toContain("browser: \"local\"");
+    expect(r.message).toContain('Upgrade: https://app.debugg.ai/billing');
+    expect(r.details).toMatchObject({ feature: 'remote_browser', alternative: expect.stringContaining('local') });
   });
 });

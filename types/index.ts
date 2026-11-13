@@ -83,8 +83,8 @@ export const TestPageChangesInputSchema = z.object({
   // you are checking, or when the app's only route between personas is a logout.
   freshSession: z.boolean().optional(),
   // 'local' runs the clicking in Chrome on THIS machine (no tunnel); the cloud agent still decides each step.
-  // Needs DEBUGGAI_LOCAL_BROWSER=1 on the MCP server.
-  browser: z.enum(['remote', 'local']).default('remote'),
+  // Unset: your own Chrome when it is installed (stdio server), otherwise the cloud browser.
+  browser: z.enum(['remote', 'local']).optional(),
   headless: z.boolean().optional(),
   useProfile: z.boolean().optional(),
   allowedDomains: z.array(z.string().min(1)).max(32).optional(),

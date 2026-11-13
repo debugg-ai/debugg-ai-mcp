@@ -7,7 +7,7 @@
  */
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
-import { localBrowserEnabled, LocalBrowserError, resolveAllowedDomains } from '../services/localBrowser.js';
+import { localBrowserEnabled, LocalBrowserError, LOCAL_UNAVAILABLE_MESSAGE, findChrome, resolveAllowedDomains } from '../services/localBrowser.js';
 import { OpRunner } from '../services/localExecutor/opRunner.js';
 import { runExecutorSession, type SessionEnd } from '../services/localExecutor/session.js';
 import { HttpExecutorTransport } from '../services/localExecutor/httpTransport.js';
@@ -49,7 +49,7 @@ export function localizeCredentials(input: TestPageChangesInput): { input: TestP
  * message, upgrade link and docs link as they are and never retry. Returns undefined for any
  * other error.
  */
-export function planRequiredFromError(err: unknown): LocalBrowserError | undefined {
+export function planRequiredFromError(err: unknown, mode: 'local' | 'remote' = 'local'): LocalBrowserError | undefined {
   const e = err as { statusCode?: number; response?: { status?: number; data?: unknown }; responseData?: unknown } | undefined;
   const status = e?.statusCode ?? e?.response?.status;
   const raw = (e?.responseData ?? e?.response?.data) as Record<string, unknown> | undefined;
@@ -58,12 +58,30 @@ export function planRequiredFromError(err: unknown): LocalBrowserError | undefin
   const code = pick('code', 'error_code', 'errorCode');
   const planish = !!code && /plan|entitle|upgrade|subscription|not_included/i.test(code);
   if (status !== 402 && !(status === 403 && planish)) return undefined;
-  const message = pick('message', 'detail') ?? 'Local browser runs are not included in your plan.';
+  const feature = pick('feature');
+  const message = pick('error', 'message', 'detail') ?? (mode === 'remote' ? 'Cloud browsers are not included in your plan.' : 'This run is not included in your plan.');
   const upgradeUrl = pick('upgrade_url', 'upgradeUrl');
   const docsUrl = pick('docs_url', 'docsUrl');
   const required = body?.required_plans ?? body?.requiredPlans;
-  const text = [message, upgradeUrl ? `Upgrade: ${upgradeUrl}` : undefined, docsUrl ? `Docs: ${docsUrl}` : undefined].filter(Boolean).join(' ');
-  return new LocalBrowserError(text, 'PLAN_REQUIRED', { upgradeUrl, docsUrl, ...(required ? { requiredPlans: required } : {}) });
+  // A plan without cloud browsers can still run in the caller's own Chrome, for free. Say how; never fall back silently.
+  const alternative = mode === 'remote' ? 'Run it free in your own Chrome: install Chrome and call with browser: "local".' : undefined;
+  const hasHint = /browser:\s*["']?local/i.test(message);
+  const text = [message, alternative && !hasHint ? alternative : undefined, upgradeUrl ? `Upgrade: ${upgradeUrl}` : undefined, docsUrl ? `Docs: ${docsUrl}` : undefined].filter(Boolean).join(' ');
+  return new LocalBrowserError(text, 'PLAN_REQUIRED', { upgradeUrl, docsUrl, ...(feature ? { feature } : {}), ...(required ? { requiredPlans: required } : {}), ...(alternative ? { alternative } : {}) });
+}
+
+/**
+ * Which browser runs this call. An explicit `browser` always wins. Unset: your own Chrome when it is
+ * installed, the server is not the hosted one, or the call asks for something only local can do
+ * (useProfile); otherwise the cloud browser.
+ */
+export function chooseBrowser(input: Pick<TestPageChangesInput, 'browser' | 'useProfile'>, env?: { chrome?: boolean; hosted?: boolean }): { mode: 'local' | 'remote'; auto: boolean } {
+  if (input.browser === 'local') return { mode: 'local', auto: false };
+  if (input.browser === 'remote') return { mode: 'remote', auto: false };
+  if (input.useProfile) return { mode: 'local', auto: false }; // a profile only exists on this machine
+  const hosted = env?.hosted ?? !localBrowserEnabled();
+  const chrome = env?.chrome ?? !!findChrome();
+  return hosted || !chrome ? { mode: 'remote', auto: false } : { mode: 'local', auto: true };
 }
 
 export function localAllowedDomains(input: TestPageChangesInput, startUrl: string): string[] {
@@ -94,7 +112,7 @@ export async function prepareLocalRun(args: {
 }): Promise<LocalRun> {
   const { client, input, startUrl, secrets, signal } = args;
   if (!localBrowserEnabled()) {
-    throw new LocalBrowserError('Local browser mode is off. Set DEBUGGAI_LOCAL_BROWSER=1 in the MCP server environment to allow it.', 'LOCAL_BROWSER_DISABLED');
+    throw new LocalBrowserError(LOCAL_UNAVAILABLE_MESSAGE, 'LOCAL_BROWSER_DISABLED');
   }
   const allowed = localAllowedDomains(input, startUrl);
   if (allowed.length === 0) {

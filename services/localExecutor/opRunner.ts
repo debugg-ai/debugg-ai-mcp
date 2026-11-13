@@ -6,7 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { launch, localBrowserEnabled, LocalBrowserError, hostAllowed, resolveAllowedDomains, debuggHome, ensurePrivateDir } from '../localBrowser.js';
+import { launch, localBrowserEnabled, LocalBrowserError, LOCAL_UNAVAILABLE_MESSAGE, hostAllowed, resolveAllowedDomains, debuggHome, ensurePrivateDir } from '../localBrowser.js';
 import { installNavigationGuard, isLoopbackHost } from '../navigationGuard.js';
 import { OPS, type Command, type CommandResult, type ErrorCode, type ExecError, type ExecEvent, type Observation } from './ops.js';
 import type { BrowserContext, Dialog, Locator, Page } from 'playwright-core';
@@ -55,7 +55,7 @@ export class OpRunner {
 
   static async open(opts: OpRunnerOptions): Promise<OpRunner> {
     if (!localBrowserEnabled()) {
-      throw new LocalBrowserError('Local browser mode is off. Set DEBUGGAI_LOCAL_BROWSER=1 in the MCP server environment to allow it.', 'LOCAL_BROWSER_DISABLED');
+      throw new LocalBrowserError(LOCAL_UNAVAILABLE_MESSAGE, 'LOCAL_BROWSER_DISABLED');
     }
     const allowed = opts.useProfile ? resolveAllowedDomains(opts.allowedDomains) : opts.allowedDomains;
     if (allowed.length === 0) {

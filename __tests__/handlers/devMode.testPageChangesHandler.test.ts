@@ -9,6 +9,7 @@
 
 import { jest } from '@jest/globals';
 import { ToolContext } from '../../types/index.js';
+import { forceRemote } from '../helpers/remoteBrowser.js';
 
 const mockInit = jest.fn<() => Promise<void>>();
 const mockExecuteWorkflow = jest.fn<(...args: any[]) => Promise<any>>();
@@ -81,7 +82,7 @@ let _resetConfigForTest: typeof import('../../config/index.js')._resetConfigForT
 
 beforeAll(async () => {
   const mod = await import('../../handlers/testPageChangesHandler.js');
-  testPageChangesHandler = mod.testPageChangesHandler;
+  testPageChangesHandler = forceRemote(mod.testPageChangesHandler);
   const cfg = await import('../../config/index.js');
   _resetConfigForTest = cfg._resetConfigForTest;
 });
