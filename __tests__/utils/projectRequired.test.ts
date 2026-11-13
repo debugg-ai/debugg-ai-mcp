@@ -12,3 +12,12 @@ describe('projectRequiredMessage (platform-y2ob.2)', () => {
     expect(projectRequiredMessage('acme/x')).toContain('git repo "acme/x"');
   });
 });
+
+describe('projectRequiredMessage without projectUuid support', () => {
+  it('does not tell the caller to pass projectUuid', () => {
+    const m = projectRequiredMessage(null, false);
+    expect(m).not.toContain('projectUuid');
+    expect(m).toContain('repoName');
+    expect(m).toContain('environmentId');
+  });
+});

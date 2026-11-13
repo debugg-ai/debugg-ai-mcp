@@ -1567,7 +1567,8 @@ describe('testPageChangesHandler — full handler flow', () => {
       const body = JSON.parse(result.content[0].text!);
       expect(body.error).toBe('ProjectRequired');
       expect(body.message).toContain('no project is linked to git repo');
-      expect(body.message).toContain('projectUuid');
+      expect(body.message).not.toContain('projectUuid');
+      expect(body.message).toContain('repoName');
       expect(body.message).toContain('repoName');
       expect(body.message).not.toMatch(/link this repo|then retry/i);
       // Fails fast — never dispatches to the backend.

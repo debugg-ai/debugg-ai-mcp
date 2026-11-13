@@ -16,7 +16,7 @@ import { Logger } from '../utils/logger.js';
 import { handleExternalServiceError } from '../utils/errors.js';
 import { fetchImageAsBase64, imageContentBlock, resourceLinkBlock, artifactResourceLinks } from '../utils/imageUtils.js';
 import { DebuggAIServerClient } from '../services/index.js';
-import { getEvalTemplateSlug } from '../services/workflows.js';
+import { getEvalTemplateSlug, getLocalBrowseTemplateSlug } from '../services/workflows.js';
 import { authorizeExtraOrigins, ExtraOriginError } from '../utils/extraOrigins.js';
 import { refreshPendingArtifacts } from '../utils/artifactGrace.js';
 import { adaptVerdict, credentialSubstitutions, summarizeLogins } from '../services/verdictAdapter.js';
@@ -267,14 +267,14 @@ async function testPageChangesHandlerInner(
     // is a billed leak, and beats a backend node failing mid-run.
     if (!projectUuid && !namedEnvironmentId && lookupError !== undefined && repoName) {
       // The lookup FAILED — not "no project linked" (platform-y2ob.4).
-      const payload = projectLookupFailedPayload(repoName, lookupError);
+      const payload = projectLookupFailedPayload(repoName, lookupError, false);
       logger.warn(`check_app_in_browser: ${payload.message}`);
       return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
     }
     if (!projectUuid && !namedEnvironmentId) {
       const payload = {
         error: 'ProjectRequired',
-        message: projectRequiredMessage(repoName),
+        message: projectRequiredMessage(repoName, false),
       };
       logger.warn(`check_app_in_browser: ${payload.message}`);
       return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], isError: true };
@@ -427,11 +427,14 @@ async function testPageChangesHandlerInner(
     // Cache key = the dispatch slug so the cache key and the lookup can never
     // drift apart (bug clka: the key used to be a decoupled 'app evaluation'
     // literal while the lookup searched a different string).
-    const templateUuid = await getCachedTemplateUuid(getEvalTemplateSlug(), async () => {
-      return client.workflows!.findEvaluationTemplate();
+    const templateSlug = localMode ? getLocalBrowseTemplateSlug() : getEvalTemplateSlug();
+    const templateUuid = await getCachedTemplateUuid(templateSlug, async () => {
+      return localMode
+        ? client.workflows!.findTemplateBySlug(templateSlug)
+        : client.workflows!.findEvaluationTemplate();
     });
     if (!templateUuid) {
-      throw new Error(`App Evaluation workflow template not found (slug "${getEvalTemplateSlug()}").`);
+      throw new Error(`${localMode ? 'Local browse' : 'App Evaluation'} workflow template not found (slug "${templateSlug}").`);
     }
 
     // --- Build context data (camelCase here — axiosTransport auto-converts to snake_case) ---
@@ -451,6 +454,7 @@ async function testPageChangesHandlerInner(
     if (localMode) {
       localRun = await prepareLocalRun({ client, input, startUrl: originalUrl, secrets: localSecrets, signal: abortController.signal, projectId: projectUuid || undefined });
       contextData.executorSessionId = localRun.sessionId;
+      contextData.goal = contextData.question; // flow/tools/browse reads `goal`
     }
 
     // Bead 56kd.6: forward the auth-precondition deep-link intent verbatim per
