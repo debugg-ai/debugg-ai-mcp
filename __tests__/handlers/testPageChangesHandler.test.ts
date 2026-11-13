@@ -687,6 +687,12 @@ describe('testPageChangesHandler — full handler flow', () => {
     expect(text.outcome).toBe('pass');
   });
 
+  test('tells the backend which browser the caller chose (contextData.browserChoice)', async () => {
+    setupHappyPath({ isLocalhost: false });
+    await testPageChangesHandler(defaultInput, defaultContext);
+    expect((mockExecute.mock.calls[0][1] as Record<string, any>).browserChoice).toBe('remote');
+  });
+
   test('always runs headless (D7) — contextData.headless is true', async () => {
     setupHappyPath({ isLocalhost: false });
     await testPageChangesHandler(defaultInput, defaultContext);

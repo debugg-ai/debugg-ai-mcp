@@ -349,6 +349,7 @@ export async function probePageHandler(
         const firstTargetUrl = targetContexts[group.indices[0]]?.targetUrl ?? groupTargets[0].url;
         const contextData: Record<string, any> = {
           targetUrl: firstTargetUrl,
+          browserChoice: 'remote', // cloud-browser run: lets the backend apply the plan gate
           targets: group.indices.map(i => ({
             url: targetContexts[i].targetUrl ?? input.targets[i].url,
             // Send null (not undefined) for optional fields so the field exists
