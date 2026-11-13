@@ -81,3 +81,10 @@ live('local capture (real Chrome)', () => {
     expect(redirected.message).toContain('offlist.invalid');
   }, 60000);
 });
+
+describe('headed launch stays out of the way', () => {
+  test('quiet args minimize and move the window off-screen', async () => {
+    const { HEADED_QUIET_ARGS } = await import('../../services/localBrowser.js');
+    expect(HEADED_QUIET_ARGS).toEqual(expect.arrayContaining(['--start-minimized', '--window-position=-32000,-32000']));
+  });
+});
