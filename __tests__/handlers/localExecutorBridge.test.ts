@@ -96,4 +96,26 @@ live('prepareLocalRun (fake backend, real Chrome)', () => {
     await run.end();
     app.close();
   }, 60000);
+
+  test('server effective captureMode wins; stored credential also answers to its username', async () => {
+    const app = http.createServer((_q, s2) => { s2.writeHead(200, { 'content-type': 'text/html' }); s2.end('<input id=pw type=password>'); });
+    await new Promise<void>((r) => app.listen(0, '127.0.0.1', () => r()));
+    const url = `http://127.0.0.1:${(app.address() as { port: number }).port}`;
+    const client = { tx: { post: async (_p: string, b: Record<string, unknown>) => ({
+      sessionId: 'S10', secret: 'sec', captureMode: 'local_only', limits: { heartbeatS: 0.1, leaseS: 2 },
+      credentials: [{ label: 'fixture-admin', username: 'admin', sealed: sealTo(b.executorPublicKey as string, 'Sup3rSecret!', 'S10') }],
+    }) } };
+    cloud.cancel = false; cloud.results.length = 0; cloud.headers.length = 0;
+    const run = await bridge.prepareLocalRun({ client: client as never, input: base({ url }), startUrl: url, secrets: {}, signal: new AbortController().signal });
+    run.begin();
+    await cloud.result(cloud.push({ op: 'goto', args: { url } }));
+    const f = await cloud.result(cloud.push({ op: 'fill', target: { selector: '#pw' }, args: { value: '{{cred:admin}}' } }));
+    expect(f.ok).toBe(true);
+    const shot = await cloud.result(cloud.push({ op: 'screenshot', upload_url: `${cloud.url}/upload/x.png` }));
+    expect((shot.observation?.value as { redacted?: boolean }).redacted).toBe(true);
+    expect(cloud.uploads.length).toBe(0);
+    cloud.cancel = true;
+    await run.end();
+    app.close();
+  }, 60000);
 });
