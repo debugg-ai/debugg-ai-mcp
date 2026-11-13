@@ -118,10 +118,13 @@ export function ensurePrivateDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 }
 
+/** Headed runs are opt-in; even then keep the window out of the way: off-screen, minimized, no focus grab. */
+export const HEADED_QUIET_ARGS = ['--start-minimized', '--window-position=-32000,-32000', '--no-first-run', '--no-default-browser-check'];
+
 export async function launch(opts: { headless: boolean; useProfile: boolean }) {
   const pw = await loadPlaywright();
   const executablePath = findChrome();
-  const base = { headless: opts.headless, ...(executablePath ? { executablePath } : { channel: 'chrome' as const }) };
+  const base = { headless: opts.headless, ...(opts.headless ? {} : { args: HEADED_QUIET_ARGS }), ...(executablePath ? { executablePath } : { channel: 'chrome' as const }) };
   try {
     if (opts.useProfile) {
       const dir = profileDir();

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Local browser runs are headless by default (check_app_in_browser, probe_page, profile path). `headless: false` is opt-in and now launches minimized and off-screen without taking focus.
+
 ### Changed — local browser is the free default; cloud browsers are the paid option
 - `check_app_in_browser`: leave `browser` unset and it uses your own Chrome when one is installed (stdio server), else the cloud browser; `browser: "local"` or `"remote"` still force one. `DEBUGGAI_LOCAL_BROWSER` is gone: asking for `browser: "local"` is the consent, and the allowlist, sealed credentials and MCP-owned profile are unchanged. It is refused on the hosted HTTP server (no machine of yours). On a backend without local executors an unset `browser` falls back to the cloud browser.
 - A plan without cloud browsers gets a structured `PLAN_REQUIRED` error (HTTP 402) with the message, upgrade link, docs link and how to run in your own Chrome, shown as-is and never retried or silently switched. `probe_page` keeps `browser` defaulting to remote.
