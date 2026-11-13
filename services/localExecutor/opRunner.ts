@@ -45,6 +45,8 @@ export class OpRunner {
   private blocked: string[] = [];
   private uploader?: (url: string, contentType: string, bytes: Uint8Array) => Promise<string>;
   /** Set once the session exists (auth headers are known only then). Without it, uploads fall back to an unauthenticated PUT. */
+  /** The server's effective capture mode wins over the local default (it is deployment config, not a per-request choice). */
+  setCaptureMode(mode: 'cloud' | 'local_only'): void { this.opts.screenshots = mode; }
   setUploader(fn: (url: string, contentType: string, bytes: Uint8Array) => Promise<string>): void { this.uploader = fn; }
 
   private constructor(private readonly context: BrowserContext, private readonly closeBrowser: () => Promise<void>, private readonly opts: OpRunnerOptions) {}

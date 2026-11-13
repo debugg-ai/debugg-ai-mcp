@@ -53,6 +53,9 @@ export function localAllowedDomains(input: TestPageChangesInput, startUrl: strin
 interface CreateSessionResponse {
   sessionId: string;
   secret: string;
+  /** Effective settings the server actually applied (request keys it does not allow overriding are ignored). */
+  captureMode?: 'cloud' | 'local_only';
+  headless?: boolean;
   limits?: Partial<{ heartbeatS: number; leaseS: number; maxInlineBytes: number; maxBatch: number; maxInflight: number }>;
   /** Stored environment credentials, password sealed to our session public key. */
   credentials?: Array<{ label: string; username?: string; sealed: SealedEnvelope }>;
@@ -107,6 +110,10 @@ export async function prepareLocalRun(args: {
     throw err;
   }
   const runner = await runnerP;
+  if (created.captureMode === 'cloud' || created.captureMode === 'local_only') runner.setCaptureMode(created.captureMode);
+  if (typeof created.headless === 'boolean' && created.headless !== (headless !== false)) {
+    logger.warn(`Server runs this session with headless=${created.headless}; the local browser was already launched with headless=${headless !== false}.`);
+  }
   for (const c of created.credentials ?? []) {
     try {
       const pw = keys.open(c.sealed, created.sessionId);
