@@ -17,6 +17,7 @@
 
 import { jest } from '@jest/globals';
 import { ToolContext } from '../../types/index.js';
+import { forceRemote } from '../helpers/remoteBrowser.js';
 
 // ── Mocks (declared BEFORE the module factories that close over them) ──────
 
@@ -94,7 +95,7 @@ let testPageChangesHandler: typeof import('../../handlers/testPageChangesHandler
 
 beforeAll(async () => {
   const mod = await import('../../handlers/testPageChangesHandler.js');
-  testPageChangesHandler = mod.testPageChangesHandler;
+  testPageChangesHandler = forceRemote(mod.testPageChangesHandler);
 });
 
 // ── Fixtures ───────────────────────────────────────────────────────────────

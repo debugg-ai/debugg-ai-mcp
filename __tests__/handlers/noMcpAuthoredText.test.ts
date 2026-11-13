@@ -16,6 +16,7 @@
 
 import { jest } from '@jest/globals';
 import type { ToolContext } from '../../types/index.js';
+import { forceRemote } from '../helpers/remoteBrowser.js';
 
 // ── backend client mock (one client serves every handler in this file) ─────
 
@@ -117,7 +118,7 @@ let ensureConfirmed: typeof import('../../utils/confirmDestructive.js').ensureCo
 let checkAuthorizedCredentialHostsEcho: typeof import('../../utils/authorizedCredentialHosts.js').checkAuthorizedCredentialHostsEcho;
 
 beforeAll(async () => {
-  testPageChangesHandler = (await import('../../handlers/testPageChangesHandler.js')).testPageChangesHandler;
+  testPageChangesHandler = forceRemote((await import('../../handlers/testPageChangesHandler.js')).testPageChangesHandler);
   triggerCrawlHandler = (await import('../../handlers/triggerCrawlHandler.js')).triggerCrawlHandler;
   probePageHandler = (await import('../../handlers/probePageHandler.js')).probePageHandler;
   projectHandler = (await import('../../handlers/projectHandler.js')).projectHandler;

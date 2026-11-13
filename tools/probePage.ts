@@ -89,7 +89,7 @@ export function buildProbePageTool(): Tool {
         browser: {
           type: 'string',
           enum: ['remote', 'local'],
-          description: "Default 'remote' (cloud browser; localhost is tunneled). 'local' runs Chrome on THIS machine against the URL directly: no tunnel, nothing uploaded, screenshot also saved under ~/.debugg-ai/captures. Works only when the MCP server runs on your machine AND its owner set DEBUGGAI_LOCAL_BROWSER=1. waitForSelector/waitForLoadState/timeoutMs apply; the local mode returns screenshot, console errors, network summary, title and (optionally) HTML.",
+          description: "Default 'remote' (cloud browser; localhost is tunneled). 'local' runs Chrome on THIS machine against the URL directly: no tunnel, nothing uploaded, screenshot also saved under ~/.debugg-ai/captures. Works only when the MCP server runs on your machine (stdio). waitForSelector/waitForLoadState/timeoutMs apply; the local mode returns screenshot, console errors, network summary, title and (optionally) HTML.",
         },
         headless: {
           type: 'boolean',

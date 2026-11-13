@@ -14,14 +14,16 @@ import { HttpExecutorTransport } from '../../services/localExecutor/httpTranspor
 import { FakeCloud } from '../helpers/fakeCloud.js';
 
 describe('runner gating', () => {
-  test('refused unless DEBUGGAI_LOCAL_BROWSER is set; allowlist required', async () => {
-    const prev = process.env.DEBUGGAI_LOCAL_BROWSER;
+  test('no opt-in env var needed; allowlist required; refused on the hosted HTTP server', async () => {
+    const prev = process.env.DEBUGGAI_MCP_TRANSPORT;
     delete process.env.DEBUGGAI_LOCAL_BROWSER;
-    await expect(OpRunner.open({ allowedDomains: ['localhost'] })).rejects.toMatchObject({ code: 'LOCAL_BROWSER_DISABLED' });
-    process.env.DEBUGGAI_LOCAL_BROWSER = '1';
+    delete process.env.DEBUGGAI_MCP_TRANSPORT;
     await expect(OpRunner.open({ allowedDomains: [] })).rejects.toMatchObject({ code: 'ALLOWLIST_REQUIRED' });
-    if (prev === undefined) delete process.env.DEBUGGAI_LOCAL_BROWSER; else process.env.DEBUGGAI_LOCAL_BROWSER = prev;
+    process.env.DEBUGGAI_MCP_TRANSPORT = 'http';
+    await expect(OpRunner.open({ allowedDomains: ['localhost'] })).rejects.toMatchObject({ code: 'LOCAL_BROWSER_DISABLED' });
+    if (prev === undefined) delete process.env.DEBUGGAI_MCP_TRANSPORT; else process.env.DEBUGGAI_MCP_TRANSPORT = prev;
   });
+
 });
 
 const ATTACH: AttachInfo = { executor_version: 'test', ops_supported: OpRunner.supportedOps(), browser: { name: 'chrome', headless: true }, profile: 'ephemeral', credential_labels: ['admin'] };
@@ -33,7 +35,6 @@ live('executor session (real Chrome, fake cloud)', () => {
   let seenPw = '';
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-exec-'));
   beforeAll(async () => {
-    process.env.DEBUGGAI_LOCAL_BROWSER = '1';
     process.env.DEBUGGAI_HOME = home;
     app = http.createServer((q, s) => {
       if (q.url === '/login') { let b = ''; q.on('data', (c) => (b += c)); q.on('end', () => { seenPw = new URLSearchParams(b).get('pw') ?? ''; s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>Welcome</title><h1>Welcome back</h1>'); }); return; }
