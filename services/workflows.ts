@@ -317,6 +317,12 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
       // 56kd.3).
       let lastExecution: WorkflowExecution | undefined;
       let consecutivePollFailures = 0;
+      // Bead (dogfood 2026-11-13): the no-progress clock restarts whenever the
+      // run records a new workflow node. A run the backend queued for 3+ minutes
+      // before starting (env.resolve at +202s) was declared never-started at +245s
+      // and then completed with pass at +398s.
+      let lastProgressAt = pollStart;
+      let lastNodeCount = 0;
       while (Date.now() < deadline) {
         if (signal?.aborted) {
           throw new Error(`Polling cancelled for execution ${executionUuid}`);
@@ -358,7 +364,9 @@ export const createWorkflowsService = (tx: AxiosTransport): WorkflowsService => 
         const hasSteps =
           (execution.state?.stepsTaken ?? 0) > 0 ||
           (execution.nodeExecutions ?? []).some(n => n.nodeType === 'brain.step');
-        if (!hasSteps && Date.now() - pollStart >= noProgressTimeoutMs()) {
+        const nodeCount = (execution.nodeExecutions ?? []).length;
+        if (nodeCount > lastNodeCount) { lastNodeCount = nodeCount; lastProgressAt = Date.now(); }
+        if (!hasSteps && Date.now() - lastProgressAt >= noProgressTimeoutMs()) {
           Telemetry.capture(TelemetryEvents.WORKFLOW_EXECUTED, {
             status: execution.status,
             success: false,

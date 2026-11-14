@@ -397,6 +397,22 @@ describe('pollExecution() no-progress stall', () => {
     expect(r.stall?.elapsedMs).toBeGreaterThanOrEqual(4 * 60 * 1000);
   });
 
+  test('a run that records a new node after a slow start is not stalled: the clock restarts on node progress', async () => {
+    const t0 = Date.now();
+    const node = { nodeType: 'env.resolve', status: 'success' } as any;
+    mockGet.mockImplementation(async () => {
+      const el = Date.now() - t0;
+      if (el >= 380_000) return makeExecution({ status: 'completed' });
+      return makeExecution({ status: 'running', nodeExecutions: el >= 200_000 ? [node] : [] });
+    });
+    jest.useFakeTimers();
+    const p = service.pollExecution('exec-late-start');
+    for (let i = 0; i < 140; i++) await jest.advanceTimersByTimeAsync(3000);
+    const r = await p;
+    expect(r.stalled).toBeUndefined();
+    expect(r.status).toBe('completed');
+  });
+
   test('a run that took at least one step is never flagged stalled', async () => {
     let calls = 0;
     mockGet.mockImplementation(async () => {
