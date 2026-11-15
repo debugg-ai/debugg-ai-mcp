@@ -70,9 +70,12 @@ live('local capture (real Chrome)', () => {
 
     await localCapture({ url: `${base}/set`, useProfile: true, allowedDomains: ['example.com'], captureScreenshot: false });
     const withProfile = await localCapture({ url: `${base}/who`, useProfile: true, allowedDomains: ['example.com'], captureScreenshot: false });
-    expect(withProfile.title).toBe('cookie:sid=abc');
+    expect(withProfile.title).toContain('sid=abc');
     const fresh = await localCapture({ url: `${base}/who`, captureScreenshot: false });
-    expect(fresh.title).toBe('cookie:none');
+    expect(fresh.title).not.toContain('sid=abc');
+    // Our own automation marks itself so the apps' analytics do not count it.
+    expect(fresh.title).toContain('analytics_ignore=1');
+    expect(withProfile.title).toContain('analytics_ignore=1');
     // A redirect off the allowlist is blocked and reported.
     server.removeAllListeners('request');
     server.on('request', (_q, s2) => { s2.writeHead(302, { Location: 'http://offlist.invalid/steal' }); s2.end(); });
