@@ -12,6 +12,7 @@
  * DEBUGGAI_CHROME_PROFILE_DIR) the user logs into once via `loginToLocalProfile`;
  * the user's everyday Chrome profile is never touched.
  */
+import { markAnalyticsIgnore } from '../utils/analyticsMarker.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -192,6 +193,7 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
       const len = Number(r.headers()['content-length'] ?? 0);
       net.push({ url: r.url(), status: r.status(), bytes: Number.isFinite(len) ? len : 0 });
     });
+    await markAnalyticsIgnore(context, o.url);
     const t0 = Date.now();
     let resp: Awaited<ReturnType<typeof page.goto>>;
     try {

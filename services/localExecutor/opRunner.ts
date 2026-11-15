@@ -4,6 +4,7 @@
  * do the work; this layer serialises, enforces the allowlist on every navigation hop,
  * substitutes credential placeholders locally, redacts, and reports page events.
  */
+import { markAnalyticsIgnore } from '../../utils/analyticsMarker.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { launch, localBrowserEnabled, LocalBrowserError, LOCAL_UNAVAILABLE_MESSAGE, hostAllowed, resolveAllowedDomains, debuggHome, ensurePrivateDir } from '../localBrowser.js';
@@ -186,6 +187,7 @@ export class OpRunner {
         let host: string;
         try { host = new URL(url).hostname; } catch { throw new OpError('invalid_args', `Invalid URL: ${url}`); }
         if (!hostAllowed(host, this.opts.allowedDomains) && !isLoopbackHost(host)) throw new OpError('domain_blocked', `${host} is not in this session's allowlist (${this.opts.allowedDomains.join(', ')}).`, false);
+        await markAnalyticsIgnore(this.context, url);
         const resp = await pg.goto(url, { waitUntil: (a.wait_until as 'load' | 'domcontentloaded' | 'networkidle' | 'commit') ?? 'domcontentloaded', timeout });
         return { kind: 'action', value: { status: resp?.status() ?? null } };
       }
@@ -261,6 +263,7 @@ export class OpRunner {
           let h: string;
           try { h = new URL(String(a.url)).hostname; } catch { throw new OpError('invalid_args', `Invalid URL: ${a.url}`); }
           if (!hostAllowed(h, this.opts.allowedDomains) && !isLoopbackHost(h)) { await pg.close(); throw new OpError('domain_blocked', `${h} is not in this session's allowlist.`); }
+          await markAnalyticsIgnore(this.context, String(a.url));
           await pg.goto(String(a.url), { waitUntil: 'domcontentloaded', timeout });
         }
         const id = this.ids.get(pg) ?? this.register(pg);
