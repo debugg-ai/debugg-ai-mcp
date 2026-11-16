@@ -99,6 +99,18 @@ export class OpRunner {
     return pg;
   }
 
+  /**
+   * The element an action should hit: the first VISIBLE match, else the first match (so a missing
+   * element still fails with the usual message). Pages often carry a hidden duplicate of a link
+   * (a desktop sidebar under a mobile drawer); clicking the first match would wait on the hidden
+   * one until timeout (Tandem prod verify: a[href="/plan"] timed out at 390px).
+   */
+  private async actionTarget(cmd: Command): Promise<Locator> {
+    const all = this.locator(this.page(cmd), cmd);
+    const visible = all.filter({ visible: true });
+    return (await visible.count().catch(() => 0)) > 0 ? visible.first() : all.first();
+  }
+
   private locator(pg: Page, cmd: Command): Locator {
     const sel = cmd.target?.selector;
     if (!sel) throw new OpError('invalid_args', `${cmd.op} needs target.selector.`);
@@ -209,29 +221,29 @@ export class OpRunner {
         return { kind: 'eval', value: value === undefined ? null : value };
       }
       case 'click': {
-        const loc = this.locator(this.page(cmd), cmd).first();
+        const loc = (await this.actionTarget(cmd));
         const o = { timeout, button: a.button as 'left' | undefined, force: a.force as boolean | undefined };
         if (a.double) await loc.dblclick(o); else await loc.click(o);
         return act;
       }
-      case 'dblclick': await this.locator(this.page(cmd), cmd).first().dblclick({ timeout, force: a.force as boolean | undefined }); return act;
-      case 'fill': await this.locator(this.page(cmd), cmd).first().fill(this.sub(a.value ?? a.text), { timeout }); return act;
-      case 'type': await this.locator(this.page(cmd), cmd).first().pressSequentially(this.sub(a.text ?? a.value), { timeout, delay: (a.delay_ms ?? a.delay) as number | undefined }); return act;
+      case 'dblclick': await (await this.actionTarget(cmd)).dblclick({ timeout, force: a.force as boolean | undefined }); return act;
+      case 'fill': await (await this.actionTarget(cmd)).fill(this.sub(a.value ?? a.text), { timeout }); return act;
+      case 'type': await (await this.actionTarget(cmd)).pressSequentially(this.sub(a.text ?? a.value), { timeout, delay: (a.delay_ms ?? a.delay) as number | undefined }); return act;
       case 'press': {
         const key = this.sub(a.key);
-        if (cmd.target?.selector) await this.locator(this.page(cmd), cmd).first().press(key, { timeout });
+        if (cmd.target?.selector) await (await this.actionTarget(cmd)).press(key, { timeout });
         else await this.page(cmd).keyboard.press(key);
         return act;
       }
-      case 'hover': await this.locator(this.page(cmd), cmd).first().hover({ timeout }); return act;
+      case 'hover': await (await this.actionTarget(cmd)).hover({ timeout }); return act;
       case 'select_option': {
         const v = a.index !== undefined ? { index: Number(a.index) } : a.label !== undefined ? { label: String(a.label) } : (a.values ?? a.value) as string | string[];
-        await this.locator(this.page(cmd), cmd).first().selectOption(v, { timeout });
+        await (await this.actionTarget(cmd)).selectOption(v, { timeout });
         return act;
       }
-      case 'check': await this.locator(this.page(cmd), cmd).first().check({ timeout }); return act;
-      case 'uncheck': await this.locator(this.page(cmd), cmd).first().uncheck({ timeout }); return act;
-      case 'focus': await this.locator(this.page(cmd), cmd).first().focus({ timeout }); return act;
+      case 'check': await (await this.actionTarget(cmd)).check({ timeout }); return act;
+      case 'uncheck': await (await this.actionTarget(cmd)).uncheck({ timeout }); return act;
+      case 'focus': await (await this.actionTarget(cmd)).focus({ timeout }); return act;
       case 'scroll': {
         const pg = this.page(cmd);
         const to = (a.to_selector as string | undefined) ?? cmd.target?.selector;
@@ -361,7 +373,7 @@ export class OpRunner {
 
   /**
    * What the page really is, measured by us and not by the agent: size, horizontal overflow, and
-   * its visible text. Null when there is no open page.
+   * its visible text (plus accessible names, placeholders, alt text and typed field values; never passwords). Null when there is no open page.
    */
   async finalFacts(): Promise<{ url: string; title: string; viewport: { width: number; height: number }; scrollWidth: number; clientWidth: number; horizontalOverflowPx: number; text: string } | null> {
     const pg = this.pages.get(this.currentId);
@@ -370,7 +382,11 @@ export class OpRunner {
       const f = await pg.evaluate(() => ({
         w: window.innerWidth, h: window.innerHeight,
         sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
-        text: (document.body?.innerText ?? '').slice(0, 200000),
+        // Visible text plus what a person would read off the page without it being text nodes:
+        // accessible names, placeholders, alt text, and what is typed into fields.
+        text: ((document.body?.innerText ?? '') + '\n' + Array.from(document.querySelectorAll('[aria-label],[title],[placeholder],[alt],input,textarea,select'))
+          .map((e) => [e.getAttribute('aria-label'), e.getAttribute('title'), e.getAttribute('placeholder'), e.getAttribute('alt'), (e as HTMLInputElement).type === 'password' ? '' : (e as HTMLInputElement).value].filter(Boolean).join(' '))
+          .join('\n')).slice(0, 200000),
       }));
       return {
         url: pg.url(), title: await pg.title().catch(() => ''),
