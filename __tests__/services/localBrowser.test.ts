@@ -98,6 +98,7 @@ live('local capture extras (real Chrome)', () => {
         s.end('<title>Slow</title><div id=x>Loading...</div><div style="height:3000px"></div><script>console.error("src-boom");setTimeout(()=>{document.getElementById("x").textContent="Ready now";history.replaceState(null,"","/slow?done=1")},600)</script>');
         return;
       }
+      if (q.url === '/withimg') { s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>Img</title><img src="/gone.png">'); return; }
       s.writeHead(404); s.end();
     });
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
@@ -108,6 +109,10 @@ live('local capture extras (real Chrome)', () => {
     expect(r.finalUrl).toContain('/slow?done=1');
     expect(r.consoleErrors.find((e) => e.text.includes('src-boom'))!.source).toContain('/slow');
     expect(r.captureId).toMatch(/^probe-.*\.png$/);
+    // viewport + failed requests
+    const small = await localCapture({ url: `${base}/withimg`, viewport: { width: 390, height: 844 }, captureScreenshot: false });
+    expect(small.viewport).toEqual({ width: 390, height: 844 });
+    expect(small.failedRequests!.some((f) => f.status === 404 && f.url.endsWith('/gone.png'))).toBe(true);
     const view = await localCapture({ url: `${base}/slow` });
     const full = r;
     expect(Buffer.from(full.screenshotBase64!, 'base64').length).toBeGreaterThan(Buffer.from(view.screenshotBase64!, 'base64').length);

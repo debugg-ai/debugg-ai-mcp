@@ -442,6 +442,8 @@ export const ProbePageTargetSchema = z.object({
   ),
   waitForSelector: z.string().optional(),
   // browser:'local' only: wait until this text is visible / the URL contains this string (e.g. a client-side sign-in finishing).
+  // browser:'local' only: window size for this target, e.g. 390x844 to check a phone layout.
+  viewport: z.object({ width: z.number().int().min(200).max(4000), height: z.number().int().min(200).max(4000) }).strict().optional(),
   waitForText: z.string().min(1).optional(),
   waitForUrl: z.string().min(1).optional(),
   // sentinal-kvoou: 'domcontentloaded', NOT 'load'. 'load' blocks on every
