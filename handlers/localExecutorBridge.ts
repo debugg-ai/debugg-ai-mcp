@@ -133,6 +133,19 @@ interface CreateSessionResponse {
   limits?: Partial<{ heartbeatS: number; leaseS: number; maxInlineBytes: number; maxBatch: number; maxInflight: number }>;
   /** Stored environment credentials, password sealed to our session public key. */
   credentials?: Array<{ label: string; username?: string; sealed: SealedEnvelope }>;
+  /** The allowlist the server applies to this session (it may add the environment's sign-in hosts). */
+  allowedDomains?: string[];
+}
+
+/**
+ * Fold the server's session allowlist into the local guard's array, in place, so the browser
+ * guard and the server check can never disagree. Profile sessions keep only their explicit list.
+ */
+export function mergeServerAllowedDomains(allowed: string[], serverList: unknown, useProfile: boolean): void {
+  if (useProfile || !Array.isArray(serverList)) return;
+  for (const d of serverList) {
+    if (typeof d === 'string' && d.trim() && !allowed.includes(d)) allowed.push(d);
+  }
 }
 
 export async function prepareLocalRun(args: {
@@ -188,6 +201,7 @@ export async function prepareLocalRun(args: {
     throw err;
   }
   const runner = await runnerP;
+  mergeServerAllowedDomains(allowed, created.allowedDomains, !!input.useProfile);
   if (created.captureMode === 'cloud' || created.captureMode === 'local_only') runner.setCaptureMode(created.captureMode);
   if (typeof created.headless === 'boolean' && created.headless !== (headless !== false)) {
     logger.warn(`Server runs this session with headless=${created.headless}; the local browser was already launched with headless=${headless !== false}.`);
@@ -249,4 +263,23 @@ export async function prepareLocalRun(args: {
       return running;
     },
   };
+}
+
+/**
+ * A local run types only credentials it was given. When such a run ends at a sign-in form
+ * (no_form / form: refused / no_login_form_detected) with nothing to type, say why in plain
+ * words (Crochet V2 34131c0e: nine empty 'Submit the sign-in form' clicks, then a timeout).
+ */
+export function localNoCredentialsHint(a: {
+  localMode: boolean;
+  hasSecrets: boolean;
+  input: Pick<TestPageChangesInput, 'credentialId' | 'credentialRole' | 'environmentId'>;
+  reason?: string | null;
+  logins?: unknown;
+}): string | undefined {
+  if (!a.localMode || a.hasSecrets || a.input.credentialId || a.input.credentialRole || a.input.environmentId) return undefined;
+  const seen = `${a.reason ?? ''} ${a.logins ? JSON.stringify(a.logins) : ''}`;
+  if (!/no_form|form: refused|no_login_form_detected/i.test(seen)) return undefined;
+  return 'This was a local run with no credentials, so the browser had nothing to type into the sign-in form. '
+    + 'Pass username and password (they stay on your machine), or name a stored credential with environmentId and credentialId.';
 }
