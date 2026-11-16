@@ -62,7 +62,7 @@ export class OpRunner {
     if (allowed.length === 0) {
       throw new LocalBrowserError('A local session needs a non-empty domain allowlist (allowedDomains, or DEBUGGAI_PROFILE_ALLOWED_DOMAINS for profile sessions).', 'ALLOWLIST_REQUIRED');
     }
-    const { context, close } = await launch({ headless: opts.headless !== false, useProfile: !!opts.useProfile });
+    const { context, close } = await launch({ headless: opts.headless !== false, useProfile: !!opts.useProfile, viewport: opts.viewport });
     try {
       const r = new OpRunner(context, close, { ...opts, allowedDomains: allowed });
       const vp = opts.viewport ?? { width: 1280, height: 800 };
@@ -350,6 +350,13 @@ export class OpRunner {
       return { code: 'timeout', message: msg, retryable: true };
     }
     return { code: 'internal', message: msg, retryable: false };
+  }
+
+  /** PNG of the page the run ended on, taken locally. Null if there is no open page. */
+  async finalScreenshot(): Promise<Buffer | null> {
+    const pg = this.pages.get(this.currentId);
+    if (!pg || pg.isClosed()) return null;
+    return pg.screenshot({ type: 'png' }).catch(() => null);
   }
 
   async close(): Promise<void> {
