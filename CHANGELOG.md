@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — local click resolution and the report quote check
+- Local actions (click, fill, type, hover, check, select, focus) go to the first VISIBLE match of the selector, falling back to the first match. A hidden duplicate that comes first (a desktop sidebar under a mobile drawer) no longer makes `a[href="/plan"]` time out.
+- `reportCheck` searches accessible names (`aria-label`, `title`), placeholders, alt text and typed field values as well as visible text (never password fields), so a quote of "Open navigation" or of a question typed into a textarea is no longer reported as not found.
+
 ### Added — check the agent's account against the page (local runs)
 - `check_app_in_browser` (browser:'local') returns `pageFacts` measured by the MCP itself (url, title, viewport, scrollWidth/clientWidth and `horizontalOverflowPx`) and `reportCheck`: every quoted string in `report` is searched in the page's final visible text and listed under `quotesFound` or `quotesNotFound`. The agent sees a text snapshot, not pixels, so layout and "not visible" claims are its inference: use these and the returned screenshot, not `report` alone.
 
