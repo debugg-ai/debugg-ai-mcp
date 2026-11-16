@@ -222,3 +222,23 @@ describe('createAuthenticationError', () => {
     expect(err.message).toBe('Authentication failed');
   });
 });
+
+describe('handleExternalServiceError — HTTP 429', () => {
+  it('names the rate limit, the wait and that it is shared per account', () => {
+    const e = Object.assign(new Error('Request was throttled. Expected available in 141 seconds.'), { statusCode: 429 });
+    const out = handleExternalServiceError(e, 'DebuggAI', 'project search');
+    expect(out.message).toContain('rate limit reached: retry in about 141 seconds');
+    expect(out.message).toContain('shares it');
+    expect((out.data as any).code).toBe('RATE_LIMITED');
+    expect((out.data as any).retryAfterSeconds).toBe(141);
+  });
+  it('prefers the Retry-After header', () => {
+    const e = Object.assign(new Error('throttled'), { statusCode: 429, responseHeaders: { 'retry-after': '30' } });
+    expect((handleExternalServiceError(e, 'DebuggAI').data as any).retryAfterSeconds).toBe(30);
+  });
+  it('non-429 errors are unchanged', () => {
+    const out = handleExternalServiceError(Object.assign(new Error('boom'), { statusCode: 500 }), 'DebuggAI');
+    expect(out.message).toBe('DebuggAI error: boom');
+    expect((out.data as any).code).toBeUndefined();
+  });
+});

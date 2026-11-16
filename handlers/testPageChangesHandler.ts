@@ -46,7 +46,7 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
-import { prepareLocalRun, localizeCredentials, planRequiredFromError, chooseBrowser, type LocalRun } from './localExecutorBridge.js';
+import { prepareLocalRun, localizeCredentials, planRequiredFromError, chooseBrowser, localNoCredentialsHint, type LocalRun } from './localExecutorBridge.js';
 import { LocalBrowserError } from '../services/localBrowser.js';
 import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
 
@@ -848,6 +848,10 @@ async function testPageChangesHandlerInner(
       responsePayload.loginSummary = summarizeLogins(verdict.logins);
     }
     if (verdict.loginError) responsePayload.loginError = verdict.loginError;
+
+    // A local run types only credentials it was given: say so when that is why it stopped.
+    const noCredsHint = localNoCredentialsHint({ localMode, hasSecrets: Object.keys(localSecrets).length > 0, input, reason: verdict.reason, logins: verdict.logins });
+    if (noCredsHint) responsePayload.hint = noCredsHint;
 
     // Bead b5x6: the caller named an account and the run SUBMITTED an
     // environment default for a different one. Stated as the two facts — what
