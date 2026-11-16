@@ -30,6 +30,12 @@ export interface LocalCaptureOptions {
   headless?: boolean;
   useProfile?: boolean;
   waitForSelector?: string;
+  /** Wait until this text is visible. */
+  waitForText?: string;
+  /** Wait until the page URL contains this string. */
+  waitForUrl?: string;
+  /** Capture the whole scrollable page. */
+  fullPage?: boolean;
   waitForLoadState?: 'load' | 'domcontentloaded' | 'networkidle';
   timeoutMs?: number;
   includeHtml?: boolean;
@@ -47,13 +53,17 @@ export interface LocalCaptureResult {
   statusCode: number | null;
   title: string | null;
   loadTimeMs: number;
-  consoleErrors: Array<{ level: string; text: string }>;
+  consoleErrors: Array<{ level: string; text: string; source?: string }>;
+  /** Each hop of the navigation's redirect chain, in order, ending with the final response. */
+  redirectChain?: Array<{ url: string; status: number }>;
   networkSummary: Array<{ url: string; count: number; statuses: Record<string, number>; totalBytes: number }>;
   /** Hosts a navigation to which was refused by the allowlist (profile sessions). */
   blockedNavigations?: string[];
   html?: string;
   screenshotBase64?: string;
   screenshotPath?: string;
+  /** File name of the saved screenshot, a stable handle for this capture. */
+  captureId?: string;
 }
 
 /** Host matches an allowed domain exactly or as a subdomain. */
@@ -185,9 +195,13 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
       }
       await installNavigationGuard(context, allowed, (h) => blocked.push(h));
     }
-    const consoleErrors: Array<{ level: string; text: string }> = [];
+    const consoleErrors: Array<{ level: string; text: string; source?: string }> = [];
     const net: Array<{ url: string; status: number; bytes: number }> = [];
-    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleErrors.push({ level: m.type(), text: m.text() }); });
+    page.on('console', (m) => {
+      if (m.type() !== 'error' && m.type() !== 'warning') return;
+      const source = m.location()?.url;
+      consoleErrors.push({ level: m.type(), text: m.text(), ...(source ? { source } : {}) });
+    });
     page.on('pageerror', (e) => consoleErrors.push({ level: 'error', text: e.message }));
     page.on('response', (r) => {
       const len = Number(r.headers()['content-length'] ?? 0);
@@ -206,6 +220,15 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
     }
     if (o.waitForSelector) await page.waitForSelector(o.waitForSelector, { timeout: Math.max(1000, timeout - (Date.now() - t0)) });
     else await page.waitForLoadState('networkidle', { timeout: Math.min(2000, Math.max(500, timeout - (Date.now() - t0))) }).catch(() => {});
+    const left = () => Math.max(1000, timeout - (Date.now() - t0));
+    if (o.waitForText) await page.getByText(o.waitForText).first().waitFor({ state: 'visible', timeout: left() });
+    if (o.waitForUrl) await page.waitForURL((u) => u.toString().includes(o.waitForUrl as string), { timeout: left() });
+    const chain: Array<{ url: string; status: number }> = [];
+    if (resp) {
+      const hops: Array<Awaited<ReturnType<typeof resp.request>>> = [];
+      for (let r: typeof hops[number] | null = resp.request(); r; r = r.redirectedFrom()) hops.unshift(r);
+      for (const r of hops) { const rs = await r.response().catch(() => null); chain.push({ url: r.url(), status: rs ? rs.status() : 0 }); }
+    }
     const result: LocalCaptureResult = {
       url: o.url,
       finalUrl: page.url() || null,
@@ -215,6 +238,7 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
       consoleErrors,
       networkSummary: summarize(net),
     };
+    if (chain.length > 1) result.redirectChain = chain;
     if (blocked.length > 0) result.blockedNavigations = [...new Set(blocked)];
     if (o.loginWindowMs && o.useProfile && o.headless === false) {
       const ms = Math.min(o.loginWindowMs, 600000);
@@ -225,13 +249,14 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
     }
     if (o.includeHtml) result.html = await page.content();
     if (o.captureScreenshot !== false) {
-      const buf = await page.screenshot({ type: 'png' });
+      const buf = await page.screenshot({ type: 'png', fullPage: !!o.fullPage });
       result.screenshotBase64 = buf.toString('base64');
       const dir = path.join(debuggHome(), 'captures');
       ensurePrivateDir(dir);
       const file = path.join(dir, `probe-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.png`);
       fs.writeFileSync(file, buf, { mode: 0o600 });
       result.screenshotPath = file;
+      result.captureId = path.basename(file);
     }
     return result;
   } finally {

@@ -38,6 +38,14 @@ const TARGET_PROPERTIES = {
     type: 'string',
     description: 'Optional CSS selector to wait for after navigation completes. Useful for SPAs that mount content asynchronously.',
   },
+  waitForText: {
+    type: 'string',
+    description: "browser:'local' only. Wait until this text is visible on the page (within timeoutMs) before capturing. Use for client-side sign-in or async screens that first show 'Loading...'.",
+  },
+  waitForUrl: {
+    type: 'string',
+    description: "browser:'local' only. Wait until the page URL contains this string (within timeoutMs) before capturing.",
+  },
   waitForLoadState: {
     type: 'string',
     enum: ['load', 'domcontentloaded', 'networkidle'],
@@ -81,6 +89,10 @@ export function buildProbePageTool(): Tool {
         captureScreenshots: {
           type: 'boolean',
           description: 'If true (default), one PNG screenshot is returned per target. Set false for very large batches or when only the structured data matters.',
+        },
+        fullPage: {
+          type: 'boolean',
+          description: "browser:'local' only. Default false. true captures the whole scrollable page instead of just the viewport.",
         },
         repoName: {
           type: 'string',
