@@ -359,6 +359,27 @@ export class OpRunner {
     return pg.screenshot({ type: 'png' }).catch(() => null);
   }
 
+  /**
+   * What the page really is, measured by us and not by the agent: size, horizontal overflow, and
+   * its visible text. Null when there is no open page.
+   */
+  async finalFacts(): Promise<{ url: string; title: string; viewport: { width: number; height: number }; scrollWidth: number; clientWidth: number; horizontalOverflowPx: number; text: string } | null> {
+    const pg = this.pages.get(this.currentId);
+    if (!pg || pg.isClosed()) return null;
+    try {
+      const f = await pg.evaluate(() => ({
+        w: window.innerWidth, h: window.innerHeight,
+        sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
+        text: (document.body?.innerText ?? '').slice(0, 200000),
+      }));
+      return {
+        url: pg.url(), title: await pg.title().catch(() => ''),
+        viewport: { width: f.w, height: f.h }, scrollWidth: f.sw, clientWidth: f.cw,
+        horizontalOverflowPx: Math.max(0, f.sw - f.cw), text: f.text,
+      };
+    } catch { return null; }
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
