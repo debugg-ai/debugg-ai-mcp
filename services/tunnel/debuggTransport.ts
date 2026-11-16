@@ -93,9 +93,16 @@ export interface DebuggTransportOptions {
   probeTimeoutMs?: number;
   /** How long a handshake may hang before it counts as a failed attempt. */
   handshakeTimeoutMs?: number;
+  /** How long a session must stay up before the reconnect backoff resets. Default 10s. */
+  stableSessionMs?: number;
 }
 
 const DEFAULT_RECONNECT_BACKOFF_MS = [250, 500, 1000, 2000, 5000, 10000];
+/** A session must stay up this long before the reconnect backoff resets. */
+const STABLE_SESSION_MS = 10_000;
+/** Evictions ('replaced by a newer connection') tolerated inside the window before the tunnel is given up. */
+const MAX_EVICTIONS = 5;
+const EVICTION_WINDOW_MS = 60_000;
 
 const defaultSocketFactory: DebuggSocketFactory = (url, init) =>
   new WebSocket(url, {
@@ -133,6 +140,10 @@ interface TunnelState {
   dead: boolean;
   reconnectAttempt: number;
   reconnectTimer?: NodeJS.Timeout;
+  /** Resets reconnectAttempt once the current session has been stable for STABLE_SESSION_MS. */
+  stableTimer?: NodeJS.Timeout;
+  /** Timestamps of recent server evictions (another client took this tunnel). */
+  evictions: number[];
 }
 
 class DebuggTransport implements TunnelTransport {
@@ -144,6 +155,7 @@ class DebuggTransport implements TunnelTransport {
   private readonly backoffMs: number[];
   private readonly probeTimeoutMs: number;
   private readonly handshakeTimeoutMs: number;
+  private readonly stableMs: number;
 
   constructor(opts: DebuggTransportOptions = {}) {
     this.clientVersion = opts.clientVersion;
@@ -151,6 +163,7 @@ class DebuggTransport implements TunnelTransport {
     this.backoffMs = opts.reconnectBackoffMs ?? DEFAULT_RECONNECT_BACKOFF_MS;
     this.probeTimeoutMs = opts.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     this.handshakeTimeoutMs = opts.handshakeTimeoutMs ?? 20_000;
+    this.stableMs = opts.stableSessionMs ?? STABLE_SESSION_MS;
   }
 
   async connect(
@@ -175,6 +188,7 @@ class DebuggTransport implements TunnelTransport {
       stopped: false,
       dead: false,
       reconnectAttempt: 0,
+      evictions: [],
     };
 
     const { socket, session } = await this.handshake(state);
@@ -323,7 +337,13 @@ class DebuggTransport implements TunnelTransport {
   private adopt(state: TunnelState, socket: DebuggSocketLike, session: TunnelSession): void {
     state.socket = socket;
     state.session = session;
-    state.reconnectAttempt = 0;
+    // Do NOT reset the backoff on connect: two clients holding one tunnel evict each
+    // other, and every successful connect would restart the loop at zero delay
+    // (seen at 4-5 connects/s, ~3,900 in 15 minutes). Reset only after a stable stretch.
+    if (state.stableTimer) clearTimeout(state.stableTimer);
+    const stable = setTimeout(() => { state.reconnectAttempt = 0; state.stableTimer = undefined; }, this.stableMs);
+    (stable as { unref?: () => void }).unref?.();
+    state.stableTimer = stable;
 
     // 'stream' and 'error' were attached in handshake(), before the handshake
     // could deliver anything. Only the lifecycle wiring belongs here, because
@@ -333,14 +353,33 @@ class DebuggTransport implements TunnelTransport {
         this.markDead(state, `the tunnel server reported it revoked (${info.reason || 'no reason given'})`);
         return;
       }
+      if (state.stableTimer) { clearTimeout(state.stableTimer); state.stableTimer = undefined; }
+      // The server evicted us because another client connected with this tunnel id.
+      // Reconnecting at once just evicts them back. Back off, and give up if it keeps
+      // happening so TunnelManager provisions a fresh tunnel instead.
+      if (/replaced/i.test(info.reason ?? '')) {
+        const now = Date.now();
+        state.evictions = state.evictions.filter((t) => now - t < EVICTION_WINDOW_MS);
+        state.evictions.push(now);
+        logger.warn(`debugg tunnel ${state.hostname} (id ${state.tunnelId}, pid ${process.pid}) was evicted: another client connected with the same tunnel id (${state.evictions.length} in the last minute)`);
+        if (state.evictions.length >= MAX_EVICTIONS) {
+          this.markDead(state, `another client keeps taking over this tunnel (${state.evictions.length} evictions in under a minute); a fresh tunnel will be provisioned`);
+          return;
+        }
+        state.reconnectAttempt++;
+        this.scheduleReconnect(state);
+        return;
+      }
       // A deploy. Dial a replacement immediately (make-before-break) and let
       // this session drain its in-flight streams; its later close is ignored
-      // because it is no longer the current one.
-      this.scheduleReconnect(state, 0);
+      // because it is no longer the current one. Only the first time: if we are
+      // already in a reconnect streak, back off like any other drop.
+      this.scheduleReconnect(state, state.reconnectAttempt === 0 ? 0 : undefined);
     });
 
     session.on('close', (info: { closeCode: number; reason: string }) => {
       if (state.session !== session) return; // superseded by a newer connection
+      if (state.stableTimer) { clearTimeout(state.stableTimer); state.stableTimer = undefined; }
       state.session = undefined;
       state.socket = undefined;
       if (state.stopped || state.dead) return;
@@ -402,6 +441,10 @@ class DebuggTransport implements TunnelTransport {
   }
 
   private teardown(state: TunnelState): void {
+    if (state.stableTimer) {
+      clearTimeout(state.stableTimer);
+      state.stableTimer = undefined;
+    }
     if (state.reconnectTimer) {
       clearTimeout(state.reconnectTimer);
       state.reconnectTimer = undefined;

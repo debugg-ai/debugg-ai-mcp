@@ -113,12 +113,13 @@ class FakeSocket implements DebuggSocketLike {
   }
 }
 
-function harness(opts: { probeTimeoutMs?: number; reconnectBackoffMs?: number[] } = {}) {
+function harness(opts: { probeTimeoutMs?: number; reconnectBackoffMs?: number[]; stableSessionMs?: number } = {}) {
   const sockets: FakeSocket[] = [];
   const transport = createDebuggTransport({
     clientVersion: 'debugg-ai-mcp/9.9.9',
     reconnectBackoffMs: opts.reconnectBackoffMs ?? [1, 1, 1],
     probeTimeoutMs: opts.probeTimeoutMs,
+    stableSessionMs: opts.stableSessionMs,
     socketFactory: (url, init) => {
       const s = new FakeSocket(url, init);
       sockets.push(s);
@@ -553,5 +554,28 @@ describe('the control prober is published for probeTunnelHealth', () => {
     await h.transport.disconnect(PUBLIC_URL);
 
     expect(registry.getControlProbe(PUBLIC_URL)).toBeUndefined();
+  });
+});
+
+describe('two clients holding one tunnel (server evicts with GOAWAY \'replaced\')', () => {
+  const evicted = (code = ErrorCode.GOING_AWAY) =>
+    frame(FrameType.GOAWAY, 0, new Uint8Array([...u16(code), ...Buffer.from('replaced by a newer connection')]));
+
+  test('backs off instead of reconnecting at once, then gives up and tells TunnelManager', async () => {
+    const h = harness({ reconnectBackoffMs: [5, 5, 5], stableSessionMs: 60_000 });
+    const onDead = jest.fn();
+    await connected(h, 'http://127.0.0.1:41000', onDead);
+
+    for (let i = 0; i < 8 && !onDead.mock.calls.length; i++) {
+      const s = h.sockets[h.sockets.length - 1];
+      s.deliver(evicted());
+      await new Promise((r) => setTimeout(r, 30));
+      const next = h.sockets[h.sockets.length - 1];
+      if (next !== s) { next.accept(); await tick(); }
+    }
+    expect(onDead).toHaveBeenCalledTimes(1);
+    expect(String(onDead.mock.calls[0][0])).toMatch(/another client keeps taking over/);
+    // 1 original + at most 4 reconnects before the 5th eviction ends it
+    expect(h.sockets.length).toBeLessThanOrEqual(5);
   });
 });
