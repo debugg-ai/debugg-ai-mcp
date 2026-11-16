@@ -25,4 +25,19 @@ live('OpRunner viewport + finalScreenshot (real Chrome)', () => {
       await runner.close();
     }
   }, 60000);
+  test('finalFacts measures horizontal overflow and returns the visible text', async () => {
+    const wide = http.createServer((_q, s) => { s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>Wide</title><body style="margin:0"><div style="width:800px">Hello wide page</div><div style="display:none">hidden words</div>'); });
+    await new Promise<void>((r) => wide.listen(0, '127.0.0.1', () => r()));
+    const url = `http://127.0.0.1:${(wide.address() as { port: number }).port}`;
+    const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'], viewport: { width: 390, height: 844 } });
+    try {
+      await runner.execute({ id: 'c1', seq: 1, op: 'goto', args: { url } } as never);
+      const f = await runner.finalFacts();
+      expect(f!.title).toBe('Wide');
+      expect(f!.viewport.width).toBe(390);
+      expect(f!.horizontalOverflowPx).toBeGreaterThanOrEqual(400);   // 800px content in a 390px window
+      expect(f!.text).toContain('Hello wide page');
+      expect(f!.text).not.toContain('hidden words');                // visible text only
+    } finally { await runner.close(); wide.close(); }
+  }, 60000);
 });

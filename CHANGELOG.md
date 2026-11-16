@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — check the agent's account against the page (local runs)
+- `check_app_in_browser` (browser:'local') returns `pageFacts` measured by the MCP itself (url, title, viewport, scrollWidth/clientWidth and `horizontalOverflowPx`) and `reportCheck`: every quoted string in `report` is searched in the page's final visible text and listed under `quotesFound` or `quotesNotFound`. The agent sees a text snapshot, not pixels, so layout and "not visible" claims are its inference: use these and the returned screenshot, not `report` alone.
+
 ### Fixed — local runs and tunnels (dogfood)
 - Local runs allow the environment's sign-in hosts (e.g. `auth.startsimpli.com`) automatically, and merge the server's returned `allowedDomains`; sign-in redirects to a shared auth host no longer die as `domain_blocked`. The final allowlist is logged.
 - A local run with no credentials that stops at a sign-in form now says why (pass `username`/`password`, or name `environmentId` + `credentialId`) in `hint`.

@@ -46,6 +46,7 @@ import {
 } from '../utils/handlerCaches.js';
 import { isTransientWorkflowError, transientReasonTag } from '../utils/transientErrors.js';
 import { Telemetry, TelemetryEvents } from '../utils/telemetry.js';
+import { checkReportQuotes } from '../utils/reportCheck.js';
 import { prepareLocalRun, localizeCredentials, planRequiredFromError, chooseBrowser, localNoCredentialsHint, type LocalRun } from './localExecutorBridge.js';
 import { LocalBrowserError } from '../services/localBrowser.js';
 import { projectRequiredMessage, projectLookupFailedPayload } from '../utils/projectRequired.js';
@@ -937,6 +938,19 @@ async function testPageChangesHandlerInner(
     if (localRun && !verdict.screenshot) {
       localShot = await localRun.finalScreenshot().catch(() => null);
       if (localShot) responsePayload.screenshotPath = localShot.path;
+    }
+    // Local runs: measure the page ourselves so the agent's account can be checked against it.
+    if (localRun) {
+      const facts = await localRun.finalFacts().catch(() => null);
+      if (facts) {
+        responsePayload.pageFacts = {
+          url: facts.url, title: facts.title, viewport: facts.viewport,
+          scrollWidth: facts.scrollWidth, clientWidth: facts.clientWidth,
+          horizontalOverflowPx: facts.horizontalOverflowPx,
+        };
+        const check = checkReportQuotes(typeof responsePayload.report === 'string' ? responsePayload.report : undefined, facts.text);
+        if (check) responsePayload.reportCheck = check;
+      }
     }
     const sanitizedPayload = sanitizeResponseUrls(responsePayload, ctx);
     const content: ToolResponse['content'] = [
