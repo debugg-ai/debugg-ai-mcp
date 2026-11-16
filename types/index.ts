@@ -86,6 +86,8 @@ export const TestPageChangesInputSchema = z.object({
   // Unset: your own Chrome when it is installed (stdio server), otherwise the cloud browser.
   browser: z.enum(['remote', 'local']).optional(),
   headless: z.boolean().optional(),
+  // browser:'local' only: window size, e.g. { width: 390, height: 844 } for a phone layout. Default 1280x800.
+  viewport: z.object({ width: z.number().int().min(200).max(4000), height: z.number().int().min(200).max(4000) }).strict().optional(),
   useProfile: z.boolean().optional(),
   allowedDomains: z.array(z.string().min(1)).max(32).optional(),
   // Extra LOCAL origins the run may be redirected to (bead w1os.2) — e.g. an OAuth
@@ -441,6 +443,11 @@ export const ProbePageTargetSchema = z.object({
     z.string().url('Invalid URL. Pass a full URL like "http://localhost:3000" or "https://example.com". Localhost URLs are auto-tunneled to the remote browser.'),
   ),
   waitForSelector: z.string().optional(),
+  // browser:'local' only: wait until this text is visible / the URL contains this string (e.g. a client-side sign-in finishing).
+  // browser:'local' only: window size for this target, e.g. 390x844 to check a phone layout.
+  viewport: z.object({ width: z.number().int().min(200).max(4000), height: z.number().int().min(200).max(4000) }).strict().optional(),
+  waitForText: z.string().min(1).optional(),
+  waitForUrl: z.string().min(1).optional(),
   // sentinal-kvoou: 'domcontentloaded', NOT 'load'. 'load' blocks on every
   // sub-resource including third-party iframes we do not control — measured against
   // https://debugg.ai (two YouTube embeds), the 'load' default timed the goto out at
@@ -457,6 +464,8 @@ export const ProbePageInputSchema = z.object({
   targets: z.array(ProbePageTargetSchema).min(1, 'targets must have at least one URL').max(20, 'targets capped at 20 per call — split larger sweeps across multiple calls'),
   includeHtml: z.boolean().default(false),
   captureScreenshots: z.boolean().default(true),
+  // browser:'local' only: capture the whole scrollable page, not just the viewport.
+  fullPage: z.boolean().default(false),
   repoName: z.string().optional(),
   // Local Chrome capture (beads jpw3.1/.2). 'remote' (default) is the cloud browser.
   browser: z.enum(['remote', 'local']).default('remote'),

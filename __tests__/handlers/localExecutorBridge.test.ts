@@ -43,6 +43,28 @@ describe('localAllowedDomains', () => {
 
 const live = findChrome() ? describe : describe.skip;
 live('prepareLocalRun (fake backend, real Chrome)', () => {
+  test('viewport reaches Chrome and finalScreenshot returns a saved PNG of the last page', async () => {
+    const os = await import('node:os'); const fs = await import('node:fs'); const path = await import('node:path');
+    process.env.DEBUGGAI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-final-'));
+    const app = http.createServer((_q, s) => { s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>Phone</title><script>document.title="w"+innerWidth</script>'); });
+    await new Promise<void>((r) => app.listen(0, '127.0.0.1', () => r()));
+    const url = `http://127.0.0.1:${(app.address() as { port: number }).port}`;
+    const client = { tx: { post: async () => ({ sessionId: 'S2', secret: 'sec', limits: { heartbeatS: 0.1, leaseS: 2 } }) } };
+    cloud.cancel = false; cloud.queue.length = 0; cloud.results.length = 0; cloud.headers.length = 0;
+    const run = await bridge.prepareLocalRun({ client: client as never, input: base({ url, viewport: { width: 390, height: 844 } }), startUrl: url, secrets: {}, signal: new AbortController().signal });
+    run.begin();
+    const r = await cloud.result(cloud.push({ op: 'goto', args: { url } }));
+    expect(r).toMatchObject({ ok: true, title: 'w390' });
+    const shot = await run.finalScreenshot();
+    expect(shot!.base64.length).toBeGreaterThan(100);
+    expect(shot!.path.startsWith(process.env.DEBUGGAI_HOME!)).toBe(true);
+    expect(fs.statSync(shot!.path).mode & 0o777).toBe(0o600);
+    cloud.cancel = true;
+    await run.end();
+    cloud.cancel = false; cloud.queue.length = 0; cloud.results.length = 0; cloud.headers.length = 0; cloud.attached = null;
+    app.close();
+  }, 60000);
+
   test('creates the session, serves commands after begin(), tears down on end()', async () => {
     const app = http.createServer((_q, s) => { s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>Local App</title>'); });
     await new Promise<void>((r) => app.listen(0, '127.0.0.1', () => r()));

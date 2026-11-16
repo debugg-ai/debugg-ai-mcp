@@ -30,6 +30,14 @@ export interface LocalCaptureOptions {
   headless?: boolean;
   useProfile?: boolean;
   waitForSelector?: string;
+  /** Wait until this text is visible. */
+  waitForText?: string;
+  /** Wait until the page URL contains this string. */
+  waitForUrl?: string;
+  /** Capture the whole scrollable page. */
+  fullPage?: boolean;
+  /** Browser window size, e.g. { width: 390, height: 844 } for a phone. Default 1280x800. */
+  viewport?: { width: number; height: number };
   waitForLoadState?: 'load' | 'domcontentloaded' | 'networkidle';
   timeoutMs?: number;
   includeHtml?: boolean;
@@ -47,13 +55,21 @@ export interface LocalCaptureResult {
   statusCode: number | null;
   title: string | null;
   loadTimeMs: number;
-  consoleErrors: Array<{ level: string; text: string }>;
+  consoleErrors: Array<{ level: string; text: string; source?: string }>;
+  /** Each hop of the navigation's redirect chain, in order, ending with the final response. */
+  redirectChain?: Array<{ url: string; status: number }>;
   networkSummary: Array<{ url: string; count: number; statuses: Record<string, number>; totalBytes: number }>;
+  /** Requests that answered 4xx/5xx or never completed: the URL behind a bare 'Failed to load resource' console error. Capped at 30. */
+  failedRequests?: Array<{ url: string; status?: number; failure?: string }>;
+  /** Window size the page was captured at. */
+  viewport?: { width: number; height: number };
   /** Hosts a navigation to which was refused by the allowlist (profile sessions). */
   blockedNavigations?: string[];
   html?: string;
   screenshotBase64?: string;
   screenshotPath?: string;
+  /** File name of the saved screenshot, a stable handle for this capture. */
+  captureId?: string;
 }
 
 /** Host matches an allowed domain exactly or as a subdomain. */
@@ -122,7 +138,7 @@ export function ensurePrivateDir(dir: string): void {
 /** Headed runs are opt-in; even then keep the window out of the way: off-screen, minimized, no focus grab. */
 export const HEADED_QUIET_ARGS = ['--start-minimized', '--window-position=-32000,-32000', '--no-first-run', '--no-default-browser-check'];
 
-export async function launch(opts: { headless: boolean; useProfile: boolean }) {
+export async function launch(opts: { headless: boolean; useProfile: boolean; viewport?: { width: number; height: number } }) {
   const pw = await loadPlaywright();
   const executablePath = findChrome();
   const base = { headless: opts.headless, ...(opts.headless ? {} : { args: HEADED_QUIET_ARGS }), ...(executablePath ? { executablePath } : { channel: 'chrome' as const }) };
@@ -130,11 +146,11 @@ export async function launch(opts: { headless: boolean; useProfile: boolean }) {
     if (opts.useProfile) {
       const dir = profileDir();
       ensurePrivateDir(dir);
-      const context = await pw.chromium.launchPersistentContext(dir, { ...base, viewport: { width: 1280, height: 800 } });
+      const context = await pw.chromium.launchPersistentContext(dir, { ...base, viewport: opts.viewport ?? { width: 1280, height: 800 } });
       return { context, close: () => context.close() };
     }
     const browser = await pw.chromium.launch(base);
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const context = await browser.newContext({ viewport: opts.viewport ?? { width: 1280, height: 800 } });
     return { context, close: () => browser.close() };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -172,7 +188,7 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
     throw new LocalBrowserError('A profile session needs an allowlist of domains it may visit: pass allowedDomains (e.g. ["example.com"]) or have the server owner set DEBUGGAI_PROFILE_ALLOWED_DOMAINS.', 'PROFILE_ALLOWLIST_REQUIRED');
   }
   const timeout = Math.min(Math.max(o.timeoutMs ?? 10000, 1000), 30000);
-  const { context, close } = await launch({ headless: o.headless !== false, useProfile: !!o.useProfile });
+  const { context, close } = await launch({ headless: o.headless !== false, useProfile: !!o.useProfile, viewport: o.viewport });
   const onAbort = () => { void close().catch(() => {}); };
   o.signal?.addEventListener('abort', onAbort, { once: true });
   try {
@@ -185,11 +201,18 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
       }
       await installNavigationGuard(context, allowed, (h) => blocked.push(h));
     }
-    const consoleErrors: Array<{ level: string; text: string }> = [];
+    const consoleErrors: Array<{ level: string; text: string; source?: string }> = [];
     const net: Array<{ url: string; status: number; bytes: number }> = [];
-    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleErrors.push({ level: m.type(), text: m.text() }); });
+    page.on('console', (m) => {
+      if (m.type() !== 'error' && m.type() !== 'warning') return;
+      const source = m.location()?.url;
+      consoleErrors.push({ level: m.type(), text: m.text(), ...(source ? { source } : {}) });
+    });
     page.on('pageerror', (e) => consoleErrors.push({ level: 'error', text: e.message }));
+    const failed: Array<{ url: string; status?: number; failure?: string }> = [];
+    page.on('requestfailed', (r) => { if (failed.length < 30) failed.push({ url: r.url(), failure: r.failure()?.errorText ?? 'failed' }); });
     page.on('response', (r) => {
+      if (r.status() >= 400 && failed.length < 30) failed.push({ url: r.url(), status: r.status() });
       const len = Number(r.headers()['content-length'] ?? 0);
       net.push({ url: r.url(), status: r.status(), bytes: Number.isFinite(len) ? len : 0 });
     });
@@ -206,6 +229,15 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
     }
     if (o.waitForSelector) await page.waitForSelector(o.waitForSelector, { timeout: Math.max(1000, timeout - (Date.now() - t0)) });
     else await page.waitForLoadState('networkidle', { timeout: Math.min(2000, Math.max(500, timeout - (Date.now() - t0))) }).catch(() => {});
+    const left = () => Math.max(1000, timeout - (Date.now() - t0));
+    if (o.waitForText) await page.getByText(o.waitForText).first().waitFor({ state: 'visible', timeout: left() });
+    if (o.waitForUrl) await page.waitForURL((u) => u.toString().includes(o.waitForUrl as string), { timeout: left() });
+    const chain: Array<{ url: string; status: number }> = [];
+    if (resp) {
+      const hops: Array<Awaited<ReturnType<typeof resp.request>>> = [];
+      for (let r: typeof hops[number] | null = resp.request(); r; r = r.redirectedFrom()) hops.unshift(r);
+      for (const r of hops) { const rs = await r.response().catch(() => null); chain.push({ url: r.url(), status: rs ? rs.status() : 0 }); }
+    }
     const result: LocalCaptureResult = {
       url: o.url,
       finalUrl: page.url() || null,
@@ -215,6 +247,9 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
       consoleErrors,
       networkSummary: summarize(net),
     };
+    if (chain.length > 1) result.redirectChain = chain;
+    if (failed.length > 0) result.failedRequests = failed;
+    if (o.viewport) result.viewport = o.viewport;
     if (blocked.length > 0) result.blockedNavigations = [...new Set(blocked)];
     if (o.loginWindowMs && o.useProfile && o.headless === false) {
       const ms = Math.min(o.loginWindowMs, 600000);
@@ -225,13 +260,14 @@ export async function localCapture(o: LocalCaptureOptions): Promise<LocalCapture
     }
     if (o.includeHtml) result.html = await page.content();
     if (o.captureScreenshot !== false) {
-      const buf = await page.screenshot({ type: 'png' });
+      const buf = await page.screenshot({ type: 'png', fullPage: !!o.fullPage });
       result.screenshotBase64 = buf.toString('base64');
       const dir = path.join(debuggHome(), 'captures');
       ensurePrivateDir(dir);
       const file = path.join(dir, `probe-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.png`);
       fs.writeFileSync(file, buf, { mode: 0o600 });
       result.screenshotPath = file;
+      result.captureId = path.basename(file);
     }
     return result;
   } finally {

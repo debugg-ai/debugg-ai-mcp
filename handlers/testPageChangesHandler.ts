@@ -927,6 +927,13 @@ async function testPageChangesHandlerInner(
 
     // Sanitize the whole payload so no tunnel URL leaks anywhere — including
     // agent-authored strings in actionTrace[*].intent, evaluation.reason, etc.
+    // Local runs: the backend has no screenshot for a browser it never saw, so take
+    // the final one here, before the browser closes, and keep a copy on disk.
+    let localShot: { path: string; base64: string } | null = null;
+    if (localRun && !verdict.screenshot) {
+      localShot = await localRun.finalScreenshot().catch(() => null);
+      if (localShot) responsePayload.screenshotPath = localShot.path;
+    }
     const sanitizedPayload = sanitizeResponseUrls(responsePayload, ctx);
     const content: ToolResponse['content'] = [
       { type: 'text', text: JSON.stringify(sanitizedPayload, null, 2) },
@@ -953,6 +960,11 @@ async function testPageChangesHandlerInner(
         content.push(imageContentBlock(evidenceScreenshot, 'image/png'));
         screenshotEmbedded = true;
       }
+    }
+
+    if (localShot) {
+      content.push(imageContentBlock(localShot.base64, 'image/png'));
+      screenshotEmbedded = true;
     }
 
     // subworkflow.run carries screenshotB64 directly — no fetch needed

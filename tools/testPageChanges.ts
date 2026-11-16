@@ -121,6 +121,7 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
           description: "Unset: Chrome on THIS machine when it is installed, otherwise the cloud browser (a plan with cloud browsers; localhost is tunneled). 'local' runs the clicking in your own Chrome — free on every plan, no tunnel, no *.localhost limits, much faster — while the cloud agent still decides each step. 'remote' forces the cloud browser (Professional and above). Passwords passed in this call stay on this machine. Page screenshots and text are still sent to the cloud agent. Not available over the remote HTTP MCP."
         },
         headless: { type: "boolean", description: "browser:'local' only. Default true; false shows the Chrome window." },
+        viewport: { type: "object", properties: { width: { type: "number" }, height: { type: "number" } }, required: ["width", "height"], additionalProperties: false, description: "browser:'local' only. Window size in CSS pixels (200-4000), e.g. {width:390,height:844} to check a phone layout. Default 1280x800." },
         useProfile: { type: "boolean", description: "browser:'local' only. Use the MCP-owned logged-in Chrome profile (never your everyday Chrome). Requires allowedDomains." },
         allowedDomains: { type: "array", items: { type: "string" }, description: "browser:'local' only. Extra hostnames (and subdomains) the run may navigate to, beyond the url's own host and localhost. Navigation off this list is refused, redirects included." },
         extraOrigins: {

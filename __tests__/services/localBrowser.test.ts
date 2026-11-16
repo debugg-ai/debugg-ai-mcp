@@ -85,6 +85,40 @@ live('local capture (real Chrome)', () => {
   }, 60000);
 });
 
+live('local capture extras (real Chrome)', () => {
+  let server: http.Server;
+  afterAll(() => { server?.close(); });
+  test('waitForText, waitForUrl, redirect chain, console source, fullPage, captureId', async () => {
+    process.env.DEBUGGAI_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dbg-extras-'));
+    server = http.createServer((q, s) => {
+      if (q.url === '/a') { s.writeHead(302, { Location: '/b' }); s.end(); return; }
+      if (q.url === '/b') { s.writeHead(301, { Location: '/slow' }); s.end(); return; }
+      if (q.url === '/slow') {
+        s.writeHead(200, { 'content-type': 'text/html' });
+        s.end('<title>Slow</title><div id=x>Loading...</div><div style="height:3000px"></div><script>console.error("src-boom");setTimeout(()=>{document.getElementById("x").textContent="Ready now";history.replaceState(null,"","/slow?done=1")},600)</script>');
+        return;
+      }
+      if (q.url === '/withimg') { s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>Img</title><img src="/gone.png">'); return; }
+      s.writeHead(404); s.end();
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const base = `http://127.0.0.1:${(server.address() as any).port}`;
+    const r = await localCapture({ url: `${base}/a`, waitForText: 'Ready now', waitForUrl: 'done=1', fullPage: true });
+    expect(r.redirectChain!.map((h) => h.status)).toEqual([302, 301, 200]);
+    expect(r.redirectChain![0].url).toContain('/a');
+    expect(r.finalUrl).toContain('/slow?done=1');
+    expect(r.consoleErrors.find((e) => e.text.includes('src-boom'))!.source).toContain('/slow');
+    expect(r.captureId).toMatch(/^probe-.*\.png$/);
+    // viewport + failed requests
+    const small = await localCapture({ url: `${base}/withimg`, viewport: { width: 390, height: 844 }, captureScreenshot: false });
+    expect(small.viewport).toEqual({ width: 390, height: 844 });
+    expect(small.failedRequests!.some((f) => f.status === 404 && f.url.endsWith('/gone.png'))).toBe(true);
+    const view = await localCapture({ url: `${base}/slow` });
+    const full = r;
+    expect(Buffer.from(full.screenshotBase64!, 'base64').length).toBeGreaterThan(Buffer.from(view.screenshotBase64!, 'base64').length);
+  }, 60000);
+});
+
 describe('headed launch stays out of the way', () => {
   test('quiet args minimize and move the window off-screen', async () => {
     const { HEADED_QUIET_ARGS } = await import('../../services/localBrowser.js');
