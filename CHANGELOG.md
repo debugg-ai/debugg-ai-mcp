@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — local runs and tunnels (dogfood)
+- Local runs allow the environment's sign-in hosts (e.g. `auth.startsimpli.com`) automatically, and merge the server's returned `allowedDomains`; sign-in redirects to a shared auth host no longer die as `domain_blocked`. The final allowlist is logged.
+- A local run with no credentials that stops at a sign-in form now says why (pass `username`/`password`, or name `environmentId` + `credentialId`) in `hint`.
+- Tunnel client: a "replaced by a newer connection" GOAWAY backs off instead of redialing at once; the backoff resets only after 10 s of stable session; after 5 evictions in a minute the tunnel is marked dead so a fresh one is provisioned. Evictions log tunnel id and pid.
+- API 429s read "rate limit reached: retry in about N seconds" with `code: RATE_LIMITED` and `retryAfterSeconds`.
+
 ### Added — local probe_page and check_app_in_browser (dogfood fixes)
 - `probe_page` (browser:'local'): per-target `waitForText`, `waitForUrl`, `viewport` {width,height}; `fullPage`; results carry `redirectChain` (URL + status per hop), `failedRequests`, a `source` URL on console errors, and `captureId`.
 - `check_app_in_browser` (browser:'local'): `viewport` {width,height}; returns a screenshot of the page the run ended on (inline image + `screenshotPath` under `~/.debugg-ai/captures`).
