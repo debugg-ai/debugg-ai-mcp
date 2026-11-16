@@ -63,7 +63,15 @@ live('executor session (real Chrome, fake cloud)', () => {
     await withSession(async (cloud) => {
       const g = await cloud.result(cloud.push({ op: 'goto', args: { url: base } }));
       expect(g).toMatchObject({ ok: true, title: 'Home' });
-      expect(g.events?.some((e) => e.type === 'request_failed' && e.url.endsWith('/missing') && typeof e.ts === 'number')).toBe(true);
+      // The page's own fetch('/missing') can finish after goto returns on a slow runner, so wait for
+      // it, then look in both results' events (events drain per command). Failed the 6.2.5 publish.
+      const events = [...(g.events ?? [])];
+      const sawMissing = () => events.some((e) => e.type === 'request_failed' && e.url.endsWith('/missing'));
+      for (let i = 0; i < 10 && !sawMissing(); i++) {
+        const w = await cloud.result(cloud.push({ op: 'wait_for_function', args: { expression: "performance.getEntriesByType('resource').some(r => r.name.endsWith('/missing'))" } }));
+        events.push(...(w.events ?? []));
+      }
+      expect(events.some((e) => e.type === 'request_failed' && e.url.endsWith('/missing') && typeof e.ts === 'number')).toBe(true);
       expect(cloud.attached).toMatchObject({ executor_version: 'test', credential_labels: ['admin'] });
       expect(cloud.headers[0]).toMatchObject({ authorization: 'Token tok', 'x-executor-secret': 'sec', 'x-executor-api-version': '1' });
 
