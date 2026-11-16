@@ -72,6 +72,37 @@ describe('environment credential hosts join the local allowlist', () => {
   });
 });
 
+describe('mergeServerAllowedDomains', () => {
+  test('adds the server list in place, once, ignoring junk; profile sessions are left alone', () => {
+    const allowed = ['app.example.com'];
+    bridge.mergeServerAllowedDomains(allowed, ['app.example.com', 'auth.example.com', '', 5, ' '], false);
+    expect(allowed).toEqual(['app.example.com', 'auth.example.com']);
+    bridge.mergeServerAllowedDomains(allowed, undefined, false);
+    bridge.mergeServerAllowedDomains(allowed, 'nope', false);
+    expect(allowed).toEqual(['app.example.com', 'auth.example.com']);
+    const prof = ['only.example.com'];
+    bridge.mergeServerAllowedDomains(prof, ['auth.example.com'], true);
+    expect(prof).toEqual(['only.example.com']);
+  });
+});
+
+describe('localNoCredentialsHint', () => {
+  const noForm = { reason: 'No check ran for a step: none: no_form', logins: undefined };
+  test('a local run with no credentials that stopped at a sign-in form is told why', () => {
+    const h = bridge.localNoCredentialsHint({ localMode: true, hasSecrets: false, input: {}, ...noForm });
+    expect(h).toContain('nothing to type');
+    expect(h).toContain('environmentId and credentialId');
+    expect(bridge.localNoCredentialsHint({ localMode: true, hasSecrets: false, input: {}, reason: 'x', logins: [{ reason: 'no_login_form_detected' }] })).toBeDefined();
+  });
+  test('no hint when credentials were given, a credential/environment was named, the run is remote, or the failure is something else', () => {
+    expect(bridge.localNoCredentialsHint({ localMode: true, hasSecrets: true, input: {}, ...noForm })).toBeUndefined();
+    expect(bridge.localNoCredentialsHint({ localMode: true, hasSecrets: false, input: { environmentId: 'e' }, ...noForm })).toBeUndefined();
+    expect(bridge.localNoCredentialsHint({ localMode: true, hasSecrets: false, input: { credentialId: 'c' }, ...noForm })).toBeUndefined();
+    expect(bridge.localNoCredentialsHint({ localMode: false, hasSecrets: false, input: {}, ...noForm })).toBeUndefined();
+    expect(bridge.localNoCredentialsHint({ localMode: true, hasSecrets: false, input: {}, reason: 'The goal was not met' })).toBeUndefined();
+  });
+});
+
 const live = findChrome() ? describe : describe.skip;
 live('prepareLocalRun (fake backend, real Chrome)', () => {
   test('creates the session, serves commands after begin(), tears down on end()', async () => {
