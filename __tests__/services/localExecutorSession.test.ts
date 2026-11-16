@@ -130,8 +130,15 @@ live('executor session (real Chrome, fake cloud)', () => {
       expect(s.observation?.screenshot_ref).toBe(`${cloud.url}/upload/a.png`);
       expect(cloud.uploads[0].subarray(1, 4).toString()).toBe('PNG');
       await cloud.result(cloud.push({ op: 'click', target: { selector: '#pop' } }));
-      const pages = await cloud.result(cloud.push({ op: 'list_pages' }));
-      expect((pages.observation?.value as unknown[]).length).toBe(2);
+      // The popup opens asynchronously after the click; on a slow runner list_pages can run first
+      // (failed Publish run 43953927594). Poll briefly for the second page.
+      let count = 0;
+      for (let i = 0; i < 20 && count < 2; i++) {
+        const pages = await cloud.result(cloud.push({ op: 'list_pages' }));
+        count = (pages.observation?.value as unknown[]).length;
+        if (count < 2) await new Promise((r) => setTimeout(r, 150));
+      }
+      expect(count).toBe(2);
     });
     await withSession(async (cloud) => {
       await cloud.result(cloud.push({ op: 'goto', args: { url: base } }));
