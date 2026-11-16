@@ -7,7 +7,9 @@
  */
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
-import { localBrowserEnabled, LocalBrowserError, LOCAL_UNAVAILABLE_MESSAGE, findChrome, resolveAllowedDomains } from '../services/localBrowser.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { localBrowserEnabled, LocalBrowserError, LOCAL_UNAVAILABLE_MESSAGE, findChrome, resolveAllowedDomains, debuggHome, ensurePrivateDir } from '../services/localBrowser.js';
 import { OpRunner } from '../services/localExecutor/opRunner.js';
 import { runExecutorSession, type SessionEnd } from '../services/localExecutor/session.js';
 import { HttpExecutorTransport } from '../services/localExecutor/httpTransport.js';
@@ -22,6 +24,8 @@ export interface LocalRun {
   begin(): void;
   /** Stop serving, close Chrome. Safe to call without begin(). */
   end(): Promise<{ ended: SessionEnd | 'not_started'; commandsRun: number }>;
+  /** The page the run ended on, screenshotted locally and saved (mode 0600) under ~/.debugg-ai/captures. Null when there is none. Call before end(). */
+  finalScreenshot(): Promise<{ path: string; base64: string } | null>;
 }
 
 /**
@@ -125,7 +129,7 @@ export async function prepareLocalRun(args: {
   // Mutable on purpose: stored credentials are decrypted into it once the session exists.
   const liveSecrets: Record<string, string> = { ...secrets };
   const keys = generateSessionKeys();
-  const runnerP = OpRunner.open({ allowedDomains: allowed, headless, useProfile: !!input.useProfile, secrets: liveSecrets, screenshots: screenshotsMode, signal });
+  const runnerP = OpRunner.open({ allowedDomains: allowed, headless, useProfile: !!input.useProfile, secrets: liveSecrets, screenshots: screenshotsMode, signal, viewport: input.viewport });
   runnerP.catch(() => {});
   let created: CreateSessionResponse;
   try {
@@ -197,6 +201,15 @@ export async function prepareLocalRun(args: {
           credential_labels: Object.keys(liveSecrets),
         },
       }).catch((err) => { logger.warn(`local executor session failed: ${err instanceof Error ? err.message : err}`); return { ended: 'lease_lost' as SessionEnd, commandsRun: 0 }; });
+    },
+    async finalScreenshot() {
+      const buf = await runner.finalScreenshot();
+      if (!buf) return null;
+      const dir = path.join(debuggHome(), 'captures');
+      ensurePrivateDir(dir);
+      const file = path.join(dir, `check-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.png`);
+      fs.writeFileSync(file, buf, { mode: 0o600 });
+      return { path: file, base64: buf.toString('base64') };
     },
     async end() {
       signal.removeEventListener('abort', onAbort);
