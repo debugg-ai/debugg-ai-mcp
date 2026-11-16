@@ -204,3 +204,26 @@ describe('adaptVerdict — brain never started', () => {
     expect(v.reason).toMatch(/never started its agent loop after 240s \(0 steps taken\)/);
   });
 });
+
+describe('adaptVerdict — the agent\'s own answer (Tandem 829f1b0a, 0dd5fc45)', () => {
+  const brain = (result: unknown) => ({
+    nodeId: 'brain', nodeName: 'Run General Browsing Brain', nodeType: 'subworkflow.run', status: 'success', executionOrder: 4,
+    outputData: { output: { result } },
+  });
+
+  test('a goal that asks the agent to state values gets the stated text as report', () => {
+    const exec = makeExecution({ verdict: { outcome: 'pass', reason: 'The goal was met' }, nodeExecutions: [brain('The sidebar lists exactly: Today, Talk, Plan, and More.')] });
+    expect(adaptVerdict(exec).report).toBe('The sidebar lists exactly: Today, Talk, Plan, and More.');
+  });
+
+  test('evidence.report still wins when the backend provides one', () => {
+    const exec = makeExecution({ verdict: { outcome: 'pass' }, evidence: { report: 'from backend' }, nodeExecutions: [brain('from node')] });
+    expect(adaptVerdict(exec).report).toBe('from backend');
+  });
+
+  test('an object answer is relayed as JSON; no brain node, or an empty answer, relays nothing', () => {
+    expect(adaptVerdict(makeExecution({ verdict: { outcome: 'pass' }, nodeExecutions: [brain({ title: 'T' })] })).report).toBe('{"title":"T"}');
+    expect(adaptVerdict(makeExecution({ verdict: { outcome: 'pass' }, nodeExecutions: [brain('  ')] })).report).toBeUndefined();
+    expect(adaptVerdict(makeExecution({ verdict: { outcome: 'pass' } })).report).toBeUndefined();
+  });
+});
