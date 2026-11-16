@@ -40,4 +40,34 @@ live('OpRunner viewport + finalScreenshot (real Chrome)', () => {
       expect(f!.text).not.toContain('hidden words');                // visible text only
     } finally { await runner.close(); wide.close(); }
   }, 60000);
+  test('a click goes to the first VISIBLE match, not a hidden duplicate that comes first', async () => {
+    const dup = http.createServer((_q, s) => {
+      s.writeHead(200, { 'content-type': 'text/html' });
+      s.end('<title>dup</title><a id=hidden href="#a" style="display:none" onclick="document.title=\'hidden-clicked\'">Plan</a><a id=shown href="#b" onclick="document.title=\'shown-clicked\'">Plan</a>');
+    });
+    await new Promise<void>((r) => dup.listen(0, '127.0.0.1', () => r()));
+    const url = `http://127.0.0.1:${(dup.address() as { port: number }).port}`;
+    const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'] });
+    try {
+      await runner.execute({ id: 'c1', seq: 1, op: 'goto', args: { url } } as never);
+      const r = await runner.execute({ id: 'c2', seq: 2, op: 'click', target: { selector: 'a' }, args: { timeout_ms: 3000 } } as never);
+      expect(r).toMatchObject({ ok: true });
+      expect((await runner.finalFacts())!.title).toBe('shown-clicked');
+    } finally { await runner.close(); dup.close(); }
+  }, 60000);
+
+  test('finalFacts text includes accessible names and typed field values, never passwords', async () => {
+    const f = http.createServer((_q, s) => { s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>f</title><button aria-label="Open navigation">=</button><textarea>What projects are active?</textarea><input type=password value="s3cret-pw"><img alt="Team photo" src="data:,">'); });
+    await new Promise<void>((r) => f.listen(0, '127.0.0.1', () => r()));
+    const url = `http://127.0.0.1:${(f.address() as { port: number }).port}`;
+    const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'] });
+    try {
+      await runner.execute({ id: 'c1', seq: 1, op: 'goto', args: { url } } as never);
+      const t = (await runner.finalFacts())!.text;
+      expect(t).toContain('Open navigation');
+      expect(t).toContain('What projects are active?');
+      expect(t).toContain('Team photo');
+      expect(t).not.toContain('s3cret-pw');
+    } finally { await runner.close(); f.close(); }
+  }, 60000);
 });
