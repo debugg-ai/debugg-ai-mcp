@@ -38,6 +38,13 @@ const TARGET_PROPERTIES = {
     type: 'string',
     description: 'Optional CSS selector to wait for after navigation completes. Useful for SPAs that mount content asynchronously.',
   },
+  viewport: {
+    type: 'object',
+    properties: { width: { type: 'number' }, height: { type: 'number' } },
+    required: ['width', 'height'],
+    additionalProperties: false,
+    description: "browser:'local' only. Window size in CSS pixels (200-4000), e.g. {width:390,height:844} for a phone. Default 1280x800.",
+  },
   waitForText: {
     type: 'string',
     description: "browser:'local' only. Wait until this text is visible on the page (within timeoutMs) before capturing. Use for client-side sign-in or async screens that first show 'Loading...'.",

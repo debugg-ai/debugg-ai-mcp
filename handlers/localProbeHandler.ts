@@ -23,6 +23,7 @@ export async function localProbe(input: ProbePageInput, context: ToolContext): P
         waitForText: t.waitForText,
         waitForUrl: t.waitForUrl,
         fullPage: input.fullPage,
+        viewport: t.viewport,
         waitForLoadState: t.waitForLoadState,
         timeoutMs: t.timeoutMs,
         includeHtml: input.includeHtml,
