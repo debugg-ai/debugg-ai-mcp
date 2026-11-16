@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — local probe_page and check_app_in_browser (dogfood fixes)
+- `probe_page` (browser:'local'): per-target `waitForText`, `waitForUrl`, `viewport` {width,height}; `fullPage`; results carry `redirectChain` (URL + status per hop), `failedRequests`, a `source` URL on console errors, and `captureId`.
+- `check_app_in_browser` (browser:'local'): `viewport` {width,height}; returns a screenshot of the page the run ended on (inline image + `screenshotPath` under `~/.debugg-ai/captures`).
+- `check_app_in_browser`: the agent's own stated answer is returned as `report` when the backend gives none (a goal like "state the four labels" used to pass with only "goal was met").
+- Fixed a flaky timing assertion that failed the 6.2.3 publish.
+
 - Local browser runs are headless by default (check_app_in_browser, probe_page, profile path). `headless: false` is opt-in and now launches minimized and off-screen without taking focus.
 
 ### Changed — local browser is the free default; cloud browsers are the paid option
