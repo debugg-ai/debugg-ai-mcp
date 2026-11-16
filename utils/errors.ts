@@ -124,6 +124,21 @@ export function handleExternalServiceError(
       message: error.message 
     });
 
+    // HTTP 429: say what it is and when to retry, instead of a bare 'Request was throttled'.
+    if ((error as { statusCode?: number }).statusCode === 429) {
+      const headers = (error as { responseHeaders?: Record<string, unknown> }).responseHeaders ?? {};
+      const hdr = Number(headers['retry-after']);
+      const hinted = /available in (\d+) second/i.exec(error.message);
+      const retryAfterSeconds = Number.isFinite(hdr) && hdr > 0 ? hdr : hinted ? Number(hinted[1]) : undefined;
+      return new MCPError(
+        MCPErrorCode.EXTERNAL_SERVICE_ERROR,
+        `${serviceName} rate limit reached` +
+          (retryAfterSeconds !== undefined ? `: retry in about ${retryAfterSeconds} seconds` : ': retry shortly') +
+          `. The limit is per account, so every session using this API key shares it. (${error.message})`,
+        { serviceName, operation, code: 'RATE_LIMITED', retryAfterSeconds, originalError: error.message },
+      );
+    }
+
     return new MCPError(
       MCPErrorCode.EXTERNAL_SERVICE_ERROR,
       `${serviceName} error: ${error.message}`,
