@@ -16,6 +16,8 @@ LOCALHOST SUPPORT: Pass any localhost URL (e.g. http://localhost:3000) and it Ju
 
 SCOPE PER CALL: Keep each call to ONE focused check — a single page or a short interaction on a single screen (login, submit a form, verify a heading). For anything spanning multiple pages or long multi-step flows, split into SEPARATE calls — the remote browser agent has a ~25-step internal budget per call, and long single calls risk client-side timeouts. Example: instead of "log in, then go to settings, then update profile, then verify," make three calls: (1) log in & verify dashboard, (2) update settings, (3) verify profile change.
 
+READING THE RESULT: \`report\` is the agent's own account of what it saw, and an agent can be wrong about visual claims (layout, overflow, what is NOT shown). Check it against the returned screenshot (also saved at \`screenshotPath\` on local runs) before trusting it, especially for responsive-width and negative ('X is not visible') checks.
+
 CREDENTIALS: pass them as PARAMETERS, not only in the description. Naming an account in \`description\` alone does not make the agent use it — it falls back to the environment's stored credential. Use \`username\`/\`password\` (or \`credentialId\`) for the run's identity, \`auth.username\`/\`auth.password\` to pin the precondition login, and \`loginCredentials\` for accounts the agent must use at a login form it hits PART-WAY through the task (e.g. set a password → bounced to sign-in → log in as the account you just created). Anything you specify beats the environment's default for every login in the run; the result reports the identity actually used under \`logins\`.`;
 
 /**
