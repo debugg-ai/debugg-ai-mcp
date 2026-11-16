@@ -314,13 +314,13 @@ export function adaptVerdict(
       const skipped: RelayVerdict = { outcome: null, skipped: true };
       if (backendReason) skipped.skipReason = backendReason;
       if (budget && typeof budget === 'object') skipped.budget = budget;
-      return attachEvidence(skipped, evidence);
+      return attachEvidence(skipped, evidence, execution);
     }
     // Still going: no verdict YET is not an error.
     if (!TERMINAL_STATUSES.has(String(execution?.status ?? ''))) {
       const pending: RelayVerdict = { outcome: null };
       if (budget && typeof budget === 'object') pending.budget = budget;
-      return attachEvidence(pending, evidence);
+      return attachEvidence(pending, evidence, execution);
     }
   }
 
@@ -356,14 +356,14 @@ export function adaptVerdict(
   } else if (outcome === 'error') {
     relay.reason = noVerdictReason(raw);
   }
-  return attachEvidence(relay, evidence);
+  return attachEvidence(relay, evidence, execution);
 }
 
 /** The run lifecycle states after which no verdict will arrive. */
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 /** The backend's evidence container onto the relay, verbatim. */
-function attachEvidence(relay: RelayVerdict, evidence: any): RelayVerdict {
+function attachEvidence(relay: RelayVerdict, evidence: any, execution?: WorkflowExecution): RelayVerdict {
   if (typeof evidence?.screenshot === 'string' && evidence.screenshot) relay.screenshot = evidence.screenshot;
   if (Array.isArray(evidence?.actionTrace)) relay.actionTrace = evidence.actionTrace;
   if (Array.isArray(evidence?.logins) && evidence.logins.length > 0) relay.logins = evidence.logins;
@@ -371,5 +371,29 @@ function attachEvidence(relay: RelayVerdict, evidence: any): RelayVerdict {
     relay.loginError = evidence.loginError;
   }
   if (typeof evidence?.report === 'string' && evidence.report) relay.report = evidence.report;
+  else {
+    const answer = browsingAnswer(execution);
+    if (answer) relay.report = answer;
+  }
   return relay;
+}
+
+/**
+ * The browsing agent's own answer, read from its brain node (outputData.output.result)
+ * when the backend did not put one in evidence.report. Without it a goal that asks the
+ * agent to STATE something ("list the four sidebar labels", "what did the reply say")
+ * passes with only 'The goal was met' and the stated values are lost.
+ * Dogfood: Tandem 829f1b0a, 0dd5fc45. Object answers are relayed as JSON.
+ */
+function browsingAnswer(execution?: WorkflowExecution): string | undefined {
+  const nodes = execution?.nodeExecutions;
+  if (!Array.isArray(nodes)) return undefined;
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i] as { nodeName?: string; outputData?: Record<string, any> };
+    if (!/brain/i.test(n?.nodeName ?? '')) continue;
+    const result = n.outputData?.output?.result;
+    if (typeof result === 'string' && result.trim()) return result;
+    if (result && typeof result === 'object') return JSON.stringify(result);
+  }
+  return undefined;
 }

@@ -85,6 +85,7 @@ export interface WorkflowTemplate {
 
 export interface NodeExecution {
   nodeId: string;
+  nodeName?: string;
   nodeType: string;
   status: string;
   outputData?: Record<string, any>;
