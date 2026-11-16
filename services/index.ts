@@ -393,6 +393,16 @@ export class DebuggAIServerClient  {
   }
 
   /**
+   * An environment's sign-in hosts by UUID alone (no project needed: naming an
+   * environment names its project). Used to widen a local run's allowlist.
+   */
+  public async getEnvironmentCredentialHosts(envUuid: string): Promise<string[]> {
+    if (!this.tx) throw new Error('Client not initialized — call init() first');
+    const e = await this.tx.get<any>(`api/v1/environments/${envUuid}/`);
+    return pickAuthorizedCredentialHosts(e).authorizedCredentialHosts ?? [];
+  }
+
+  /**
    * Fetch a single environment by UUID. Throws AxiosError with status 404 if not found.
    */
   public async getEnvironment(

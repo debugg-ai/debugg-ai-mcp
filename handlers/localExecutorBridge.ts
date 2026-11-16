@@ -88,11 +88,40 @@ export function chooseBrowser(input: Pick<TestPageChangesInput, 'browser' | 'use
   return hosted || !chrome ? { mode: 'remote', auto: false } : { mode: 'local', auto: true };
 }
 
-export function localAllowedDomains(input: TestPageChangesInput, startUrl: string): string[] {
+export function localAllowedDomains(input: TestPageChangesInput, startUrl: string, credentialHosts: string[] = []): string[] {
   const startHost = (() => { try { return new URL(startUrl).hostname; } catch { return ''; } })();
   const extra = (input.extraOrigins ?? []).map((o) => { try { return new URL(/^\d+$/.test(o) ? `http://localhost:${o}` : o).hostname; } catch { return ''; } });
   if (input.useProfile) return resolveAllowedDomains(input.allowedDomains);
-  return [startHost, ...(input.allowedDomains ?? []), ...extra].filter(Boolean);
+  return [...new Set([startHost, ...(input.allowedDomains ?? []), ...extra, ...credentialHosts].filter(Boolean))];
+}
+
+/**
+ * Hosts the environment authorizes for signing in (e.g. auth.startsimpli.com for apps whose login
+ * lives on a shared auth host). A local run must be allowed to follow the redirect there or the
+ * sign-in dies as domain_blocked. Best effort: any lookup failure returns [] and the run proceeds
+ * with the usual allowlist. Reads the named environment, else the project's environments whose URL
+ * is on the start host.
+ */
+export async function environmentCredentialHosts(
+  client: DebuggAIServerClient,
+  projectUuid: string | undefined,
+  input: TestPageChangesInput,
+  startUrl: string,
+): Promise<string[]> {
+  try {
+    const named = input.environmentId || input.auth?.environmentId;
+    if (named) return await client.getEnvironmentCredentialHosts(named);
+    if (!projectUuid) return [];
+    const startHost = new URL(startUrl).hostname;
+    const { environments } = await client.listEnvironmentsPaginated(projectUuid, { page: 1, pageSize: 50 });
+    const hosts = environments
+      .filter((e) => { try { return new URL(e.url).hostname === startHost; } catch { return false; } })
+      .flatMap((e) => e.authorizedCredentialHosts ?? []);
+    return [...new Set(hosts)];
+  } catch (err) {
+    logger.warn(`could not read environment credential hosts: ${err instanceof Error ? err.message : err}`);
+    return [];
+  }
 }
 
 interface CreateSessionResponse {
@@ -118,7 +147,9 @@ export async function prepareLocalRun(args: {
   if (!localBrowserEnabled()) {
     throw new LocalBrowserError(LOCAL_UNAVAILABLE_MESSAGE, 'LOCAL_BROWSER_DISABLED');
   }
-  const allowed = localAllowedDomains(input, startUrl);
+  const credentialHosts = await environmentCredentialHosts(client, args.projectId, input, startUrl);
+  const allowed = localAllowedDomains(input, startUrl, credentialHosts);
+  logger.info(`local run allowlist: ${allowed.join(', ') || '(empty)'}${credentialHosts.length ? ` (environment sign-in hosts: ${credentialHosts.join(', ')})` : ''}`);
   if (allowed.length === 0) {
     throw new LocalBrowserError('A profile session needs an allowlist of domains it may visit: pass allowedDomains or have the server owner set DEBUGGAI_PROFILE_ALLOWED_DOMAINS.', 'PROFILE_ALLOWLIST_REQUIRED');
   }
