@@ -198,6 +198,8 @@ export interface LoginRecord {
    * host a login was refused on and how to authorize it.
    */
   detail?: string;
+  /** Server-stamped on skips (e.g. no_login_form_detected): nothing was attempted. */
+  skipped?: boolean;
 }
 
 /**
@@ -211,11 +213,14 @@ export interface LoginRecord {
  *   notAttempted  — nothing was typed (skipped or refused records)
  */
 export function summarizeLogins(logins: LoginRecord[] | undefined):
-  { total: number; authenticated: number; failed: number; notAttempted: number } | undefined {
+  { total: number; authenticated: number; failed: number; notAttempted: number; signedIn: boolean } | undefined {
   if (!logins) return undefined;
   const authenticated = logins.filter((l) => l.authenticated === true).length;
-  const failed = logins.filter((l) => l.authenticated !== true && l.submitted === true).length;
-  return { total: logins.length, authenticated, failed, notAttempted: logins.length - authenticated - failed };
+  // A skipped record typed nothing, whatever else it says.
+  const failed = logins.filter((l) => l.authenticated !== true && l.skipped !== true && l.submitted === true).length;
+  // Platform's reading rule: signed in if ANY submitted record authenticated.
+  const signedIn = logins.some((l) => l.authenticated === true && l.submitted === true && l.skipped !== true);
+  return { total: logins.length, authenticated, failed, notAttempted: logins.length - authenticated - failed, signedIn };
 }
 
 /** Credential sources that mean "the caller named this account for this run". */
