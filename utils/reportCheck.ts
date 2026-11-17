@@ -26,12 +26,30 @@ export interface ReportCheck {
   quotesNotFound: string[];
 }
 
-/** Undefined when the report has no quotes (nothing to check) or is a JSON object (quotes are just keys). */
+/** String leaves (values, not keys) of a JSON report that are long enough to be page text, not flags. */
+export function jsonStringValues(report: string, minLen = 12): string[] | undefined {
+  let parsed: unknown;
+  try { parsed = JSON.parse(report); } catch { return undefined; }
+  if (parsed === null || typeof parsed !== 'object') return undefined;
+  const out: string[] = [];
+  const walk = (v: unknown): void => {
+    if (typeof v === 'string') { const t = v.trim(); if (t.length >= minLen && !out.includes(t)) out.push(t); }
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(walk);
+  };
+  walk(parsed);
+  return out;
+}
+
+/**
+ * Undefined when there is nothing to check. Prose reports: quoted strings. JSON reports: every string
+ * VALUE of 12+ characters (short values are flags like "ok"); a value the agent paraphrased rather than
+ * copied shows up as not found, which is the signal: do not trust it as page text.
+ */
 export function checkReportQuotes(report: string | undefined, pageText: string | undefined): ReportCheck | undefined {
   if (!report || pageText === undefined) return undefined;
   const t = report.trim();
-  if (t.startsWith('{') || t.startsWith('[')) return undefined;
-  const quotes = extractQuotes(report);
+  const quotes = t.startsWith('{') || t.startsWith('[') ? (jsonStringValues(t) ?? []) : extractQuotes(report);
   if (quotes.length === 0) return undefined;
   const hay = norm(pageText);
   const res: ReportCheck = { quotesFound: [], quotesNotFound: [] };
