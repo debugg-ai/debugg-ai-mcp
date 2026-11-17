@@ -948,7 +948,13 @@ async function testPageChangesHandlerInner(
           scrollWidth: facts.scrollWidth, clientWidth: facts.clientWidth,
           horizontalOverflowPx: facts.horizontalOverflowPx,
           scrollY: facts.scrollY, scrollHeight: facts.scrollHeight,
+          passwordFieldVisible: facts.passwordFieldVisible,
         };
+        // The backend can count a worked sign-in as failed. State what the page shows: numbers and a fact, no verdict.
+        const ls = responsePayload.loginSummary as { failed?: number } | undefined;
+        if (ls && (ls.failed ?? 0) > 0) {
+          (responsePayload.loginSummary as Record<string, unknown>).finalPagePasswordFieldVisible = facts.passwordFieldVisible;
+        }
         const check = checkReportQuotes(typeof responsePayload.report === 'string' ? responsePayload.report : undefined, facts.text);
         if (check) responsePayload.reportCheck = check;
       }
