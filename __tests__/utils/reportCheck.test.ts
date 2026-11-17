@@ -16,8 +16,8 @@ describe('checkReportQuotes', () => {
   });
   test('nothing to check: no report, no quotes, a JSON report, or no page text', () => {
     expect(checkReportQuotes(undefined, page)).toBeUndefined();
-    expect(checkReportQuotes('No quotes here.', page)).toBeUndefined();
-    expect(checkReportQuotes('{"pageHeading":"Library","ok":true}', page)).toBeUndefined();   // short values are flags, nothing to check
+    expect(checkReportQuotes('No quotes here.', page)).toEqual({ checked: 0, quotesFound: [], quotesNotFound: [] });
+    expect(checkReportQuotes('{"pageHeading":"Library","ok":true}', page)).toEqual({ checked: 0, quotesFound: [], quotesNotFound: [] });   // short values are flags, nothing to check
     expect(checkReportQuotes('It says "Library".', undefined)).toBeUndefined();
   });
 });
@@ -30,7 +30,7 @@ describe('checkReportQuotes: JSON reports', () => {
     expect(r.quotesNotFound).toEqual(['Round 1: 6 sc in a magic ring (6)']);
   });
   test('a JSON report with no long string values, or invalid JSON, has nothing to check', () => {
-    expect(checkReportQuotes('{"a":1,"b":"ok"}', page)).toBeUndefined();
-    expect(checkReportQuotes('{not json', page)).toBeUndefined();
+    expect(checkReportQuotes('{"a":1,"b":"ok"}', page)!.checked).toBe(0);
+    expect(checkReportQuotes('{not json', page)!.checked).toBe(0);
   });
 });

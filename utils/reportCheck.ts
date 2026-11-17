@@ -20,6 +20,8 @@ export function extractQuotes(report: string): string[] {
 }
 
 export interface ReportCheck {
+  /** How many quoted strings (or long JSON string values) were looked up. 0 means the report had nothing checkable. */
+  checked: number;
   /** Quoted strings from the report that appear in the page's final visible text. */
   quotesFound: string[];
   /** Quoted strings that do NOT appear: the agent claimed text the page did not show. */
@@ -50,9 +52,8 @@ export function checkReportQuotes(report: string | undefined, pageText: string |
   if (!report || pageText === undefined) return undefined;
   const t = report.trim();
   const quotes = t.startsWith('{') || t.startsWith('[') ? (jsonStringValues(t) ?? []) : extractQuotes(report);
-  if (quotes.length === 0) return undefined;
   const hay = norm(pageText);
-  const res: ReportCheck = { quotesFound: [], quotesNotFound: [] };
+  const res: ReportCheck = { checked: quotes.length, quotesFound: [], quotesNotFound: [] };
   for (const q of quotes) (hay.includes(norm(q)) ? res.quotesFound : res.quotesNotFound).push(q);
   return res;
 }
