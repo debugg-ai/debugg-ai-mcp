@@ -25,7 +25,7 @@ export interface LocalRun {
   /** Stop serving, close Chrome. Safe to call without begin(). */
   end(): Promise<{ ended: SessionEnd | 'not_started'; commandsRun: number }>;
   /** The page the run ended on, screenshotted locally and saved (mode 0600) under ~/.debugg-ai/captures. Null when there is none. Call before end(). */
-  finalScreenshot(): Promise<{ path: string; base64: string } | null>;
+  finalScreenshot(fullPage?: boolean): Promise<{ path: string; base64: string } | null>;
   /** Page facts measured by the MCP (size, overflow, visible text). Call before end(). */
   finalFacts(): ReturnType<OpRunner['finalFacts']>;
 }
@@ -250,8 +250,8 @@ export async function prepareLocalRun(args: {
       }).catch((err) => { logger.warn(`local executor session failed: ${err instanceof Error ? err.message : err}`); return { ended: 'lease_lost' as SessionEnd, commandsRun: 0 }; });
     },
     finalFacts() { return runner.finalFacts(); },
-    async finalScreenshot() {
-      const buf = await runner.finalScreenshot();
+    async finalScreenshot(fullPage?: boolean) {
+      const buf = await runner.finalScreenshot(!!fullPage);
       if (!buf) return null;
       const dir = path.join(debuggHome(), 'captures');
       ensurePrivateDir(dir);

@@ -86,6 +86,8 @@ export const TestPageChangesInputSchema = z.object({
   // Unset: your own Chrome when it is installed (stdio server), otherwise the cloud browser.
   browser: z.enum(['remote', 'local']).optional(),
   headless: z.boolean().optional(),
+  // browser:'local' only: capture the whole scrollable page for the final screenshot, not just the viewport.
+  fullPageScreenshot: z.boolean().optional(),
   // browser:'local' only: window size, e.g. { width: 390, height: 844 } for a phone layout. Default 1280x800.
   viewport: z.object({ width: z.number().int().min(200).max(4000), height: z.number().int().min(200).max(4000) }).strict().optional(),
   useProfile: z.boolean().optional(),

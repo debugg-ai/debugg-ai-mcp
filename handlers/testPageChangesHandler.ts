@@ -936,7 +936,7 @@ async function testPageChangesHandlerInner(
     // the final one here, before the browser closes, and keep a copy on disk.
     let localShot: { path: string; base64: string } | null = null;
     if (localRun && !verdict.screenshot) {
-      localShot = await localRun.finalScreenshot().catch(() => null);
+      localShot = await localRun.finalScreenshot(!!input.fullPageScreenshot).catch(() => null);
       if (localShot) responsePayload.screenshotPath = localShot.path;
     }
     // Local runs: measure the page ourselves so the agent's account can be checked against it.
@@ -947,6 +947,7 @@ async function testPageChangesHandlerInner(
           url: facts.url, title: facts.title, viewport: facts.viewport,
           scrollWidth: facts.scrollWidth, clientWidth: facts.clientWidth,
           horizontalOverflowPx: facts.horizontalOverflowPx,
+          scrollY: facts.scrollY, scrollHeight: facts.scrollHeight,
         };
         const check = checkReportQuotes(typeof responsePayload.report === 'string' ? responsePayload.report : undefined, facts.text);
         if (check) responsePayload.reportCheck = check;
