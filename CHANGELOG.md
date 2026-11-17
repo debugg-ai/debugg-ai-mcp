@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `reportCheck` also checks JSON reports
+- When `report` is a JSON object, every string VALUE of 12+ characters is looked up in the page's visible text (short values are flags and are skipped). A value the agent paraphrased or invented shows up under `quotesNotFound`.
+
 ### Fixed — local click resolution and the report quote check
 - Local actions (click, fill, type, hover, check, select, focus) go to the first VISIBLE match of the selector, falling back to the first match. A hidden duplicate that comes first (a desktop sidebar under a mobile drawer) no longer makes `a[href="/plan"]` time out.
 - `reportCheck` searches accessible names (`aria-label`, `title`), placeholders, alt text and typed field values as well as visible text (never password fields), so a quote of "Open navigation" or of a question typed into a textarea is no longer reported as not found.
