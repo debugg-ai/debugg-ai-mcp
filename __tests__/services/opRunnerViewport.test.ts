@@ -63,7 +63,9 @@ live('OpRunner viewport + finalScreenshot (real Chrome)', () => {
     const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'] });
     try {
       await runner.execute({ id: 'c1', seq: 1, op: 'goto', args: { url } } as never);
-      const t = (await runner.finalFacts())!.text;
+      const ff = (await runner.finalFacts())!;
+      expect(ff.passwordFieldVisible).toBe(true);
+      const t = ff.text;
       expect(t).toContain('Open navigation');
       expect(t).toContain('What projects are active?');
       expect(t).toContain('Team photo');
@@ -82,6 +84,7 @@ live('OpRunner viewport + finalScreenshot (real Chrome)', () => {
       const f = await runner.finalFacts();
       expect(f!.scrollY).toBeGreaterThan(500);          // the run left the page scrolled down
       expect(f!.scrollHeight).toBeGreaterThanOrEqual(3000);
+      expect(f!.passwordFieldVisible).toBe(false);
       const view = await runner.finalScreenshot(false);
       const full = await runner.finalScreenshot(true);
       expect(view!.readUInt32BE(20)).toBe(844);          // PNG IHDR height

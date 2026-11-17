@@ -375,7 +375,7 @@ export class OpRunner {
    * What the page really is, measured by us and not by the agent: size, horizontal overflow, and
    * its visible text (plus accessible names, placeholders, alt text and typed field values; never passwords). Null when there is no open page.
    */
-  async finalFacts(): Promise<{ url: string; title: string; viewport: { width: number; height: number }; scrollWidth: number; clientWidth: number; horizontalOverflowPx: number; scrollY: number; scrollHeight: number; text: string } | null> {
+  async finalFacts(): Promise<{ url: string; title: string; viewport: { width: number; height: number }; scrollWidth: number; clientWidth: number; horizontalOverflowPx: number; scrollY: number; scrollHeight: number; passwordFieldVisible: boolean; text: string } | null> {
     const pg = this.pages.get(this.currentId);
     if (!pg || pg.isClosed()) return null;
     try {
@@ -383,6 +383,7 @@ export class OpRunner {
         w: window.innerWidth, h: window.innerHeight,
         sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
         sy: Math.round(window.scrollY), sh: document.documentElement.scrollHeight,
+        pw: Array.from(document.querySelectorAll('input[type=password]')).some((e) => { const r = (e as HTMLElement).getBoundingClientRect(); const st = getComputedStyle(e as HTMLElement); return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; }),
         // Visible text plus what a person would read off the page without it being text nodes:
         // accessible names, placeholders, alt text, and what is typed into fields.
         text: ((document.body?.innerText ?? '') + '\n' + Array.from(document.querySelectorAll('[aria-label],[title],[placeholder],[alt],input,textarea,select'))
@@ -392,7 +393,7 @@ export class OpRunner {
       return {
         url: pg.url(), title: await pg.title().catch(() => ''),
         viewport: { width: f.w, height: f.h }, scrollWidth: f.sw, clientWidth: f.cw,
-        horizontalOverflowPx: Math.max(0, f.sw - f.cw), scrollY: f.sy, scrollHeight: f.sh, text: f.text,
+        horizontalOverflowPx: Math.max(0, f.sw - f.cw), scrollY: f.sy, scrollHeight: f.sh, passwordFieldVisible: f.pw, text: f.text,
       };
     } catch { return null; }
   }
