@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — final screenshot control (local runs)
+- `pageFacts` gains `scrollY` and `scrollHeight`, so a caller can tell the final screenshot was taken scrolled. New `fullPageScreenshot: true` on `check_app_in_browser` (browser:'local') captures the whole scrollable page instead of the viewport.
+
 ### Changed — `reportCheck` also checks JSON reports
 - `reportCheck` is always present on a local run that has a report, with `checked` (how many strings were looked up); `checked: 0` means the report had nothing quoted to check, so an absent list is no longer ambiguous.
 - When `report` is a JSON object, every string VALUE of 12+ characters is looked up in the page's visible text (short values are flags and are skipped). A value the agent paraphrased or invented shows up under `quotesNotFound`.

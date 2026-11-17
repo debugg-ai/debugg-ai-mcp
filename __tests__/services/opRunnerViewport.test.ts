@@ -70,4 +70,22 @@ live('OpRunner viewport + finalScreenshot (real Chrome)', () => {
       expect(t).not.toContain('s3cret-pw');
     } finally { await runner.close(); f.close(); }
   }, 60000);
+  test('scroll position is reported, and a full-page final screenshot is taller than the viewport one', async () => {
+    const tall = http.createServer((_q, s) => { s.writeHead(200, { 'content-type': 'text/html' }); s.end('<title>tall</title><body style="margin:0"><div style="height:3000px">tall page</div>'); });
+    await new Promise<void>((r) => tall.listen(0, '127.0.0.1', () => r()));
+    const url = `http://127.0.0.1:${(tall.address() as { port: number }).port}`;
+    const runner = await OpRunner.open({ allowedDomains: ['127.0.0.1'], viewport: { width: 390, height: 844 } });
+    try {
+      await runner.execute({ id: 'c1', seq: 1, op: 'goto', args: { url } } as never);
+      await runner.execute({ id: 'c2', seq: 2, op: 'scroll', args: { dy: 900 } } as never);
+      await new Promise((r) => setTimeout(r, 200));
+      const f = await runner.finalFacts();
+      expect(f!.scrollY).toBeGreaterThan(500);          // the run left the page scrolled down
+      expect(f!.scrollHeight).toBeGreaterThanOrEqual(3000);
+      const view = await runner.finalScreenshot(false);
+      const full = await runner.finalScreenshot(true);
+      expect(view!.readUInt32BE(20)).toBe(844);          // PNG IHDR height
+      expect(full!.readUInt32BE(20)).toBeGreaterThanOrEqual(3000);
+    } finally { await runner.close(); tall.close(); }
+  }, 60000);
 });
