@@ -41,7 +41,7 @@ export function localizeCredentials(input: TestPageChangesInput): { input: TestP
   const out: TestPageChangesInput = { ...input };
   if (input.username && input.password) out.password = ph(input.username, input.password);
   if (input.loginCredentials) {
-    out.loginCredentials = input.loginCredentials.map((c) => ({ ...c, password: ph(c.label ?? c.username, c.password) }));
+    out.loginCredentials = input.loginCredentials.map((c) => ({ ...c, password: ph(c.label ?? c.username, c.password ?? '') }));
   }
   if (input.auth?.password && input.auth.username) {
     out.auth = { ...input.auth, password: ph(input.auth.username, input.auth.password) };

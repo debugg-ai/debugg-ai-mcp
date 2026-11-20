@@ -18,7 +18,7 @@ SCOPE PER CALL: Keep each call to ONE focused check — a single page or a short
 
 READING THE RESULT: \`report\` is the agent's own account of what it saw, and an agent can be wrong about visual claims (layout, overflow, what is NOT shown). Check it against the returned screenshot (also saved at \`screenshotPath\` on local runs) before trusting it, especially for responsive-width and negative ('X is not visible') checks.
 
-CREDENTIALS: pass them as PARAMETERS, not only in the description. Naming an account in \`description\` alone does not make the agent use it — it falls back to the environment's stored credential. Use \`username\`/\`password\` (or \`credentialId\`) for the run's identity, \`auth.username\`/\`auth.password\` to pin the precondition login, and \`loginCredentials\` for accounts the agent must use at a login form it hits PART-WAY through the task (e.g. set a password → bounced to sign-in → log in as the account you just created). Anything you specify beats the environment's default for every login in the run; the result reports the identity actually used under \`logins\`.`;
+CREDENTIALS: pass them as PARAMETERS, not only in the description. Naming an account in \`description\` alone does not make the agent use it — it falls back to the environment's stored credential. Use \`username\` plus \`credentialRef\` (e.g. 'simpli:qa-logins/QA_APP_PASSWORD' or 'env:NAME', resolved locally so the password never enters the transcript; do NOT paste passwords) or \`password\` (or \`credentialId\`) for the run's identity, \`auth.username\`/\`auth.password\` to pin the precondition login, and \`loginCredentials\` for accounts the agent must use at a login form it hits PART-WAY through the task (e.g. set a password → bounced to sign-in → log in as the account you just created). Anything you specify beats the environment's default for every login in the run; the result reports the identity actually used under \`logins\`.`;
 
 /**
  * Build the dynamic tool description including available environments/credentials.
@@ -95,6 +95,10 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
           type: "string",
           description: "The real password for the username above. Do NOT guess or use placeholder passwords — use credentials from the list above or ask the user."
         },
+        credentialRef: {
+          type: "string",
+          description: "PREFERRED over password: 'env:NAME' or 'simpli:<vault-env>/<KEY>' (e.g. 'simpli:qa-logins/QA_APP_PASSWORD'). Resolved on this machine at call time and used as the password; the secret never appears in the transcript, logs or output. Use instead of password."
+        },
         loginCredentials: {
           type: "array",
           description: "Accounts the agent may sign in as when it hits a login form DURING the task — not just the first login. Use this for flows that authenticate part-way through, e.g. set a password, get bounced to sign-in, then log in as the account you just provisioned. Stating credentials only in `description` is not enough: pass them here and the agent uses exactly these values. Overrides the environment's default credential.",
@@ -103,9 +107,10 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
             properties: {
               username: { type: "string", description: "Account email/username to type into the login form." },
               password: { type: "string", description: "That account's password." },
+              credentialRef: { type: "string", description: "PREFERRED over password: 'env:NAME' or 'simpli:<vault-env>/<KEY>' (e.g. 'simpli:qa-logins/QA_APP_PASSWORD'). Resolved on this machine at call time and used as the password; the secret never appears in the transcript, logs or output. Use instead of password." },
               label: { type: "string", description: "Optional human label (e.g. 'newly invited user') to disambiguate in the task text." }
             },
-            required: ["username", "password"],
+            required: ["username"],
             additionalProperties: false
           }
         },
@@ -152,6 +157,10 @@ export function buildTestPageChangesTool(ctx: ProjectContext | null): Tool {
             password: {
               type: "string",
               description: "Password for auth.username."
+            },
+            credentialRef: {
+              type: "string",
+              description: "PREFERRED over password: 'env:NAME' or 'simpli:<vault-env>/<KEY>' (e.g. 'simpli:qa-logins/QA_APP_PASSWORD'). Resolved on this machine at call time and used as the password; the secret never appears in the transcript, logs or output. Use instead of password."
             },
             precondition: {
               type: "string",

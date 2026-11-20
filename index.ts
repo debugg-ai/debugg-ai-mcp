@@ -31,6 +31,7 @@ import {
 
 import { config } from "./config/index.js";
 import { initTools, getTools, getTool } from "./tools/index.js";
+import { hasCredentialRef, resolveCredentialRefs, scrubSecrets } from "./utils/credentialRef.js";
 import { readResource, RESOURCE_COLLECTIONS, RESOURCE_TEMPLATES } from "./handlers/resourcesHandler.js";
 import {
   Logger,
@@ -158,8 +159,20 @@ function registerHandlers(srv: Server): void {
       return createErrorResponse(mcpError, name);
     }
 
+    let resolvedSecrets: string[] = [];
     try {
-      const validatedInput = validateInput(tool.inputSchema, args, name);
+      let validatedInput = validateInput(tool.inputSchema, args, name);
+
+      // credentialRef -> password, resolved on this machine just before the handler.
+      // Remote (HTTP) transport never resolves: it would read the SERVER's env/vault.
+      if (hasCredentialRef(validatedInput)) {
+        if (process.env.DEBUGGAI_MCP_TRANSPORT === 'http') {
+          throw new MCPError(MCPErrorCode.VALIDATION_ERROR, 'credentialRef is only supported on the local (stdio) MCP. Pass the credential another way on a remote server.');
+        }
+        const resolved = await resolveCredentialRefs(validatedInput);
+        validatedInput = resolved.input;
+        resolvedSecrets = resolved.secrets;
+      }
 
       const context: ToolContext = {
         progressToken: typeof progressToken === 'string' ? progressToken : undefined,
@@ -180,18 +193,18 @@ function registerHandlers(srv: Server): void {
       requestLogger.info(`Tool execution completed: ${name}`);
       Telemetry.capture(TelemetryEvents.TOOL_EXECUTED, { toolName: name, durationMs: toolDuration, success: true });
       // Promote the JSON text payload to structuredContent (back-compat: text stays).
-      return withStructuredContent(result);
+      return withStructuredContent(scrubSecrets(result, resolvedSecrets));
 
     } catch (error) {
       const mcpError = toMCPError(error, 'tool execution');
-      requestLogger.error('Tool execution failed', {
+      requestLogger.error('Tool execution failed', scrubSecrets({
         errorCode: mcpError.code,
         message: mcpError.message,
         data: mcpError.data
-      });
+      }, resolvedSecrets));
       Telemetry.capture(TelemetryEvents.TOOL_FAILED, { toolName: name, errorCode: mcpError.code });
 
-      return createErrorResponse(mcpError, typedReq.params.name);
+      return scrubSecrets(createErrorResponse(mcpError, typedReq.params.name), resolvedSecrets);
     }
   });
 

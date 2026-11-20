@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — credentialRef (secrets never as parameters)
+- `credentialRef` (`env:NAME` or `simpli:<vault-env>/<KEY>`) is accepted wherever a `password` is: `check_app_in_browser` (top level, `auth`, `loginCredentials[]`), `trigger_crawl`, and `environment` create/add/updateCredentials. It is resolved on the machine running the MCP at call time (env var, or `simpli exchange`), used as the password, and scrubbed from tool output, errors and logs. Stdio only: refused on the HTTP transport; `env:DEBUGGAI_*` is refused.
+
 ### Added — final screenshot control (local runs)
 - `pageFacts` gains `scrollY` and `scrollHeight`, so a caller can tell the final screenshot was taken scrolled. New `fullPageScreenshot: true` on `check_app_in_browser` (browser:'local') captures the whole scrollable page instead of the viewport.
 
