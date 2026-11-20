@@ -6,9 +6,9 @@ import { DESTRUCTIVE } from './annotations.js';
 const CRED_ITEM = {
   type: 'object',
   properties: {
-    label: { type: 'string' }, username: { type: 'string' }, password: { type: 'string', description: 'Write-only — never returned.' }, role: { type: 'string' },
+    label: { type: 'string' }, username: { type: 'string' }, password: { type: 'string', description: 'Write-only — never returned.' }, credentialRef: { type: 'string', description: "PREFERRED over password: 'env:NAME' or 'simpli:<vault-env>/<KEY>' (e.g. 'simpli:qa-logins/QA_APP_PASSWORD'). Resolved on this machine at call time and used as the password; the secret never appears in the transcript, logs or output. Use instead of password." }, role: { type: 'string' },
   },
-  required: ['label', 'username', 'password'],
+  required: ['label', 'username'],
   additionalProperties: false,
 };
 
@@ -45,7 +45,7 @@ export function buildEnvironmentTool(): Tool {
         description: { type: 'string', description: '[create/update] Free-text description.' },
         credentials: { type: 'array', items: CRED_ITEM, description: '[create] Seed login credentials.' },
         addCredentials: { type: 'array', items: CRED_ITEM, description: '[update] Add credentials.' },
-        updateCredentials: { type: 'array', items: { type: 'object', properties: { uuid: { type: 'string' }, label: { type: 'string' }, username: { type: 'string' }, password: { type: 'string' }, role: { type: 'string' } }, required: ['uuid'], additionalProperties: false }, description: '[update] Patch credentials by UUID.' },
+        updateCredentials: { type: 'array', items: { type: 'object', properties: { uuid: { type: 'string' }, label: { type: 'string' }, username: { type: 'string' }, password: { type: 'string' }, credentialRef: { type: 'string', description: "PREFERRED over password: 'env:NAME' or 'simpli:<vault-env>/<KEY>' (e.g. 'simpli:qa-logins/QA_APP_PASSWORD'). Resolved on this machine at call time and used as the password; the secret never appears in the transcript, logs or output. Use instead of password." }, role: { type: 'string' } }, required: ['uuid'], additionalProperties: false }, description: '[update] Patch credentials by UUID.' },
         removeCredentialIds: { type: 'array', items: { type: 'string' }, description: '[update] Delete credentials by UUID.' },
         authorizedCredentialHosts: { type: 'array', items: { type: 'string' }, description: "[create/update] Hosts where the run may enter this environment's credentials besides the app's own host, e.g. your identity provider for cross-domain SSO. Bare hostnames only (auth.example.com). On update this REPLACES the list; [] clears it." },
         username: { type: 'string', description: '[sessions/clearSessions] Narrow to one account. Matched case-insensitively.' },

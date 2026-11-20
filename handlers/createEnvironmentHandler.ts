@@ -71,7 +71,7 @@ export async function createEnvironmentHandler(
           const cred = await client.createCredential(projectUuid, env.uuid, {
             label: seed.label,
             username: seed.username,
-            password: seed.password,
+            password: seed.password ?? '', // resolved from credentialRef upstream
             role: seed.role,
           });
           // Defensive: drop any stray password from the response shape

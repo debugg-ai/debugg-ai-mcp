@@ -119,7 +119,8 @@ Runs an AI browser agent against your app. The agent navigates, interacts, and r
 | `credentialRole` | string | Pick a credential by role (e.g. `admin`, `guest`) |
 | `username` | string | Username for login (ephemeral — not persisted) |
 | `password` | string | Password for login (ephemeral — not persisted) |
-| `loginCredentials` | array | Accounts for logins the agent hits **during** the task — `[{username, password, label?}]` |
+| `credentialRef` | string | Pointer to the password instead of the password: `env:NAME` or `simpli:<vault-env>/<KEY>`. Resolved locally at call time; never appears in transcripts, logs or output. Also accepted in `auth`, `loginCredentials[]`, `trigger_crawl` and environment credentials |
+| `loginCredentials` | array | Accounts for logins the agent hits **during** the task — `[{username, password? or credentialRef, label?}]` |
 | `useEnvironmentCredentials` | boolean | Default `true`. `false` forbids auto-filling the environment's stored credentials; with no account named it means **do not log in at all** |
 | `freshSession` | boolean | Default `false`. `true` forces a real login instead of reusing the warm session held for that account |
 | `extraOrigins` | string[] | Extra local origins the run may be redirected to, e.g. `["http://host.docker.internal:4717", "http://localhost:4304"]` (OAuth vendor + callback on other ports). Redirects to them (and back to `url`) are followed through the tunnel; pages on them are served at `/__o/<port>/`. Only listed origins are exposed. Absolute URLs written inside page HTML (not redirects) are not rewritten |
