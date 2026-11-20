@@ -80,6 +80,10 @@ export function buildTriggerCrawlTool(ctx: ProjectContext | null): Tool {
           type: 'string',
           description: 'The real password for the username above. Do NOT guess.',
         },
+        credentialRef: {
+          type: 'string',
+          description: "PREFERRED over password: 'env:NAME' or 'simpli:<vault-env>/<KEY>' (e.g. 'simpli:qa-logins/QA_APP_PASSWORD'). Resolved on this machine at call time and used as the password; the secret never appears in the transcript, logs or output. Use instead of password.",
+        },
         timeoutSeconds: {
           type: 'number',
           description: 'Maximum wall-time the crawl may run, in seconds (1..1800). Backend enforces this per workflow execution.',

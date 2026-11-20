@@ -33,6 +33,8 @@ export const AuthPreconditionSchema = z.object({
   // the precondition login.
   username: z.string().optional(),
   password: z.string().optional(),
+  // Pointer to the password ('env:NAME' or 'simpli:<vault-env>/<KEY>'), resolved on the MCP's own machine at call time so the secret never travels as a parameter.
+  credentialRef: z.string().min(1).optional(),
 }).strict();
 export type AuthPrecondition = z.infer<typeof AuthPreconditionSchema>;
 
@@ -49,9 +51,13 @@ export type AuthPrecondition = z.infer<typeof AuthPreconditionSchema>;
  */
 export const LoginCredentialSchema = z.object({
   username: z.string().min(1, 'username is required for a login credential'),
-  password: z.string().min(1, 'password is required for a login credential'),
+  password: z.string().min(1).optional(),
+  // Pointer to the password ('env:NAME' or 'simpli:<vault-env>/<KEY>'), resolved on the MCP's own machine at call time so the secret never travels as a parameter.
+  credentialRef: z.string().min(1).optional(),
   label: z.string().optional(),
-}).strict();
+}).strict().refine(c => (c.password !== undefined) !== (c.credentialRef !== undefined), {
+  message: 'give a login credential exactly one of password or credentialRef',
+});
 export type LoginCredential = z.infer<typeof LoginCredentialSchema>;
 
 /**
@@ -69,6 +75,8 @@ export const TestPageChangesInputSchema = z.object({
   credentialRole: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
+  // Pointer to the password ('env:NAME' or 'simpli:<vault-env>/<KEY>'), resolved on the MCP's own machine at call time so the secret never travels as a parameter.
+  credentialRef: z.string().min(1).optional(),
   repoName: z.string().optional(),
   // Accounts for logins the agent hits DURING the task, not just the first one.
   loginCredentials: z.array(LoginCredentialSchema).max(
@@ -138,6 +146,8 @@ export const TriggerCrawlInputSchema = z.object({
   credentialRole: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
+  // Pointer to the password ('env:NAME' or 'simpli:<vault-env>/<KEY>'), resolved on the MCP's own machine at call time so the secret never travels as a parameter.
+  credentialRef: z.string().min(1).optional(),
   // headless is intentionally NOT accepted — the MCP always runs headless (D7).
   timeoutSeconds: z.number().int().positive().max(1800, 'timeoutSeconds cannot exceed 1800 (30 min)').optional(),
   repoName: z.string().optional(),
@@ -189,9 +199,13 @@ export type SearchExecutionsInput = z.infer<typeof SearchExecutionsInputSchema>;
 const CredentialSeedSchema = z.object({
   label: z.string().min(1, 'label is required'),
   username: z.string().min(1, 'username is required'),
-  password: z.string().min(1, 'password is required'),
+  password: z.string().min(1).optional(),
+  // Pointer to the password ('env:NAME' or 'simpli:<vault-env>/<KEY>'), resolved on the MCP's own machine at call time so the secret never travels as a parameter.
+  credentialRef: z.string().min(1).optional(),
   role: z.string().min(1).optional(),
-}).strict();
+}).strict().refine(c => (c.password !== undefined) !== (c.credentialRef !== undefined), {
+  message: 'give a credential exactly one of password or credentialRef',
+});
 
 /**
  * One entry of an environment's authorizedCredentialHosts (bead q4d4): a bare
@@ -228,8 +242,12 @@ const CredentialUpdateSchema = z.object({
   label: z.string().min(1).optional(),
   username: z.string().min(1).optional(),
   password: z.string().min(1).optional(),
+  // Pointer to the password ('env:NAME' or 'simpli:<vault-env>/<KEY>'), resolved on the MCP's own machine at call time so the secret never travels as a parameter.
+  credentialRef: z.string().min(1).optional(),
   role: z.string().min(1).optional(),
-}).strict();
+}).strict().refine(c => !(c.password !== undefined && c.credentialRef !== undefined), {
+  message: 'give at most one of password or credentialRef',
+});
 
 export const UpdateEnvironmentInputSchema = z.object({
   uuid: z.string().uuid(),
